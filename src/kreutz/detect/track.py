@@ -10,6 +10,8 @@ Rejection rules (see README), applied to candidates:
   stationary  speed below 1.0 px/frame
   star-drift  velocity within 1.5 px/frame of the measured star drift
   outbound    moving away from the Sun (cos of angle to Sun direction < 0)
+  off-envelope  position angle or direction of motion outside where this
+              month's Kreutz comets come from (envelope.py)
   glare-zone  median distance from the Sun < 320 px (occulter glare)
   edge        never more than 25 px from the occulter, arm or field/array edge
   extended    the blob under the hits is long and thin (median axis ratio > 3)
@@ -75,7 +77,7 @@ class Track:
 
 
 def rejection(vx: float, vy: float, x: float, y: float, star_drift, sun_xy,
-              hits: list[Peak] = ()) -> str | None:
+              hits: list[Peak] = (), envelope=None) -> str | None:
     speed = np.hypot(vx, vy)
     if speed < MIN_SPEED:
         return "stationary"
@@ -85,6 +87,12 @@ def rejection(vx: float, vy: float, x: float, y: float, star_drift, sun_xy,
         to_sun = np.array(sun_xy) - [x, y]
         if np.dot([vx, vy], to_sun) / (speed * np.linalg.norm(to_sun) + 1e-9) < 0:
             return "outbound"
+    if envelope is not None:
+        h0 = hits[0] if hits else None
+        why = envelope.check(h0.x if h0 else x, h0.y if h0 else y, vx, vy, sun_xy)
+        if why:
+            return why
+    if sun_xy is not None:
         r = np.median([np.hypot(h.x - sun_xy[0], h.y - sun_xy[1]) for h in hits] or [np.hypot(x - sun_xy[0], y - sun_xy[1])])
         if r < GLARE_RADIUS:
             return "glare-zone"
@@ -103,7 +111,8 @@ class Tracker:
         self.done: list[Track] = []
         self._next = 0
 
-    def update(self, t: float, peaks: list[Peak], star_drift, sun_xy) -> None:
+    def update(self, t: float, peaks: list[Peak], star_drift, sun_xy, envelope=None, seed: bool = True) -> None:
+        """Extend tracks with this window's peaks; if `seed`, unclaimed peaks start new tracks."""
         # Greedy matching, best-predicted first.
         claimed = set()
         pairs = []
@@ -134,7 +143,7 @@ class Tracker:
                         tr.reached[k] = t
                 tr.star_drift, tr.sun_xy = star_drift, sun_xy
                 vx, vy = tr.velocity()
-                tr.rejected = rejection(vx, vy, tr.last.x, tr.last.y, star_drift, sun_xy, tr.hits)
+                tr.rejected = rejection(vx, vy, tr.last.x, tr.last.y, star_drift, sun_xy, tr.hits, envelope)
         still = []
         for ti, tr in enumerate(self.active):
             if ti not in matched_tracks:
@@ -148,6 +157,9 @@ class Tracker:
         # Unclaimed peaks start new tracks, except near a claimed or already-used
         # peak: one object gives several nearby peaks at neighbouring velocities.
         taken = [peaks[pi] for pi in claimed]
+        if not seed:
+            self.active = still
+            return
         for pi in sorted(set(range(len(peaks))) - claimed, key=lambda i: -peaks[i].sig):
             pk = peaks[pi]
             if any(np.hypot(pk.x - q.x, pk.y - q.y) < DEDUP_RADIUS for q in taken):

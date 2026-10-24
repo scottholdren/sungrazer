@@ -117,6 +117,7 @@ _GOOD_IF_TRUE = {
 #   BORSGT_Q  false every day ~03:45-06:30 UTC as the Sun passes close behind
 #             the Earth seen from GEO; images look normal (July 2025).
 ADVISORY = {"MONFOV_Q", "BORSGT_Q"}
+MAX_OFFSUNDR = 100
 
 _BAD_IF_NONZERO = {
     "E_ECLPSE": "Earth eclipse state set (Sun blocked by Earth)",
@@ -154,6 +155,11 @@ def frame_quality(header, data: np.ndarray | None = None) -> Quality:
         problems.append(f"DOORPOS={header['DOORPOS'].strip()}: door not open")
     if header.get("MAJSTORM") is True:
         problems.append("MAJSTORM=T: major particle storm (many cosmic-ray hits)")
+    # Off-Sun pointing (arcsec). Normal frames are < 25; the daily calibration
+    # off-points (~07:00-07:45 UTC, Oct 2026) reach thousands. Not every off-pointed
+    # frame shows it here, so stage A also checks CRVAL jumps (detect/frames.py).
+    if (header.get("OFFSUNDR") or 0) > MAX_OFFSUNDR:
+        problems.append(f"OFFSUNDR={header['OFFSUNDR']}: spacecraft off-pointed from the Sun")
 
     stats = {}
     if data is not None:

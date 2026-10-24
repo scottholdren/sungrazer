@@ -6,7 +6,7 @@
 Products live in data/derived/<camera>/<frames.VERSION>/:
   meta/<frame>.json     per-frame quality, star drift, Sun position
   sig/<frame>.npy       half-res significance map (float16)
-  peaks/<frame>.json    stack peaks of the window ending at that frame
+  peaks/<grid>/<frame>.json  stack peaks of the window ending at that frame (per velocity grid)
   stages/<frame>/       every intermediate array, when asked for (--dump)
   tracks_<start>_<end>.json
 """
@@ -27,8 +27,9 @@ from .. import fetch
 from ..reports import db
 from . import frames as A
 from . import stack as B
+from . import envelope as E
 from .track import Track, Tracker
-from .velocity import FRAME_SECONDS, VelocityGrid, from_answer_key
+from .velocity import FRAME_SECONDS, VelocityGrid
 
 HISTORY = timedelta(hours=10)  # 16 background + 8 star frames + slack for gaps
 
@@ -87,82 +88,98 @@ def window_members(metas: list[A.FrameMeta | None], i: int) -> list[int] | None:
     return members
 
 
-def peaks_path(camera: str, name: str) -> Path:
-    return A.derived_dir(camera) / "peaks" / (Path(name).stem + ".json")
+def peaks_path(camera: str, name: str, grid: VelocityGrid) -> Path:
+    return A.derived_dir(camera) / "peaks" / f"{B.VERSION}-{grid.key()}" / (Path(name).stem + ".json")
 
 
-_GRID: VelocityGrid | None = None
+def month_of(ts: float) -> int:
+    return datetime.fromtimestamp(ts, timezone.utc).month
 
 
-def _init_grid(grid):
-    global _GRID
-    _GRID = grid
+_GRIDS: dict[int, VelocityGrid] = {}
+
+
+def _init_grids(grids):
+    global _GRIDS
+    _GRIDS = grids
 
 
 def _stage_b_window(args):
-    camera, names, times = args
+    camera, names, times, month = args
+    grid = _GRIDS[month]
     maps = [A.load_sig(camera, n) for n in names]
-    best, arg = B.stack_window(maps, times, _GRID)
+    best, arg = B.stack_window(maps, times, grid)
     valid = np.isfinite(maps[-1])
-    peaks = B.find_peaks(best, arg, valid, times[-1], _GRID, height=maps[-1].shape[0] * B.DS,
+    peaks = B.find_peaks(best, arg, valid, times[-1], grid, height=maps[-1].shape[0] * B.DS,
                          edge=B.edge_distance(maps[-1]), newest=maps[-1])
-    out = peaks_path(camera, names[-1])
+    out = peaks_path(camera, names[-1], grid)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps([asdict(p) for p in peaks]))
     return len(peaks)
 
 
-def run_stage_b(camera, paths, metas, windows, grid, workers=None) -> None:
+def run_stage_b(camera, paths, metas, windows, envelopes, workers=None) -> None:
     jobs = []
     for i in windows:
         mem = window_members(metas, i)
-        if mem is None or peaks_path(camera, paths[i].name).exists():
+        if mem is None:
             continue
-        jobs.append((camera, [paths[j].name for j in mem], [metas[j].time for j in mem]))
+        month = month_of(metas[i].time)
+        if peaks_path(camera, paths[i].name, envelopes[month].grid).exists():
+            continue
+        jobs.append((camera, [paths[j].name for j in mem], [metas[j].time for j in mem], month))
     if not jobs:
         return
-    print(f"stage B: {len(jobs)} windows x {len(grid)} velocities", flush=True)
+    grids = {m: e.grid for m, e in envelopes.items()}
+    print(f"stage B: {len(jobs)} windows x {'/'.join(str(len(g)) for g in grids.values())} velocities", flush=True)
     t0 = _time.time()
-    with ProcessPoolExecutor(_workers(workers, 14), initializer=_init_grid, initargs=(grid,)) as ex:
+    with ProcessPoolExecutor(_workers(workers, 14), initializer=_init_grids, initargs=(grids,)) as ex:
         for k, _ in enumerate(ex.map(_stage_b_window, jobs, chunksize=4), 1):
             if k % 50 == 0 or k == len(jobs):
                 print(f"  {k}/{len(jobs)} windows, {(_time.time() - t0) / 60:.1f} min", flush=True)
 
 
-def run_stage_c(camera, paths, metas, windows) -> list[Track]:
+def run_stage_c(camera, paths, metas, windows, envelopes) -> list[Track]:
     tr = Tracker()
+    cold = 0
     for i in windows:
-        if window_members(metas, i) is None:
+        mem = window_members(metas, i)
+        if mem is None:
             continue
-        p = peaks_path(camera, paths[i].name)
+        env = envelopes[month_of(metas[i].time)]
+        p = peaks_path(camera, paths[i].name, env.grid)
         if not p.exists():
             continue
         peaks = [B.Peak(**d) for d in json.loads(p.read_text())]
-        mem = window_members(metas, i)
         drifts = [metas[j].drift for j in mem if metas[j].drift]
         drift = list(np.mean(drifts, axis=0)) if drifts else None
-        tr.update(metas[i].time, peaks, drift, metas[i].sun_xy)
+        seed = all(A.is_warm(metas[j]) for j in mem)
+        cold += not seed
+        tr.update(metas[i].time, peaks, drift, metas[i].sun_xy, envelope=env, seed=seed)
+    print(f"stage C: {cold} windows with cold frames started no new tracks")
     return tr.finish()
 
 
 def run(camera: str, start: date, end: date, workers=None, dump: tuple[str, ...] = ()) -> list[Track]:
     con = db.connect()
-    grid = from_answer_key(con, camera)
-    print("velocity grid:", grid.describe())
     paths = frame_list(camera, start, end)
     t_start = datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)
     t_end = datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
     times = [datetime.strptime(p.name.split("_")[2], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc) for p in paths]
     targets = [i for i, t in enumerate(times) if t_start - HISTORY / 4 <= t < t_end]
     windows = [i for i, t in enumerate(times) if t_start <= t < t_end]
+    envelopes = {m: E.for_month(con, camera, m) for m in sorted({times[i].month for i in windows})}
+    for e in envelopes.values():
+        print("envelope", e.describe())
     run_stage_a(camera, paths, targets, workers, dump)
     metas = [A.load_meta(camera, p.name) for p in paths]
-    run_stage_b(camera, paths, metas, windows, grid, workers)
-    tracks = run_stage_c(camera, paths, metas, windows)
+    run_stage_b(camera, paths, metas, windows, envelopes, workers)
+    tracks = run_stage_c(camera, paths, metas, windows, envelopes)
     out = A.derived_dir(camera) / f"tracks_{start}_{end}.json"
     out.write_text(json.dumps([track_dict(t, camera) for t in tracks], indent=1))
     good = [m for m in metas if m and m.ok]
-    print(f"{len(good)} good frames, {sum(1 for m in good if m.star_frames < A.MIN_STAR_FRAMES)} without star model; "
+    print(f"{len(good)} good frames, {sum(1 for m in good if m.star_frames < A.MIN_STAR_FRAMES)} without star model, "
+          f"{sum(1 for m in good if not A.is_warm(m))} cold; "
           f"{len(tracks)} candidate tracks ({sum(1 for t in tracks if not t.rejected)} not rejected) -> {out}")
     return tracks
 

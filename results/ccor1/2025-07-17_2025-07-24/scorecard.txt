@@ -1,0 +1,264 @@
+# kreutz score --camera ccor1 --start 2025-07-17 --end 2025-07-24
+# code 16b208e, stage A a3 (baseline before the Oct 24 fixes)
+velocity grid: 102 confirmed reports: vx -10.3..10.8, vy -8.0..3.0 px/frame; grid vx -12.5..13.0, vy -10.0..5.5 step 0.5 (+-2.0 margin) = 1664 velocities
+stage A: 757 frames in 16 chunks
+stage B: 739 windows x 1664 velocities
+756 good frames, 0 without star model; 15646 candidate tracks (235 not rejected) -> /home/scottholdren/kreutz/data/derived/ccor1/a3/tracks_2025-07-17_2025-07-24.json
+
+=== ccor1 2025-07-17..2025-07-24: 8 truth objects
+    15646 candidate tracks, 235 after rejection rules (outbound: 9179, star-drift: 1761, edge: 1857, stationary: 1406, glare-zone: 1127, extended: 81)
+
+object                     first human post  found  @3 hits: time / lead          @4 hits: time / lead          @5 hits: time / lead          best sig
+------------------------------------------------------------------------------------------------------------------------------------------------------
+CCR1 0073                  07-17 09:25        yes    07-17 09:45 / +0.3 h          07-17 10:00 / +0.6 h          07-17 10:15 / +0.8 h           22.6
+CCR1 0074                  07-17 09:09        yes    07-17 07:45 / -1.4 h          07-17 08:00 / -1.2 h          07-17 08:15 / -0.9 h           22.6
+CCR1 0075                  07-19 10:34        NO     -                             -                             -                               nan
+CCR1 0076                  07-20 02:05        yes    07-20 04:45 / +2.7 h          07-20 05:00 / +2.9 h          07-20 05:15 / +3.2 h           21.3
+CCR1 0077                  07-21 13:48        yes    07-21 13:45 / -0.1 h          07-21 14:00 / +0.2 h          07-21 14:15 / +0.4 h           22.6
+CCR1 0078                  07-23 13:32        yes    07-23 13:15 / -0.3 h          07-23 13:30 / -0.0 h          07-23 13:45 / +0.2 h           22.6
+CCR1 0079                  07-24 10:36        yes    07-24 09:45 / -0.9 h          07-24 10:00 / -0.6 h          07-24 10:15 / -0.4 h           17.9
+CCR1 0080                  07-24 13:21        yes    07-24 14:15 / +0.9 h          07-24 14:30 / +1.2 h          07-24 14:45 / +1.4 h           22.6
+(lead = our time - first human post; negative = we would have been first)
+
+threshold  tracks match truth precision   recall
+  3 hits      235           7      0.03    7/8  
+  4 hits      111           7      0.06    7/8  
+  5 hits       46           7      0.15    7/8  
+
+comets on the SOHO list also seen in G1 (positions in LASCO pixels; matched by date only):
+  SOHO 5217: images 2025-07-23..2025-07-25; 69 unmatched tracks fall in those dates
+
+threshold   precision excluding tracks on those dates
+  3 hits   7/166 = 0.04
+  4 hits   7/87 = 0.08
+  5 hits   7/40 = 0.17
+
+unmatched tracks (false positives unless a human missed it): 228
+  track  74375: 89 hits, best sig  22.6, first 07-23T21:00 at (2008,1440), v=(-5.0,-3.7); during SOHO 5217  -> fp_74375.png
+  track  10766: 8 hits, best sig  22.0, first 07-17T22:30 at (1450,1134), v=(-7.1,-5.8)  -> fp_10766.png
+  track  55662: 10 hits, best sig  18.6, first 07-22T04:00 at (1504,1144), v=(-7.0,-5.0)  -> fp_55662.png
+  track  81755: 6 hits, best sig  18.6, first 07-24T14:00 at (1710,1202), v=(-4.0,-3.0); during SOHO 5217  -> fp_81755.png
+  track  84112: 4 hits, best sig  18.1, first 07-24T19:30 at (1570,1112), v=(-2.6,-3.2); during SOHO 5217  -> fp_84112.png
+  track  58861: 9 hits, best sig  18.0, first 07-22T11:15 at (906,1422), v=(+1.8,-1.9)  -> fp_58861.png
+  track  84763: 3 hits, best sig  17.8, first 07-24T21:00 at (1530,1086), v=(-1.0,-2.0); during SOHO 5217  -> fp_84763.png
+  track  83644: 4 hits, best sig  17.4, first 07-24T18:30 at (1606,1132), v=(-0.0,-1.8); during SOHO 5217  -> fp_83644.png
+  track   2796: 4 hits, best sig  17.3, first 07-17T05:15 at (1126,266), v=(+5.6,+4.8)  -> fp_2796.png
+  track  64685: 3 hits, best sig  17.2, first 07-23T00:00 at (950,1334), v=(+1.0,-2.0); during SOHO 5217  -> fp_64685.png
+  track  82659: 3 hits, best sig  17.1, first 07-24T16:15 at (1658,1166), v=(-0.0,-2.0); during SOHO 5217  -> fp_82659.png
+  track  59332: 5 hits, best sig  16.8, first 07-22T12:15 at (952,1302), v=(+3.1,-8.4)  -> fp_59332.png
+  track  17978: 4 hits, best sig  16.6, first 07-18T18:00 at (838,1226), v=(+3.4,-6.8)  -> fp_17978.png
+  track  47672: 3 hits, best sig  16.6, first 07-21T11:00 at (690,1022), v=(+0.0,-2.0)  -> fp_47672.png
+  track  39741: 3 hits, best sig  16.4, first 07-20T17:15 at (956,1320), v=(+1.0,-5.0)  -> fp_39741.png
+  track  85551: 3 hits, best sig  16.3, first 07-24T22:45 at (1442,1042), v=(-9.0,-5.0); during SOHO 5217  -> fp_85551.png
+  track  45709: 6 hits, best sig  15.9, first 07-21T06:30 at (936,1326), v=(-0.3,-2.3)  -> fp_45709.png
+  track  43992: 6 hits, best sig  15.7, first 07-21T02:45 at (924,1386), v=(+0.5,-3.0)  -> fp_43992.png
+  track   9349: 4 hits, best sig  15.6, first 07-17T19:30 at (1416,1244), v=(-6.8,-7.4)  -> fp_9349.png
+  track  36387: 5 hits, best sig  15.5, first 07-20T10:00 at (826,1330), v=(+2.6,-2.8)  -> fp_36387.png
+  track  83416: 3 hits, best sig  15.5, first 07-24T17:45 at (1626,1144), v=(-2.6,-2.6); during SOHO 5217  -> fp_83416.png
+  track  60370: 3 hits, best sig  15.4, first 07-22T14:45 at (918,1406), v=(+1.0,-2.0)  -> fp_60370.png
+  track  79201: 4 hits, best sig  15.1, first 07-24T08:00 at (1132,174), v=(+4.0,+0.8); during SOHO 5217  -> fp_79201.png
+  track  78218: 3 hits, best sig  15.0, first 07-24T05:45 at (1356,1902), v=(+4.0,-4.0); during SOHO 5217  -> fp_78218.png
+  track  43653: 4 hits, best sig  14.9, first 07-21T02:00 at (730,822), v=(-0.4,+2.2)  -> fp_43653.png
+  track  43184: 5 hits, best sig  14.9, first 07-21T01:00 at (904,1464), v=(-0.0,-3.7)  -> fp_43184.png
+  track  77226: 3 hits, best sig  14.9, first 07-24T03:15 at (1924,1364), v=(-4.0,-3.0); during SOHO 5217  -> fp_77226.png
+  track  45718: 6 hits, best sig  14.8, first 07-21T06:30 at (914,1390), v=(-0.7,-0.7)  -> fp_45718.png
+  track  31873: 5 hits, best sig  14.8, first 07-19T23:45 at (1126,406), v=(+4.0,+2.0)  -> fp_31873.png
+  track  68612: 3 hits, best sig  14.7, first 07-23T08:45 at (1352,828), v=(-3.0,+0.0); during SOHO 5217  -> fp_68612.png
+  track  18589: 5 hits, best sig  14.5, first 07-18T19:15 at (806,1266), v=(+7.4,-11.4)  -> fp_18589.png
+  track  38316: 4 hits, best sig  14.5, first 07-20T14:15 at (908,1262), v=(+4.0,-6.6)  -> fp_38316.png
+  track  22667: 4 hits, best sig  14.5, first 07-19T03:30 at (1004,1308), v=(+0.0,-1.6)  -> fp_22667.png
+  track  39944: 8 hits, best sig  14.4, first 07-20T17:30 at (908,1514), v=(-0.3,-1.6)  -> fp_39944.png
+  track  47922: 3 hits, best sig  14.4, first 07-21T11:30 at (716,1014), v=(+6.0,-4.0)  -> fp_47922.png
+  track  34169: 3 hits, best sig  14.4, first 07-20T04:30 at (980,1304), v=(-0.0,-2.0)  -> fp_34169.png
+  track  83175: 3 hits, best sig  14.3, first 07-24T17:15 at (1004,1292), v=(+2.0,-7.0); during SOHO 5217  -> fp_83175.png
+  track  47925: 3 hits, best sig  14.1, first 07-21T11:30 at (654,1026), v=(+0.0,-3.0)  -> fp_47925.png
+  track  65071: 3 hits, best sig  14.1, first 07-23T00:45 at (944,1358), v=(+2.0,-3.0); during SOHO 5217  -> fp_65071.png
+  track  38438: 5 hits, best sig  14.1, first 07-20T14:30 at (1436,1248), v=(-7.2,-8.0)  -> fp_38438.png
+  track  45288: 3 hits, best sig  14.1, first 07-21T05:30 at (902,1272), v=(+2.0,-2.0)  -> fp_45288.png
+  track   6466: 6 hits, best sig  14.0, first 07-17T13:30 at (816,1232), v=(+3.1,-2.3)  -> fp_6466.png
+  track  85109: 4 hits, best sig  14.0, first 07-24T21:45 at (726,878), v=(+2.6,+1.2); during SOHO 5217  -> fp_85109.png
+  track  67128: 3 hits, best sig  14.0, first 07-23T05:15 at (1126,534), v=(+4.0,+4.0); during SOHO 5217  -> fp_67128.png
+  track  35017: 4 hits, best sig  14.0, first 07-20T06:30 at (960,1372), v=(+1.1,-7.0)  -> fp_35017.png
+  track  83667: 3 hits, best sig  14.0, first 07-24T18:30 at (1004,1302), v=(+1.0,-2.0); during SOHO 5217  -> fp_83667.png
+  track  60971: 6 hits, best sig  13.9, first 07-22T16:00 at (902,1462), v=(+2.6,-6.4)  -> fp_60971.png
+  track  65184: 4 hits, best sig  13.9, first 07-23T01:00 at (962,1298), v=(+2.2,-6.0); during SOHO 5217  -> fp_65184.png
+  track  44615: 4 hits, best sig  13.8, first 07-21T04:00 at (900,1448), v=(+0.8,-4.0)  -> fp_44615.png
+  track  45623: 4 hits, best sig  13.8, first 07-21T06:15 at (888,1300), v=(+3.8,-5.8)  -> fp_45623.png
+  track  45187: 4 hits, best sig  13.8, first 07-21T05:15 at (1130,422), v=(+4.0,+5.2)  -> fp_45187.png
+  track  51071: 4 hits, best sig  13.7, first 07-21T18:15 at (1128,354), v=(+3.8,+1.2)  -> fp_51071.png
+  track  35141: 4 hits, best sig  13.7, first 07-20T06:45 at (948,1426), v=(-1.4,-2.8)  -> fp_35141.png
+  track  67134: 4 hits, best sig  13.6, first 07-23T05:15 at (966,1298), v=(+3.0,-3.4); during SOHO 5217  -> fp_67134.png
+  track   5765: 4 hits, best sig  13.6, first 07-17T12:00 at (798,1284), v=(+11.0,-10.0)  -> fp_5765.png
+  track  83800: 4 hits, best sig  13.6, first 07-24T18:45 at (1000,1322), v=(+0.6,-2.6); during SOHO 5217  -> fp_83800.png
+  track  23049: 3 hits, best sig  13.6, first 07-19T04:15 at (1000,1328), v=(+0.0,-2.0)  -> fp_23049.png
+  track  60731: 5 hits, best sig  13.6, first 07-22T15:30 at (886,1494), v=(+1.5,-2.2)  -> fp_60731.png
+  track   7021: 5 hits, best sig  13.5, first 07-17T14:45 at (778,1276), v=(+3.0,-2.5)  -> fp_7021.png
+  track   7510: 3 hits, best sig  13.5, first 07-17T15:45 at (706,900), v=(+3.0,+4.0)  -> fp_7510.png
+  track  76622: 3 hits, best sig  13.4, first 07-24T02:00 at (1940,1376), v=(+1.0,-5.0); during SOHO 5217  -> fp_76622.png
+  track  65421: 3 hits, best sig  13.4, first 07-23T01:30 at (940,1380), v=(+3.0,-7.0); during SOHO 5217  -> fp_65421.png
+  track  30939: 3 hits, best sig  13.2, first 07-19T21:45 at (1140,76), v=(+6.0,+5.0)  -> fp_30939.png
+  track  24635: 3 hits, best sig  13.2, first 07-19T08:15 at (1128,454), v=(+4.0,+1.0)  -> fp_24635.png
+  track  70490: 3 hits, best sig  13.2, first 07-23T13:00 at (946,1384), v=(+0.0,-1.0); during SOHO 5217  -> fp_70490.png
+  track  45855: 5 hits, best sig  13.0, first 07-21T06:45 at (848,1418), v=(+4.6,-10.2)  -> fp_45855.png
+  track   7272: 4 hits, best sig  13.0, first 07-17T15:15 at (768,1286), v=(+3.0,-3.6)  -> fp_7272.png
+  track  82629: 4 hits, best sig  13.0, first 07-24T16:00 at (1132,308), v=(+2.8,+2.2); during SOHO 5217  -> fp_82629.png
+  track  81934: 6 hits, best sig  13.0, first 07-24T14:15 at (948,1556), v=(+2.8,-8.8); during SOHO 5217  -> fp_81934.png
+  track  75944: 8 hits, best sig  12.9, first 07-24T00:30 at (1386,814), v=(-1.1,-0.3); during SOHO 5217  -> fp_75944.png
+  track  20486: 4 hits, best sig  12.9, first 07-18T23:00 at (1136,386), v=(+6.0,+1.2)  -> fp_20486.png
+  track  69875: 3 hits, best sig  12.9, first 07-23T11:30 at (1376,768), v=(-7.1,+2.7); during SOHO 5217  -> fp_69875.png
+  track  46592: 3 hits, best sig  12.9, first 07-21T08:30 at (846,1422), v=(+5.0,-9.0)  -> fp_46592.png
+  track  16098: 4 hits, best sig  12.9, first 07-18T14:15 at (722,1344), v=(+3.2,-3.0)  -> fp_16098.png
+  track  40611: 4 hits, best sig  12.9, first 07-20T19:00 at (908,1488), v=(-0.0,-4.2)  -> fp_40611.png
+  track  32341: 5 hits, best sig  12.8, first 07-20T00:45 at (1122,128), v=(+3.4,+0.6)  -> fp_32341.png
+  track  33608: 5 hits, best sig  12.8, first 07-20T03:15 at (1124,164), v=(+3.4,+3.6)  -> fp_33608.png
+  track  54363: 5 hits, best sig  12.8, first 07-22T01:15 at (1124,150), v=(+5.6,+3.2)  -> fp_54363.png
+  track   2461: 10 hits, best sig  12.8, first 07-17T04:30 at (708,1296), v=(+3.1,-2.0)  -> fp_2461.png
+  track   8770: 3 hits, best sig  12.8, first 07-17T18:15 at (716,850), v=(+4.0,-1.0)  -> fp_8770.png
+  track  85027: 3 hits, best sig  12.7, first 07-24T21:30 at (664,856), v=(+1.0,+2.0); during SOHO 5217  -> fp_85027.png
+  track   2843: 3 hits, best sig  12.7, first 07-17T05:15 at (730,1280), v=(+8.0,-6.0)  -> fp_2843.png
+  track  80447: 3 hits, best sig  12.7, first 07-24T10:45 at (964,58), v=(-4.0,+3.0); during SOHO 5217  -> fp_80447.png
+  track  81563: 5 hits, best sig  12.7, first 07-24T13:15 at (986,1366), v=(+1.0,-4.0); during SOHO 5217  -> fp_81563.png
+  track  65829: 4 hits, best sig  12.7, first 07-23T02:30 at (942,1366), v=(+0.4,-1.8); during SOHO 5217  -> fp_65829.png
+  track  63407: 5 hits, best sig  12.7, first 07-22T21:15 at (1344,834), v=(-2.2,+0.4)  -> fp_63407.png
+  track  65968: 3 hits, best sig  12.7, first 07-23T02:45 at (962,1298), v=(+2.0,-2.0); during SOHO 5217  -> fp_65968.png
+  track  12408: 3 hits, best sig  12.7, first 07-18T02:00 at (1128,600), v=(+3.0,+2.0)  -> fp_12408.png
+  track  49065: 3 hits, best sig  12.7, first 07-21T14:15 at (662,1042), v=(+4.0,+0.0)  -> fp_49065.png
+  track  38569: 3 hits, best sig  12.6, first 07-20T14:45 at (902,1274), v=(+3.0,-3.0)  -> fp_38569.png
+  track  44532: 4 hits, best sig  12.6, first 07-21T03:45 at (834,1430), v=(+4.5,-8.7)  -> fp_44532.png
+  track   3717: 4 hits, best sig  12.6, first 07-17T07:15 at (688,1320), v=(+2.6,-2.0)  -> fp_3717.png
+  track  23317: 5 hits, best sig  12.6, first 07-19T04:45 at (986,1416), v=(+0.6,-1.2)  -> fp_23317.png
+  track  23518: 4 hits, best sig  12.5, first 07-19T05:15 at (1132,284), v=(+1.8,+6.0)  -> fp_23518.png
+  track  33980: 4 hits, best sig  12.5, first 07-20T04:00 at (952,1428), v=(-0.2,-1.2)  -> fp_33980.png
+  track  75416: 4 hits, best sig  12.5, first 07-23T23:15 at (968,1348), v=(+1.6,-2.0); during SOHO 5217  -> fp_75416.png
+  track  71007: 4 hits, best sig  12.5, first 07-23T14:00 at (1130,462), v=(+4.4,+1.2); during SOHO 5217  -> fp_71007.png
+  track  67776: 3 hits, best sig  12.4, first 07-23T06:45 at (964,1312), v=(-1.0,-3.0); during SOHO 5217  -> fp_67776.png
+  track  40493: 3 hits, best sig  12.4, first 07-20T18:45 at (914,1456), v=(+2.0,-9.0)  -> fp_40493.png
+  track  15466: 3 hits, best sig  12.4, first 07-18T13:00 at (1132,176), v=(+5.0,+2.0)  -> fp_15466.png
+  track  15126: 3 hits, best sig  12.4, first 07-18T12:15 at (1080,1318), v=(-2.0,-7.0)  -> fp_15126.png
+  track  58209: 3 hits, best sig  12.4, first 07-22T09:45 at (1136,86), v=(+6.0,+2.0)  -> fp_58209.png
+  track  85377: 4 hits, best sig  12.4, first 07-24T22:15 at (642,850), v=(+0.0,+1.6); during SOHO 5217  -> fp_85377.png
+  track  14008: 3 hits, best sig  12.4, first 07-18T09:45 at (1138,398), v=(+5.0,+1.0)  -> fp_14008.png
+  track  82361: 4 hits, best sig  12.4, first 07-24T15:30 at (1640,1164), v=(-11.6,-6.5); during SOHO 5217  -> fp_82361.png
+  track  84924: 3 hits, best sig  12.3, first 07-24T21:15 at (1542,1088), v=(+0.0,-2.0); during SOHO 5217  -> fp_84924.png
+  track  58092: 3 hits, best sig  12.3, first 07-22T09:30 at (1140,72), v=(+6.0,+4.0)  -> fp_58092.png
+  track  65990: 3 hits, best sig  12.3, first 07-23T02:45 at (1138,116), v=(+5.0,+2.0); during SOHO 5217  -> fp_65990.png
+  track  80073: 3 hits, best sig  12.3, first 07-24T10:00 at (968,252), v=(-5.0,+3.0); during SOHO 5217  -> fp_80073.png
+  track   6008: 3 hits, best sig  12.3, first 07-17T12:30 at (800,1282), v=(+7.0,-5.0)  -> fp_6008.png
+  track  76108: 4 hits, best sig  12.3, first 07-24T00:45 at (1344,754), v=(-1.2,-1.4); during SOHO 5217  -> fp_76108.png
+  track  22312: 4 hits, best sig  12.2, first 07-19T02:45 at (1128,360), v=(+6.0,+4.1)  -> fp_22312.png
+  track  28498: 5 hits, best sig  12.2, first 07-19T16:45 at (858,1282), v=(+2.8,-2.8)  -> fp_28498.png
+  track   9882: 4 hits, best sig  12.2, first 07-17T20:30 at (1094,1324), v=(-3.2,-1.2)  -> fp_9882.png
+  track  46088: 5 hits, best sig  12.2, first 07-21T07:15 at (850,1416), v=(+3.2,-5.9)  -> fp_46088.png
+  track  40623: 4 hits, best sig  12.2, first 07-20T19:00 at (914,1456), v=(+0.9,-5.6)  -> fp_40623.png
+  track  78264: 3 hits, best sig  12.2, first 07-24T05:45 at (1092,1306), v=(+2.0,-5.0); during SOHO 5217  -> fp_78264.png
+  track  51052: 4 hits, best sig  12.2, first 07-21T18:15 at (1134,326), v=(+4.8,+1.4)  -> fp_51052.png
+  track  60077: 5 hits, best sig  12.2, first 07-22T14:00 at (1132,110), v=(+5.2,+5.4)  -> fp_60077.png
+  track  40043: 3 hits, best sig  12.2, first 07-20T17:45 at (1336,1896), v=(+1.0,-5.0)  -> fp_40043.png
+  track  39588: 3 hits, best sig  12.1, first 07-20T16:45 at (916,1490), v=(+0.0,-2.0)  -> fp_39588.png
+  track  17540: 4 hits, best sig  12.1, first 07-18T17:00 at (1128,204), v=(+5.2,+4.2)  -> fp_17540.png
+  track  75620: 3 hits, best sig  12.1, first 07-23T23:45 at (1354,830), v=(-2.0,+1.0); during SOHO 5217  -> fp_75620.png
+  track  43466: 4 hits, best sig  12.1, first 07-21T01:30 at (1122,282), v=(+4.4,+2.0)  -> fp_43466.png
+  track  65720: 4 hits, best sig  12.1, first 07-23T02:00 at (918,1438), v=(+3.5,-10.0); during SOHO 5217  -> fp_65720.png
+  track   7775: 4 hits, best sig  12.1, first 07-17T16:15 at (776,1278), v=(+10.2,-8.2)  -> fp_7775.png
+  track  51664: 4 hits, best sig  12.1, first 07-21T19:30 at (898,1462), v=(+1.4,-5.4)  -> fp_51664.png
+  track  41431: 3 hits, best sig  12.1, first 07-20T20:45 at (814,1442), v=(+6.0,-8.0)  -> fp_41431.png
+  track   7666: 3 hits, best sig  12.1, first 07-17T16:00 at (764,1288), v=(+2.0,-3.0)  -> fp_7666.png
+  track  82592: 3 hits, best sig  12.1, first 07-24T16:00 at (1630,1152), v=(-11.0,-4.0); during SOHO 5217  -> fp_82592.png
+  track  70503: 3 hits, best sig  12.0, first 07-23T13:00 at (1468,714), v=(-3.0,+0.0); during SOHO 5217  -> fp_70503.png
+  track   6840: 3 hits, best sig  12.0, first 07-17T14:15 at (1124,520), v=(+3.0,+3.0)  -> fp_6840.png
+  track   8024: 6 hits, best sig  12.0, first 07-17T16:45 at (846,1250), v=(+3.1,-2.3)  -> fp_8024.png
+  track  33346: 3 hits, best sig  12.0, first 07-20T02:45 at (746,1412), v=(-0.0,-1.0)  -> fp_33346.png
+  track  69105: 5 hits, best sig  12.0, first 07-23T09:45 at (1404,762), v=(-7.1,+2.7); during SOHO 5217  -> fp_69105.png
+  track  44181: 3 hits, best sig  12.0, first 07-21T03:00 at (842,1416), v=(+4.0,-11.0)  -> fp_44181.png
+  track  10355: 5 hits, best sig  12.0, first 07-17T21:30 at (1086,1336), v=(-3.6,-8.0)  -> fp_10355.png
+  track  81811: 3 hits, best sig  12.0, first 07-24T14:00 at (752,792), v=(+1.0,+1.0); during SOHO 5217  -> fp_81811.png
+  track  20647: 4 hits, best sig  11.9, first 07-18T23:15 at (1130,256), v=(+3.6,+2.6)  -> fp_20647.png
+  track   9631: 5 hits, best sig  11.9, first 07-17T20:00 at (1098,1312), v=(-3.7,-3.0)  -> fp_9631.png
+  track  71613: 3 hits, best sig  11.9, first 07-23T15:15 at (932,1452), v=(+4.0,-10.0); during SOHO 5217  -> fp_71613.png
+  track   2754: 4 hits, best sig  11.9, first 07-17T05:00 at (1132,244), v=(+5.4,+2.0)  -> fp_2754.png
+  track   7672: 5 hits, best sig  11.9, first 07-17T16:00 at (754,1302), v=(+5.2,-5.4)  -> fp_7672.png
+  track   2437: 4 hits, best sig  11.9, first 07-17T04:30 at (1128,576), v=(+3.8,+1.4)  -> fp_2437.png
+  track  45349: 4 hits, best sig  11.9, first 07-21T05:30 at (856,1576), v=(+0.6,-1.2)  -> fp_45349.png
+  track  24055: 3 hits, best sig  11.8, first 07-19T06:30 at (1130,40), v=(+5.0,+3.0)  -> fp_24055.png
+  track  33482: 3 hits, best sig  11.8, first 07-20T03:00 at (838,1322), v=(+4.0,-4.0)  -> fp_33482.png
+  track  35051: 3 hits, best sig  11.8, first 07-20T06:30 at (1130,462), v=(+5.0,+5.0)  -> fp_35051.png
+  track  43476: 4 hits, best sig  11.8, first 07-21T01:30 at (886,1318), v=(+2.6,-3.4)  -> fp_43476.png
+  track  42119: 3 hits, best sig  11.8, first 07-20T22:30 at (1140,184), v=(+6.0,+2.0)  -> fp_42119.png
+  track  27624: 5 hits, best sig  11.8, first 07-19T15:00 at (842,1274), v=(+1.4,-2.0)  -> fp_27624.png
+  track  57867: 3 hits, best sig  11.8, first 07-22T09:00 at (1132,18), v=(+5.0,+3.0)  -> fp_57867.png
+  track  70203: 3 hits, best sig  11.7, first 07-23T12:15 at (1138,174), v=(+6.0,+1.0); during SOHO 5217  -> fp_70203.png
+  track   7594: 4 hits, best sig  11.7, first 07-17T15:45 at (696,1360), v=(+3.6,-3.4)  -> fp_7594.png
+  track  26549: 4 hits, best sig  11.7, first 07-19T12:45 at (858,1248), v=(+4.6,-4.6)  -> fp_26549.png
+  track   2224: 3 hits, best sig  11.7, first 07-17T04:00 at (744,1264), v=(+9.0,-7.0)  -> fp_2224.png
+  track  21029: 3 hits, best sig  11.7, first 07-19T00:00 at (1138,454), v=(+5.0,+4.0)  -> fp_21029.png
+  track  20518: 4 hits, best sig  11.6, first 07-18T23:00 at (1132,80), v=(+5.2,+0.8)  -> fp_20518.png
+  track   2495: 4 hits, best sig  11.6, first 07-17T04:30 at (738,1270), v=(+5.4,-4.0)  -> fp_2495.png
+  track  11877: 4 hits, best sig  11.6, first 07-18T00:45 at (870,1254), v=(+3.4,-3.4)  -> fp_11877.png
+  track  20292: 3 hits, best sig  11.6, first 07-18T22:30 at (802,1292), v=(+1.0,-2.0)  -> fp_20292.png
+  track  77497: 3 hits, best sig  11.6, first 07-24T03:45 at (1128,274), v=(+4.0,+3.0); during SOHO 5217  -> fp_77497.png
+  track  54844: 3 hits, best sig  11.5, first 07-22T02:15 at (1126,564), v=(+1.0,+1.0)  -> fp_54844.png
+  track  16625: 3 hits, best sig  11.5, first 07-18T15:15 at (1136,32), v=(+5.0,+3.0)  -> fp_16625.png
+  track  82369: 4 hits, best sig  11.5, first 07-24T15:30 at (962,1496), v=(+3.4,-10.0); during SOHO 5217  -> fp_82369.png
+  track  43119: 3 hits, best sig  11.5, first 07-21T00:45 at (864,1364), v=(+1.0,-3.0)  -> fp_43119.png
+  track  80342: 3 hits, best sig  11.5, first 07-24T10:30 at (638,690), v=(+4.0,+3.0); during SOHO 5217  -> fp_80342.png
+  track  76056: 3 hits, best sig  11.5, first 07-24T00:45 at (1352,828), v=(-8.0,+2.0); during SOHO 5217  -> fp_76056.png
+  track  65723: 3 hits, best sig  11.5, first 07-23T02:00 at (930,1404), v=(-0.7,-1.1); during SOHO 5217  -> fp_65723.png
+  track  36683: 4 hits, best sig  11.5, first 07-20T10:30 at (750,1434), v=(+2.8,-2.2)  -> fp_36683.png
+  track  46429: 3 hits, best sig  11.5, first 07-21T08:00 at (848,1416), v=(+3.0,-5.0)  -> fp_46429.png
+  track  16627: 3 hits, best sig  11.5, first 07-18T15:15 at (762,1306), v=(+9.0,-8.0)  -> fp_16627.png
+  track  26662: 3 hits, best sig  11.4, first 07-19T13:00 at (842,1266), v=(+4.0,-3.0)  -> fp_26662.png
+  track  82966: 3 hits, best sig  11.4, first 07-24T16:45 at (1604,1138), v=(-10.0,-8.0); during SOHO 5217  -> fp_82966.png
+  track  52740: 3 hits, best sig  11.4, first 07-21T21:45 at (1130,500), v=(+3.0,+4.0)  -> fp_52740.png
+  track  56277: 3 hits, best sig  11.4, first 07-22T05:15 at (876,1462), v=(+1.0,-3.0)  -> fp_56277.png
+  track   2601: 3 hits, best sig  11.4, first 07-17T04:45 at (1130,554), v=(+4.0,+6.0)  -> fp_2601.png
+  track  53058: 3 hits, best sig  11.4, first 07-21T22:30 at (1136,34), v=(+4.0,+1.0)  -> fp_53058.png
+  track   6540: 3 hits, best sig  11.4, first 07-17T13:30 at (704,1344), v=(+7.0,-4.0)  -> fp_6540.png
+  track  19544: 3 hits, best sig  11.3, first 07-18T21:00 at (1140,18), v=(+5.0,+5.0)  -> fp_19544.png
+  track  28860: 3 hits, best sig  11.3, first 07-19T17:30 at (828,1300), v=(+9.0,-8.0)  -> fp_28860.png
+  track  37715: 3 hits, best sig  11.3, first 07-20T12:45 at (1144,84), v=(+4.0,+5.0)  -> fp_37715.png
+  track  39586: 4 hits, best sig  11.3, first 07-20T16:45 at (1134,114), v=(+6.6,+4.4)  -> fp_39586.png
+  track  49712: 3 hits, best sig  11.3, first 07-21T15:30 at (866,1402), v=(-0.0,-1.0)  -> fp_49712.png
+  track  17411: 3 hits, best sig  11.3, first 07-18T16:45 at (1148,166), v=(+8.0,+3.0)  -> fp_17411.png
+  track  19401: 3 hits, best sig  11.3, first 07-18T20:45 at (1140,406), v=(+8.0,+5.0)  -> fp_19401.png
+  track  12708: 4 hits, best sig  11.3, first 07-18T02:30 at (1132,420), v=(+4.6,+3.2)  -> fp_12708.png
+  track  15973: 3 hits, best sig  11.2, first 07-18T14:00 at (746,1318), v=(+4.0,-3.0)  -> fp_15973.png
+  track  25400: 3 hits, best sig  11.2, first 07-19T10:00 at (1138,40), v=(+3.0,+5.0)  -> fp_25400.png
+  track  71032: 3 hits, best sig  11.2, first 07-23T14:00 at (704,762), v=(+7.0,+5.0); during SOHO 5217  -> fp_71032.png
+  track  54352: 3 hits, best sig  11.2, first 07-22T01:15 at (1140,262), v=(+4.0,+3.0)  -> fp_54352.png
+  track  65034: 3 hits, best sig  11.2, first 07-23T00:30 at (1128,224), v=(+4.0,+4.0); during SOHO 5217  -> fp_65034.png
+  track  73378: 3 hits, best sig  11.1, first 07-23T18:45 at (1426,796), v=(-1.0,+2.0); during SOHO 5217  -> fp_73378.png
+  track  10604: 4 hits, best sig  11.1, first 07-17T22:00 at (1108,1438), v=(-2.9,-0.6)  -> fp_10604.png
+  track  33852: 3 hits, best sig  11.1, first 07-20T03:45 at (1132,120), v=(+3.0,+1.0)  -> fp_33852.png
+  track  11567: 3 hits, best sig  11.1, first 07-18T00:00 at (794,1262), v=(+7.0,-7.0)  -> fp_11567.png
+  track  16119: 4 hits, best sig  11.1, first 07-18T14:15 at (740,1326), v=(+7.2,-7.0)  -> fp_16119.png
+  track  32497: 3 hits, best sig  11.1, first 07-20T01:00 at (1130,444), v=(+4.0,+1.0)  -> fp_32497.png
+  track   8081: 3 hits, best sig  11.1, first 07-17T16:45 at (244,188), v=(+10.0,-8.0)  -> fp_8081.png
+  track  72627: 3 hits, best sig  11.0, first 07-23T17:15 at (1134,192), v=(+5.0,+4.0); during SOHO 5217  -> fp_72627.png
+  track   1983: 5 hits, best sig  11.0, first 07-17T03:30 at (1130,456), v=(+2.6,+3.2)  -> fp_1983.png
+  track  23434: 3 hits, best sig  11.0, first 07-19T05:00 at (1142,124), v=(+6.0,+3.0)  -> fp_23434.png
+  track  39227: 3 hits, best sig  10.9, first 07-20T16:00 at (744,1246), v=(+3.0,+2.0)  -> fp_39227.png
+  track  71262: 3 hits, best sig  10.9, first 07-23T14:30 at (918,1480), v=(+2.0,-2.0); during SOHO 5217  -> fp_71262.png
+  track  67615: 3 hits, best sig  10.9, first 07-23T06:15 at (974,1290), v=(+2.0,-13.0); during SOHO 5217  -> fp_67615.png
+  track  16256: 4 hits, best sig  10.9, first 07-18T14:30 at (716,1350), v=(+2.6,-2.0)  -> fp_16256.png
+  track  66478: 3 hits, best sig  10.8, first 07-23T03:45 at (892,1514), v=(+3.0,-2.0); during SOHO 5217  -> fp_66478.png
+  track   2610: 4 hits, best sig  10.8, first 07-17T04:45 at (754,1256), v=(+10.8,-8.8)  -> fp_2610.png
+  track  74126: 3 hits, best sig  10.8, first 07-23T20:15 at (1146,312), v=(+5.0,+1.0); during SOHO 5217  -> fp_74126.png
+  track  54647: 3 hits, best sig  10.8, first 07-22T01:45 at (58,700), v=(+7.0,+3.0)  -> fp_54647.png
+  track   1812: 3 hits, best sig  10.8, first 07-17T03:15 at (828,1216), v=(+6.0,-5.0)  -> fp_1812.png
+  track  76209: 4 hits, best sig  10.7, first 07-24T01:00 at (1130,234), v=(+4.0,+1.6); during SOHO 5217  -> fp_76209.png
+  track  16421: 3 hits, best sig  10.7, first 07-18T14:45 at (738,1886), v=(+6.0,-5.0)  -> fp_16421.png
+  track  66042: 4 hits, best sig  10.7, first 07-23T02:45 at (1132,452), v=(+3.1,+1.4); during SOHO 5217  -> fp_66042.png
+  track   7332: 3 hits, best sig  10.6, first 07-17T15:15 at (164,1618), v=(+5.0,-2.0)  -> fp_7332.png
+  track  69707: 3 hits, best sig  10.6, first 07-23T11:00 at (1330,798), v=(-7.0,+2.0); during SOHO 5217  -> fp_69707.png
+  track  55306: 3 hits, best sig  10.6, first 07-22T03:00 at (1138,206), v=(+4.0,+4.0)  -> fp_55306.png
+  track   2083: 4 hits, best sig  10.6, first 07-17T03:45 at (1088,1396), v=(+4.0,-1.7)  -> fp_2083.png
+  track  37282: 3 hits, best sig  10.5, first 07-20T11:45 at (180,484), v=(+9.0,-10.0)  -> fp_37282.png
+  track  33019: 3 hits, best sig  10.4, first 07-20T02:00 at (1004,1300), v=(-1.0,-1.0)  -> fp_33019.png
+  track  23216: 3 hits, best sig  10.4, first 07-19T04:30 at (1134,510), v=(+4.0,+2.0)  -> fp_23216.png
+  track  16406: 3 hits, best sig  10.4, first 07-18T14:45 at (1894,1318), v=(-11.0,+1.0)  -> fp_16406.png
+  track   2102: 3 hits, best sig  10.4, first 07-17T03:45 at (712,1056), v=(+10.0,-1.0)  -> fp_2102.png
+  track   1968: 3 hits, best sig  10.4, first 07-17T03:30 at (814,1232), v=(+9.0,-8.0)  -> fp_1968.png
+  track  21859: 3 hits, best sig  10.2, first 07-19T01:45 at (800,1294), v=(+5.0,-5.0)  -> fp_21859.png
+  track  40188: 3 hits, best sig  10.2, first 07-20T18:00 at (1134,500), v=(+6.0,+6.0)  -> fp_40188.png
+  track   9799: 3 hits, best sig  10.2, first 07-17T20:15 at (1000,1364), v=(-1.0,-2.0)  -> fp_9799.png
+  track  66501: 3 hits, best sig  10.2, first 07-23T03:45 at (888,1534), v=(+3.0,-8.0); during SOHO 5217  -> fp_66501.png

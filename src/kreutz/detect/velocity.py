@@ -30,6 +30,16 @@ class VelocityGrid:
     def __len__(self):
         return len(self.vx)
 
+    def describe_box(self) -> str:
+        return (f"vx {self.vx.min():.1f}..{self.vx.max():.1f}, vy {self.vy.min():.1f}..{self.vy.max():.1f} "
+                f"= {len(self)} velocities")
+
+    def key(self) -> str:
+        """Short id of the grid, so cached stack peaks are tied to the grid that made them."""
+        import hashlib
+
+        return hashlib.sha1(np.round(np.c_[self.vx, self.vy], 3).tobytes()).hexdigest()[:8]
+
     def describe(self) -> str:
         s = self.samples
         return (f"{len(s)} confirmed reports: vx {s[:, 0].min():.1f}..{s[:, 0].max():.1f}, "

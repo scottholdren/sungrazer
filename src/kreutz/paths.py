@@ -9,6 +9,8 @@ FRAMES = DATA / "frames"
 STATE_DIR = DATA / "state"
 CACHE = DATA / "cache"
 REPORTS_DB = DATA / "reports.sqlite"
+# Scorecards, surviving tracks and contact sheets: small, committed for review.
+RESULTS = ROOT / "results"
 
 
 def frame_dir(camera: str, yyyymmdd: str) -> Path:

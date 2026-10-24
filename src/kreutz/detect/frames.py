@@ -16,6 +16,23 @@ For frame i (all steps NaN-aware):
                    point sources; divided by the local noise -> significance.
   4. downsample  : 2x2 sums / 2 (keeps unit noise) for the stacking stage.
 
+Frames are left out of everything when a header flag says so (fitsio.frame_quality:
+Earth in the field, eclipse, off-Sun pointing...) or when the pointing has jumped:
+CRVAL moved more than 60" from the last accepted frame. The daily calibration
+off-points (Oct 2026: 07:00-07:45 UTC) jump by ~1 deg while OFFSUNDR on some of
+them still reads ~10, so the header flag alone isn't enough. If 4 frames in a row
+agree on a new pointing it is accepted as the new normal.
+
+Frames right next to one with the Earth in the field or an eclipse are dropped
+too: they carry scattered Earthlight without being flagged (Oct 2026: the 04:00
+and 05:30 frames around the daily 04:15-05:15 Earth transit fail star
+registration).
+
+A frame is "warm" (is_warm) when its star model is near full depth and its
+background frames are recent. Right after a gap neither holds, and badly
+subtracted stars and corona make fake movers; stage C starts no new tracks from
+windows containing cold frames (existing tracks may continue through them).
+
 Results are cached per frame in data/derived/<camera>/<VERSION>/ so reruns and
 the stacking stage are cheap. `dump_stages` writes every intermediate array.
 """
@@ -34,7 +51,7 @@ from scipy import ndimage
 from .. import coords, paths, stars
 from ..fitsio import Frame, frame_quality, read_frame
 
-VERSION = "a3"
+VERSION = "a4"
 BG_FRAMES = 16
 STAR_FRAMES = 8
 MIN_STAR_FRAMES = 4
@@ -45,6 +62,11 @@ SIG_CLIP = 50.0
 MOON_RATIO = 1.3  # pixel > 1.3x background ...
 MOON_MIN_AREA = 2000  # ... over this many connected px = the Moon (disc ~7000 px); masked
 MOON_MARGIN = 25
+POINT_JUMP = 60.0  # arcsec of CRVAL movement between accepted frames = off-pointed
+POINT_REBASE = 4  # this many consecutive frames agreeing on a new pointing -> accept it
+EARTH_GUARD = 1  # frames on each side of an Earth-in-field / eclipse frame also dropped
+WARM_STAR_FRAMES = 6  # of STAR_FRAMES
+WARM_BG_SPAN = 24  # 15-min slots (6 h) the 16 background frames may span
 
 
 def derived_dir(camera: str) -> Path:
@@ -70,6 +92,12 @@ class FrameMeta:
     sun_xy: list | None  # Sun centre, report coords
     warnings: list | None = None  # advisory header flags (frame still used)
     moon_px: int = 0  # pixels masked as the Moon
+    bg_span: float | None = None  # 15-min slots spanned by the background frames
+
+
+def is_warm(m: FrameMeta | None) -> bool:
+    return (m is not None and m.ok and m.star_frames >= WARM_STAR_FRAMES
+            and m.bg_span is not None and m.bg_span <= WARM_BG_SPAN)
 
 
 def sig_path(camera: str, name: str) -> Path:
@@ -129,6 +157,46 @@ def sun_report_xy(frame: Frame) -> list | None:
         return None
 
 
+def _earth_frames(frames: list[Path], lo: int, hi: int) -> set[int]:
+    """Indices in [lo - guard, hi + guard) whose header says Earth in the field or eclipse."""
+    from astropy.io import fits
+
+    out = set()
+    for j in range(max(lo - EARTH_GUARD, 0), min(hi + EARTH_GUARD, len(frames))):
+        h = fits.getheader(frames[j], 1)
+        if h.get("EARFOV_Q") is False or h.get("E_ECLPSE") not in (0, False, None) \
+                or h.get("M_ECLPSE") not in (0, False, None):
+            out.add(j)
+    return out
+
+
+class _Pointing:
+    """Flags frames whose pointing (CRVAL1/2, deg) jumped from the accepted one."""
+
+    def __init__(self):
+        self.ref = None
+        self.pending: list[tuple[float, float]] = []
+
+    def check(self, header) -> float | None:
+        """None if the pointing is normal, else the jump in arcsec."""
+        if "CRVAL1" not in header or "CRVAL2" not in header:
+            return None
+        p = (float(header["CRVAL1"]), float(header["CRVAL2"]))
+        if self.ref is None:
+            self.ref = p
+            return None
+        jump = 3600 * np.hypot(p[0] - self.ref[0], p[1] - self.ref[1])
+        if jump <= POINT_JUMP:
+            self.ref, self.pending = p, []
+            return None
+        # Off-pointed, unless the last few off frames all agree: a lasting re-point.
+        self.pending = [q for q in self.pending if 3600 * np.hypot(p[0] - q[0], p[1] - q[1]) <= POINT_JUMP] + [p]
+        if len(self.pending) >= POINT_REBASE:
+            self.ref, self.pending = p, []
+            return None
+        return jump
+
+
 class _Diff:
     """A background-subtracted frame plus its point-source catalogue."""
 
@@ -175,6 +243,8 @@ def process_range(camera: str, frames: list[Path], targets: range, dump_stages: 
     raw: deque[Frame] = deque(maxlen=BG_FRAMES)
     diffs: deque[_Diff] = deque(maxlen=STAR_FRAMES + 1)
     first = max(0, targets.start - (BG_FRAMES + STAR_FRAMES) * 2)  # *2: room for skipped bad frames
+    pointing = _Pointing()
+    earth = _earth_frames(frames, first, targets.stop)
     for i in range(first, targets.stop):
         p = frames[i]
         wanted = i in targets
@@ -187,6 +257,14 @@ def process_range(camera: str, frames: list[Path], targets: range, dump_stages: 
         # Exact zeros are pipeline fill (blobs along the occulter rim and field edge), not sky.
         f.data[f.data == 0] = np.nan
         q = frame_quality(f.header, f.data)
+        if q.ok and any(j in earth for j in range(i - EARTH_GUARD, i + EARTH_GUARD + 1)):
+            q.ok = False
+            q.problems.append("next to an Earth-in-field/eclipse frame (scattered Earthlight)")
+        if q.ok:
+            jump = pointing.check(f.header)
+            if jump is not None:
+                q.ok = False
+                q.problems.append(f"pointing jumped {jump:.0f} arcsec (CRVAL): calibration off-point")
         if not q.ok:
             if wanted:
                 _write_meta(camera, FrameMeta(p.name, f.time.timestamp(), False, q.problems,
@@ -203,6 +281,7 @@ def process_range(camera: str, frames: list[Path], targets: range, dump_stages: 
             continue
         bg = nanmedian_stack([r.data for r in raw])
         cur = _Diff(f, bg)
+        cur.bg_span = (f.time - raw[0].time).total_seconds() / 900.0
         if wanted:
             _finish(camera, cur, list(diffs), dump=p.name in dump_stages, log=log)
         diffs.append(cur)
@@ -248,7 +327,7 @@ def _finish(camera: str, cur: _Diff, prev: list[_Diff], dump: bool, log) -> None
     np.save(out, small.astype(np.float16))
     warn = frame_quality(f.header).warnings
     _write_meta(camera, FrameMeta(f.path.name, f.time.timestamp(), True, problems, drift, drift_dt,
-                                  len(warped), n_masked, sun_report_xy(f), warn, cur.moon_px))
+                                  len(warped), n_masked, sun_report_xy(f), warn, cur.moon_px, cur.bg_span))
     if dump:
         d = derived_dir(camera) / "stages" / f.path.stem
         d.mkdir(parents=True, exist_ok=True)

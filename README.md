@@ -97,7 +97,20 @@ and sits near report coordinates (1041, 962).
 these is off: `ISNORMAL`, `DCMPRS_Q`, `IMGBLK_Q`, `EARFOV_Q` (Earth in view),
 `GTTRAC_Q`; or when `E_ECLPSE`/`M_ECLPSE` (Earth/Moon eclipse state),
 `BADBLK_N`/`MISBLK_N` are non-zero; door not `OPEN`; `MAJSTORM` (particle
-storm); or the image is mostly empty.
+storm); `OFFSUNDR` > 100″ (spacecraft off-pointed); or the image is mostly empty.
+
+Two more exclusions live in stage A because they need neighbouring frames:
+
+- **Calibration off-points.** In Oct 2026 the spacecraft off-points every day
+  07:00–07:45 UTC: `CRVAL1/2` jump by ~1°, but `OFFSUNDR` reads only ~10″ on
+  some of those frames, and no `_Q` flag is set. Any frame whose `CRVAL` moved
+  > 60″ from the last accepted frame is dropped (4 frames in a row agreeing on a
+  new pointing are accepted as a lasting re-point). July 2025 had 4 such frames
+  in the week; Oct 2026 had 29.
+- **Earth-guard.** The frame on each side of an Earth-in-view (`EARFOV_Q=F`,
+  daily 04:15–05:15 UTC in Oct 2026) or eclipse frame is dropped too: it carries
+  unflagged scattered Earthlight, and its stars failed to register. Eclipse
+  flags (`E_ECLPSE`, `M_ECLPSE`) were 0 all week; GEO eclipse season had ended.
 
 Two flags are only *warnings*, after looking at the frames they mark:
 `MONFOV_Q=F` (the Moon is in view, a small disc the detector masks; new Moon
@@ -208,14 +221,31 @@ stars move right (west), as they should. *DoG* (σ 1.2 / 4.0 px) keeps point
 sources; dividing by the local noise gives significance; the map is saved at
 half resolution.
 
+A frame is **warm** when ≥ 6 of the 8 star-model frames registered and its 16
+background frames span ≤ 6 h. After a gap (Earth in view, an off-point) the
+background straddles the gap until enough new frames arrive, and windows built
+on such frames made fake slow movers: in Oct 2026, 8 of the 10 strongest false
+positives appeared at 10:15–10:30 each day, moving at about (−1.4, 0) px/frame,
+just before the last pre-gap frames left the background. Stage C starts **no new
+tracks** from a window that contains a cold frame; tracks already being
+followed continue through it. Cost: in Oct 2026, windows ending ~08:00–12:30
+can't start a track.
+
 **B. Per window of 8 frames** (`detect/stack.py`). For every trial velocity the
-8 maps are shifted back along that path and summed (÷√8), so an object moving at
-that velocity piles up at its newest position. Maps are clipped to [−3, +8]σ
-first, so a single-frame cosmic ray adds at most 2.8σ. Shifts use real frame
-times, so gaps are fine. The velocity grid comes from the answer key: the line
-fitted to every confirmed CCOR-1 report (102 of them: vx −10.3…10.8, vy −8.0…3.0
-px/frame) plus 2 px/frame margin, every 0.5 px/frame, 1,664 velocities. Peaks
-above 5σ are kept.
+8 maps are shifted back along that path and summed, so an object moving at that
+velocity piles up at its newest position. The brightest of the 8 values at each
+pixel is dropped and the rest divided by √7: a cosmic ray hits one frame, so it
+adds nothing, while a real mover loses 1/8 of its signal. (Earlier versions
+clipped each map at +8σ, which capped every stack at 8·√8 = 22.6σ: all bright
+objects tied there and significance couldn't rank them.) Maps are floored at
+−3σ so a masked-star hole can't cancel a real object. Shifts use real frame
+times, so gaps are fine. Peaks above 5σ are kept.
+
+The velocity grid is per calendar month, from the **Kreutz envelope**
+(`detect/envelope.py`): the lines fitted to that month's confirmed CCOR-1
+Kreutz reports, as a velocity box plus 2 px/frame margin, every 0.5 px/frame
+(July: 456 velocities). The same envelope gives stage C the allowed paths; see
+`off-envelope` below.
 
 **C. Tracking** (`detect/track.py`). Windows slide one frame at a time. A peak
 that turns up where the previous window predicted (within 6 px and 2 px/frame)
@@ -242,6 +272,7 @@ A candidate track is rejected (kept in the output, marked `rejected:<rule>`) if:
 | `stationary` | speed < 1 px/frame | Things that don't move relative to the Sun are residual background (glare, hot pixels, slowly changing corona). Slowest confirmed comet: 3 px/frame. |
 | `star-drift` | velocity within 1.5 px/frame of the measured star drift | Imperfectly subtracted stars move together at the drift velocity. |
 | `outbound` | moving away from the Sun (cos of angle to the Sun direction < 0) | Kreutz comets are seen falling inward. Cost: 6 of 106 confirmed CCOR-1 reports moved away from the Sun: 5 Kracht II / non-group, 1 Kreutz moving nearly sideways. |
+| `off-envelope` | direction of motion, or signed miss distance of the path from the Sun, outside this month's Kreutz envelope (+15°, +80 px margins) | All Kreutz comets share one orbit, so in a given month they arrive from one side on nearly parallel paths; the side rotates through the year (Mar: from the left moving right; Jul: lower right moving up-left; Oct: right moving left). Things entering from anywhere else are not Kreutz comets: in Oct 2026 that included tracks entering at the left edge moving right. Built from confirmed reports (±1 month) where they exist; NRL has posted no confirmations since Aug 2025, so Oct–Jan use that month's pending hunter claims trimmed to the 10–90th percentiles, marked PROVISIONAL in the output. Cost: comets of other groups (Kracht, Meyer, non-group: 10 of 116 confirmed CCOR-1 reports). |
 | `glare-zone` | median distance from the Sun < 320 px | Variable glare at the occulter rim dominated the false positives (250 of 452 surviving tracks on 2025-07-17). Confirmed comets were never reported inside 392 px, and we want them earlier than that anyway. |
 | `edge` | never more than 25 px from the occulter, arm, field edge or array edge | The background and noise estimates break down at the borders of valid data. Cost: a comet entering the field is flagged ~3 frames later. |
-| `extended` | blob under the hits has median axis ratio > 3 | Streamer edges and other linear structures that survive the DoG filter drift slowly and look like movers. |
+| `extended` | blob under the hits has median axis ratio > 3, measured in a 50-px box | Streamer edges and other linear structures that survive the DoG filter drift slowly and look like movers. A 26-px box cut rays short, so they measured ~3 and ~10 of the 40 benchmark false positives at 5 hits were one ray (Jul 20–22 2025). Cost: a comet with a bright straight tail would be rejected; CCOR-1 Kreutz comets are mostly point-like. |

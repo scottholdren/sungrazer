@@ -36,15 +36,29 @@ def test_shift_and_stack_finds_injected_mover():
     top = peaks[0]
     assert abs(top.x - x_end) <= 2 and abs(top.y - y_end) <= 2
     assert (top.vx, top.vy) == pytest.approx(v, abs=0.5)
-    assert top.sig > 12
+    assert top.sig > 10  # ~17 for a noiseless 6-sigma dot; sum-minus-max and noise take some
 
 
-def test_cosmic_ray_is_clipped():
-    """A huge one-frame spike can add at most CLIP[1]/sqrt(N) to any stack."""
+def test_cosmic_ray_adds_nothing():
+    """A huge one-frame spike is the max of every stack it touches, so it is dropped."""
     maps = [np.zeros((100, 100), np.float32) for _ in range(8)]
     maps[3][50, 50] = 1e4
     best, _ = B.stack_window(maps, [k * 900.0 for k in range(8)], _grid(lo=(-2, -2), hi=(2, 2)))
-    assert best.max() == pytest.approx(B.CLIP[1] / np.sqrt(8))
+    assert best[10:90, 10:90].max() == pytest.approx(0.0)
+
+
+def test_bright_movers_are_not_capped():
+    """Stacked significance keeps growing with brightness (no 22.6 ceiling)."""
+    grid = _grid(lo=(-2, -2), hi=(2, 2))
+    out = []
+    for amp in (10.0, 40.0):
+        maps = [np.zeros((100, 100), np.float32) for _ in range(8)]
+        for k, m in enumerate(maps):
+            m[50, 40 + k] = amp  # +1 half-res px/frame in columns = report vx +2
+        best, _ = B.stack_window(maps, [k * 900.0 for k in range(8)], grid)
+        out.append(best.max())
+    assert out[0] == pytest.approx(10 * 7 / np.sqrt(7))
+    assert out[1] == pytest.approx(4 * out[0])
 
 
 def test_elongation_separates_points_from_lines():
@@ -136,3 +150,67 @@ def test_duplicate_tracks_are_merged():
     b.hits = [_peak(k, 1601 - 5 * k, 1501 - 4 * k, -5, -4) for k in range(2, 5)]
     out = C.merge_duplicates([a, b])
     assert [t.id for t in out] == [1] and out[0].merged == 1
+
+
+def test_tracker_does_not_seed_from_cold_windows_but_keeps_following():
+    tr = C.Tracker()
+    for k in range(3):
+        tr.update(k * 900.0, [_peak(k, 1600 - 5 * k, 1500 - 4 * k, -5, -4)], DRIFT, SUN)
+    for k in range(3, 6):  # cold: the existing track continues, a new object is ignored
+        tr.update(k * 900.0, [_peak(k, 1600 - 5 * k, 1500 - 4 * k, -5, -4),
+                              _peak(k, 1800 - 5 * k, 1300 - 4 * k, -5, -4)], DRIFT, SUN, seed=False)
+    (t,) = tr.finish()
+    assert len(t.hits) == 6
+
+
+def test_pointing_jumps_are_flagged_and_lasting_repoints_accepted():
+    from kreutz.detect.frames import POINT_REBASE, _Pointing
+
+    p = _Pointing()
+    hdr = lambda a, b: {"CRVAL1": a, "CRVAL2": b}
+    assert p.check(hdr(0.158, -0.145)) is None
+    assert p.check(hdr(0.1581, -0.1452)) is None  # normal drift, < 60"
+    assert p.check(hdr(0.66, 0.91)) > 3000  # calibration off-point
+    assert p.check(hdr(-0.17, -1.28)) > 3000  # ...and another, elsewhere
+    assert p.check(hdr(0.158, -0.145)) is None  # back home
+    results = [p.check(hdr(0.30, -0.145)) for _ in range(POINT_REBASE)]
+    assert results[:-1] == [pytest.approx(511, abs=1)] * (POINT_REBASE - 1) and results[-1] is None
+
+
+def test_quality_rejects_off_sun_pointing():
+    from kreutz.fitsio import frame_quality
+
+    assert frame_quality({"OFFSUNDR": 15}).ok
+    assert not frame_quality({"OFFSUNDR": 3992}).ok
+
+
+def test_miss_distance_sign_and_size():
+    from kreutz.detect.envelope import miss_distance
+
+    # moving left (-x) along y = 862 (100 px above the Sun on screen): Sun is to the left of the motion
+    assert miss_distance(1500, 862, -5, 0, (1041, 962)) == pytest.approx(100)
+    assert miss_distance(1500, 1062, -5, 0, (1041, 962)) == pytest.approx(-100)
+
+
+def test_envelope_from_samples_accepts_its_own_tracks_and_rejects_the_rest():
+    from kreutz.detect import envelope as E
+
+    rng = np.random.default_rng(1)
+    s = []
+    for _ in range(20):  # July-like: lower right, moving up-left, missing the Sun by ~150 px
+        vx, vy = rng.uniform(-7, -4), rng.uniform(-6, -4)
+        x, y = 1041 + rng.uniform(500, 800), 962 + rng.uniform(300, 500)
+        s.append((vx, vy, E.angle_of(x - 1041, y - 962), E.angle_of(vx, vy), E.miss_distance(x, y, vx, vy, (1041, 962))))
+    env = E._build(7, False, [7], np.array(s))
+    x, y, vx, vy = 1041 + 650, 962 + 400, -5.5, -5.0
+    assert env.check(x, y, vx, vy, (1041, 962)) is None
+    assert env.check(15, 900, 3.5, 0.0, (1041, 962)) == "off-envelope"  # left-edge entry, moving right
+    assert env.check(x, y, -1.4, 0.0, (1041, 962)) == "off-envelope"  # wrong direction
+    assert env.check(x, y - 900, vx, vy, (1041, 962)) == "off-envelope"  # parallel but far from the Sun
+
+
+def test_arc_range_wraps_at_180():
+    from kreutz.detect.envelope import ArcRange
+
+    r = ArcRange.of([170, -175, 178], margin=5)
+    assert 175 in r and -178 in r and 0 not in r

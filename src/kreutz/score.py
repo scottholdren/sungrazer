@@ -19,6 +19,7 @@ Negative = we would have been first.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -99,6 +100,9 @@ def _anchored(con, anchor: str, group: list[str]):
     return t, x, y
 
 
+_CLAIM = {"reported": "pending", "known": "pending"}
+
+
 def truths(con, camera: str, start: date, end: date) -> tuple[list[Truth], bool]:
     """Truth objects whose hunter positions start in [start, end]. Returns (truths, provisional)."""
     lo, hi = start.isoformat(), (end + timedelta(days=1)).isoformat()
@@ -119,16 +123,17 @@ def truths(con, camera: str, start: date, end: date) -> tuple[list[Truth], bool]
     if out:
         return out, False
     # No confirmation list covers this window: provisional truth from hunter claims.
-    for r in con.execute("""SELECT report_id, report_timestamp FROM reports
+    # Rejected claims are kept (labelled) so the split is visible; recall ignores them.
+    for r in con.execute("""SELECT report_id, report_timestamp, status FROM reports
                             WHERE camera = ? AND image_date >= ? AND image_date < ?
-                              AND sighting_type = 'Potential Comet' AND status NOT IN ('retracted', 'rejected')
+                              AND sighting_type = 'Potential Comet' AND status != 'retracted'
                             ORDER BY report_timestamp""", (camera, lo, hi)):
         group = [r[0]] + [k[0] for k in con.execute(
             "SELECT report_id FROM reports WHERE parent_id = ? AND sighting_type != 'Retracting Report'", (r[0],))]
         t, x, y = _clean(*_positions(con, group))
         if len(t) < 3:
             continue
-        out.append(Truth(r[0], group, datetime.fromisoformat(r[1]), t, x, y, "claimed"))
+        out.append(Truth(r[0], group, datetime.fromisoformat(r[1]), t, x, y, _CLAIM.get(r[2], r[2])))
     return out, True
 
 
@@ -187,7 +192,67 @@ def _hours(td: timedelta) -> str:
     return f"{h:+.1f} h"
 
 
+def results_dir(camera: str, start: date, end: date):
+    from .paths import RESULTS
+
+    return RESULTS / camera / f"{start}_{end}"
+
+
 def score(camera: str, start: date, end: date, workers=None, sheets: bool = True) -> dict:
+    """Grade, print the scorecard, and save it under results/<camera>/<start>_<end>/:
+    scorecard.txt (everything printed), tracks.json (tracks surviving the
+    rejection rules) and sheets/ (every true positive and every unmatched track
+    that reached 5 hits). All sheets also go to data/derived/.../sheets_*/."""
+    out = results_dir(camera, start, end)
+    out.mkdir(parents=True, exist_ok=True)
+    with open(out / "scorecard.txt", "w") as f, _tee(f):
+        print(f"# kreutz score --camera {camera} --start {start} --end {end}")
+        print(f"# code {_git_rev()}, stage A {A.VERSION}, stage B {detect.B.VERSION}, "
+              f"run {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC")
+        return _score(camera, start, end, workers, sheets, out)
+
+
+def _git_rev() -> str:
+    import subprocess
+
+    from .paths import ROOT
+
+    try:
+        rev = subprocess.run(["git", "-C", str(ROOT), "describe", "--always", "--dirty"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        return rev
+    except Exception:
+        return "unknown"
+
+
+class _tee:
+    """Copy everything printed to stdout into a file as well."""
+
+    def __init__(self, f):
+        self.f = f
+
+    def __enter__(self):
+        import sys
+
+        self.stdout = sys.stdout
+        sys.stdout = self
+        return self
+
+    def __exit__(self, *exc):
+        import sys
+
+        sys.stdout = self.stdout
+
+    def write(self, s):
+        self.stdout.write(s)
+        self.f.write(s)
+
+    def flush(self):
+        self.stdout.flush()
+        self.f.flush()
+
+
+def _score(camera, start, end, workers, sheets, results) -> dict:
     tracks = detect.run(camera, start, end, workers=workers)
     tracks = [detect.track_dict(t, camera) for t in tracks]
     con = db.connect()
@@ -201,7 +266,8 @@ def score(camera: str, start: date, end: date, workers=None, sheets: bool = True
     print(f"    {len(tracks)} candidate tracks, {len(live)} after rejection rules "
           f"({', '.join(f'{k}: {v}' for k, v in _count_rejections(tracks).items())})")
     print()
-    hdr = f"{'object':<26} {'first human post':<17} {'found':<6} " + " ".join(
+    counted = [tr for tr in truth if tr.status != "rejected"]
+    hdr = f"{'object':<26} {'status':<9} {'first human post':<17} {'found':<6} " + " ".join(
         f"{f'@{k} hits: time / lead':<29}" for k in THRESHOLDS) + " best sig"
     print(hdr)
     print("-" * len(hdr))
@@ -220,7 +286,7 @@ def score(camera: str, start: date, end: date, workers=None, sheets: bool = True
                 cells.append("-")
         best = max((h["sig"] for t in m for h in t["hits"]), default=float("nan"))
         rows.append((tr, m))
-        print(f"{tr.label:<26} {tr.first_post:%m-%d %H:%M}        {'yes' if m else 'NO':<6} "
+        print(f"{tr.label:<26} {tr.status:<9} {tr.first_post:%m-%d %H:%M}        {'yes' if m else 'NO':<6} "
               + " ".join(f"{c:<29}" for c in cells) + f" {best:5.1f}")
     print("(lead = our time - first human post; negative = we would have been first)")
 
@@ -230,10 +296,18 @@ def score(camera: str, start: date, end: date, workers=None, sheets: bool = True
     for k in THRESHOLDS:
         at_k = [t for t in live if str(k) in t["reached"]]
         tp = [t for t in at_k if t["id"] in found_tracks]
-        rec = sum(1 for tr, m in rows if any(str(k) in t["reached"] for t in m))
+        rec = sum(1 for tr, m in rows if tr.status != "rejected" and any(str(k) in t["reached"] for t in m))
         prec = len(tp) / len(at_k) if at_k else float("nan")
-        summary[k] = {"tracks": len(at_k), "tp": len(tp), "precision": prec, "recall": rec / max(len(truth), 1)}
-        print(f"{k:>3} hits   {len(at_k):>6} {len(tp):>11} {prec:>9.2f} {rec:>4}/{len(truth):<3}")
+        summary[k] = {"tracks": len(at_k), "tp": len(tp), "precision": prec, "recall": rec / max(len(counted), 1)}
+        print(f"{k:>3} hits   {len(at_k):>6} {len(tp):>11} {prec:>9.2f} {rec:>4}/{len(counted):<3}")
+    if provisional:
+        by = {}
+        for tr, m in rows:
+            by.setdefault(tr.status, [0, 0])[0] += bool(m)
+            by[tr.status][1] += 1
+        print("claims by status (found/total): " + ", ".join(f"{k} {a}/{b}" for k, (a, b) in sorted(by.items()))
+              + ". Recall here is not trustworthy until NRL posts confirmations for these dates:"
+              " then `kreutz reports sync` and re-score.")
 
     soho = g1_visible_soho(con, start, end)
     def coincident(t):
@@ -256,13 +330,24 @@ def score(camera: str, start: date, end: date, workers=None, sheets: bool = True
     print()
     print(f"unmatched tracks (false positives unless a human missed it): {len(fps)}")
     outdir = A.derived_dir(camera) / f"sheets_{start}_{end}"
+    keep = results / "sheets"
+    (results / "tracks.json").write_text(json.dumps(live, indent=1))
     if sheets:
+        import shutil
+
         from . import contact
 
-        sheet_list = [(f"fp_{t['id']}", t) for t in fps] + \
-                     [(f"tp_{tr.label.replace(' ', '_')}_{t['id']}", t) for tr, m in rows for t in m[:1]]
-        for name, t in sheet_list:
+        if keep.exists():
+            shutil.rmtree(keep)  # results reflect this run only (git keeps history)
+        keep.mkdir(parents=True)
+        sheet_list = [(f"fp_{t['id']}", t, "5" in t["reached"]) for t in fps] + \
+                     [(f"tp_{tr.label.replace(' ', '_')}_{t['id']}", t, True) for tr, m in rows for t in m[:1]]
+        for name, t, publish in sheet_list:
             contact.contact_sheet(t, outdir / f"{name}.png")
+            if publish:
+                for ext in (".png", ".txt"):
+                    if (outdir / f"{name}{ext}").exists():
+                        shutil.copy(outdir / f"{name}{ext}", keep / f"{name}{ext}")
     for t in sorted(fps, key=lambda t: -max(h["sig"] for h in t["hits"])):
         best = max(h["sig"] for h in t["hits"])
         h0 = t["hits"][0]
@@ -272,8 +357,17 @@ def score(camera: str, start: date, end: date, workers=None, sheets: bool = True
             note += f"; during {', '.join(coincident(t))}"
         print(f"  track {t['id']:>6}: {len(t['hits'])} hits, best sig {best:5.1f}, first {h0['frame_time'][5:16]} "
               f"at ({h0['x']:.0f},{h0['y']:.0f}), v=({t['velocity'][0]:+.1f},{t['velocity'][1]:+.1f})"
-              f"{note}" + (f"  -> {outdir}/fp_{t['id']}.png" if sheets else ""))
+              f"{note}" + (f"  -> {_rel(keep if '5' in t['reached'] else outdir)}/fp_{t['id']}.png" if sheets else ""))
     return summary
+
+
+def _rel(p):
+    from .paths import ROOT
+
+    try:
+        return p.relative_to(ROOT)
+    except ValueError:
+        return p
 
 
 def _count_rejections(tracks):
