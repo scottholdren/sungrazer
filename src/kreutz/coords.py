@@ -37,6 +37,10 @@ CCOR_WIDTH = 2048
 VERIFIED_ORIENTATIONS: dict[tuple, str] = {
     ("ccor1", True, 0, 2): "2025-07-17..24, 50 positions of 8 confirmed comets; "
                            "stack peak at offset (0,0), 14x scatter",
+    # After a spacecraft yaw flip the pipeline rotates the image 180 deg (NROT90=2)
+    # so solar north stays up; the occulter arm moves from the top to the bottom.
+    ("ccor1", True, 2, 0): "2026-10-17..24, 30 positions of unreviewed (non-retracted) "
+                           "hunter reports; stack peak at offset (row 0, col -1), 13x scatter",
 }
 
 

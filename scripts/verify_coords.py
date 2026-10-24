@@ -29,15 +29,21 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--start", default="2025-07-17")
     ap.add_argument("--end", default="2025-07-25")
+    ap.add_argument("--status", nargs="+", default=["confirmed"],
+                    help="report statuses to use (recent data has only 'reported')")
+    ap.add_argument("--allow-unverified", action="store_true",
+                    help="read frames whose orientation flags are not yet verified (to verify them)")
     a = ap.parse_args()
 
-    frames = fetch.local_frames("ccor1")
+    frames = [p for p in fetch.local_frames("ccor1") if p.name.endswith("_NC.fits")]
     times = np.array([fitsio.filename_time(p.name).timestamp() for p in frames])
-    cache = {}
+    cache, flags = {}, set()
 
     def load(i):
         if i not in cache:
-            cache[i] = fitsio.read_frame(frames[i]).data
+            f = fitsio.read_frame(frames[i], check_orientation=not a.allow_unverified)
+            flags.add(coords.orientation_key(f.header))
+            cache[i] = f.data
         return cache[i]
 
     def nearest(ts):
@@ -54,8 +60,9 @@ def main():
     stacks = {k: [] for k in hyps}
     rows = db.connect().execute(
         """SELECT f.* FROM frames f JOIN reports r USING (report_id)
-           WHERE r.status = 'confirmed' AND r.camera = 'ccor1' AND f.x_ul IS NOT NULL
-             AND f.frame_time BETWEEN ? AND ?""", (a.start, a.end)).fetchall()
+           WHERE r.status IN ({}) AND r.camera = 'ccor1' AND f.x_ul IS NOT NULL
+             AND f.frame_time BETWEEN ? AND ?""".format(",".join("?" * len(a.status))),
+        (*a.status, a.start, a.end)).fetchall()
     for f in rows:
         # Hunters quote HHMM; CCOR-1 frames start at HH:MM:25.
         t = (datetime.fromisoformat(f["frame_time"]) + timedelta(seconds=25)).timestamp()
@@ -74,6 +81,7 @@ def main():
             d = load(i)[box] - np.nanmedian([load(j)[box] for j in ref], axis=0)
             if np.nanstd(d) > 0:
                 stacks[k].append(d / np.nanstd(d))
+    print("orientation flags of frames used (camera, L2RFLIP, NROT90, YAWFLIP):", sorted(flags, key=str))
     for k, st in stacks.items():
         if not st:
             print(f"{k:<16} no usable positions (frames downloaded?)")

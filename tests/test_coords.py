@@ -87,6 +87,8 @@ def _header(**kw):
 
 def test_verified_orientation_passes():
     assert coords.check_orientation(_header()) == ("ccor1", True, 0, 2)
+    # post-yaw-flip state seen from Oct 2026, verified separately
+    assert coords.check_orientation(_header(NROT90=2, YAWFLIP=0)) == ("ccor1", True, 2, 0)
 
 
 @pytest.mark.parametrize("change", [{"NROT90": 2}, {"YAWFLIP": 0}, {"L2RFLIP": False}, {"INSTRUME": "CCOR2"}])
@@ -108,7 +110,7 @@ def test_read_frame_enforces_guard(tmp_path):
     from kreutz.fitsio import read_frame
 
     p = tmp_path / "CCOR1_1B_20261024T151525_V00_NC.fits"
-    hdr = _header(NROT90=2, YAWFLIP=0)
+    hdr = _header(NROT90=1, YAWFLIP=0)  # a combination never verified
     hdr["DATE-OBS"] = "2026-10-24T15:15:25.000"
     fits.HDUList([fits.PrimaryHDU(), fits.ImageHDU(np.zeros((4, 4), np.float32), hdr)]).writeto(p)
     with pytest.raises(coords.OrientationChanged):
