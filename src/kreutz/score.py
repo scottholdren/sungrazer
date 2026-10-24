@@ -218,9 +218,12 @@ def _git_rev() -> str:
     from .paths import ROOT
 
     try:
-        rev = subprocess.run(["git", "-C", str(ROOT), "describe", "--always", "--dirty"],
+        rev = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
                              capture_output=True, text=True, check=True).stdout.strip()
-        return rev
+        # results/ is rewritten by the run itself, so it doesn't count as uncommitted code
+        dirty = subprocess.run(["git", "-C", str(ROOT), "status", "--porcelain", "--", ".", ":!results"],
+                               capture_output=True, text=True, check=True).stdout.strip()
+        return rev + ("-dirty" if dirty else "")
     except Exception:
         return "unknown"
 
