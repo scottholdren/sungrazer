@@ -109,9 +109,15 @@ _GOOD_IF_TRUE = {
     "IMGBLK_Q": "image blocks missing/bad",
     "EARFOV_Q": "Earth inside field of view",
     "MONFOV_Q": "Moon inside field of view",
-    "BORSGT_Q": "Sun outside expected boresight",
+    "BORSGT_Q": "boresight check failed",
     "GTTRAC_Q": "guide telescope not tracking",
 }
+# Flags that are reported but don't make a frame unusable (checked on real frames):
+#   MONFOV_Q  the Moon covers a small disc; the detector masks it (2025-07-24).
+#   BORSGT_Q  false every day ~03:45-06:30 UTC as the Sun passes close behind
+#             the Earth seen from GEO; images look normal (July 2025).
+ADVISORY = {"MONFOV_Q", "BORSGT_Q"}
+
 _BAD_IF_NONZERO = {
     "E_ECLPSE": "Earth eclipse state set (Sun blocked by Earth)",
     "M_ECLPSE": "Moon eclipse state set",
@@ -124,17 +130,18 @@ _BAD_IF_NONZERO = {
 class Quality:
     ok: bool
     problems: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     stats: dict[str, float] = field(default_factory=dict)
     flags: dict[str, object] = field(default_factory=dict)
 
 
 def frame_quality(header, data: np.ndarray | None = None) -> Quality:
-    problems, flags = [], {}
+    problems, warnings, flags = [], [], {}
     for key, why in _GOOD_IF_TRUE.items():
         if key in header:
             flags[key] = header[key]
             if header[key] is False:
-                problems.append(f"{key}=F: {why}")
+                (warnings if key in ADVISORY else problems).append(f"{key}=F: {why}")
     for key, why in _BAD_IF_NONZERO.items():
         if key in header:
             flags[key] = header[key]
@@ -161,4 +168,4 @@ def frame_quality(header, data: np.ndarray | None = None) -> Quality:
         # means a blank or truncated frame.
         if stats["finite_frac"] < 0.5 or stats["zero_frac"] > 0.5:
             problems.append("mostly empty image data")
-    return Quality(ok=not problems, problems=problems, stats=stats, flags=flags)
+    return Quality(ok=not problems, problems=problems, warnings=warnings, stats=stats, flags=flags)

@@ -61,6 +61,8 @@ def inspect(path: str, png: str | None = None) -> Path:
     print("\nQuality flags:", ", ".join(f"{k}={v}" for k, v in q.flags.items()))
     print("Data stats:", ", ".join(f"{k}={v:.3g}" for k, v in q.stats.items()))
     print("Verdict:", "OK" if q.ok else "PROBLEM -> " + "; ".join(q.problems))
+    if q.warnings:
+        print("Warnings (frame still usable):", "; ".join(q.warnings))
 
     out = Path(png) if png else path.with_suffix(".png")
     centre = (hdr["CRPIX2"] - 1, hdr["CRPIX1"] - 1) if "CRPIX1" in hdr else None

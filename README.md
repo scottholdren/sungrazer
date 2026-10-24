@@ -9,8 +9,9 @@ so the faint corona and anything near the Sun becomes visible. Kreutz comets sho
 up as faint dots that move in a nearly straight line toward the Sun across many
 15-minute frames, getting brighter. Stars drift slowly the other way, all together.
 
-Status: **step 1 of 5 — data layer.** We can download frames, inspect them, and
-keep a local "answer key" of what human hunters reported and what got confirmed.
+Status: **step 2 of 5 — detector on archive data.** We can download frames,
+inspect them, keep a local "answer key" of what human hunters reported and what
+got confirmed, run a detector over a date range, and grade it against the key.
 
 ## Setup
 
@@ -38,6 +39,13 @@ python -m kreutz reports sync [--camera ccor1 ccor2] [--since 2025-01-01] [--for
 
 # Reports whose first frame is in a window.
 python -m kreutz reports list --camera ccor1 --start 2025-07-17 --end 2025-07-24
+
+# Run the detector (cached per frame/window; rerunning is cheap).
+python -m kreutz detect --camera ccor1 --start 2025-07-17 --end 2025-07-24 \
+    [--dump CCOR1_1B_20250717T074525_V00_NC.fits]   # write every stage of that frame
+
+# Grade it against the answer key; writes contact sheets for every unmatched track.
+python -m kreutz score --camera ccor1 --start 2025-07-17 --end 2025-07-24
 ```
 
 ## Data sources (verified 2026-10-24)
@@ -85,11 +93,18 @@ and sits near report coordinates (1041, 962).
 (mid-exposure, ~14 s later) is kept for precise motion fits. All UTC.
 
 **Quality** (`kreutz.fitsio.frame_quality`): the header carries telemetry checks.
-`*_Q` flags are True when things are *good*. We flag a frame when any of these is
-off: `ISNORMAL`, `DCMPRS_Q`, `IMGBLK_Q`, `EARFOV_Q` (Earth in view), `MONFOV_Q`
-(Moon in view), `BORSGT_Q`, `GTTRAC_Q`; or when `E_ECLPSE`/`M_ECLPSE` (Earth/Moon
-eclipse state), `BADBLK_N`/`MISBLK_N` are non-zero; door not `OPEN`; `MAJSTORM`
-(particle storm); or the image is mostly empty.
+`*_Q` flags are True when things are *good*. A frame is unusable when any of
+these is off: `ISNORMAL`, `DCMPRS_Q`, `IMGBLK_Q`, `EARFOV_Q` (Earth in view),
+`GTTRAC_Q`; or when `E_ECLPSE`/`M_ECLPSE` (Earth/Moon eclipse state),
+`BADBLK_N`/`MISBLK_N` are non-zero; door not `OPEN`; `MAJSTORM` (particle
+storm); or the image is mostly empty.
+
+Two flags are only *warnings*, after looking at the frames they mark:
+`MONFOV_Q=F` (the Moon is in view, a small disc the detector masks; new Moon
+2025-07-24 put it in the field for 18 h, during which hunters found CCR1 0079) and
+`BORSGT_Q=F` (false every day ~03:45–06:30 UTC as the Sun passes close behind
+the Earth seen from GEO; images are normal). Treating them as fatal cost two of
+the eight benchmark comets.
 
 ## Coordinate convention (fixed; tested in `tests/test_coords.py`)
 
@@ -125,6 +140,24 @@ size, `L2RFLIP`/`RECTIFY` set identically); it has not yet been checked against
 confirmed CCOR-2 comets. Hunter positions are good to about a pixel, so 0- vs 1-based can't be told
 apart from this; we chose 0-based.
 
+### Orientation guard
+
+The pipeline records how it flipped/rotated each image (`L2RFLIP`, `NROT90`) and
+the spacecraft's yaw state (`YAWFLIP`). The convention above has been verified
+only for the combinations in `coords.VERIFIED_ORIENTATIONS`:
+
+| camera | L2RFLIP, NROT90, YAWFLIP | seen | verified with |
+|---|---|---|---|
+| ccor1 | T, 0, 2 | Jul 2025 | 50 positions of 8 confirmed comets, peak at (0, 0) |
+| ccor1 | T, 2, 0 | Oct 2026 (after a yaw flip) | 30 positions of unreviewed hunter claims, peak at (0, -1) |
+
+After the yaw flip the pipeline rotates the image 180° so solar north stays up;
+the occulter arm, fixed to the instrument, moves from the top to the bottom of
+the picture. Any other combination makes `read_frame` raise
+`OrientationChanged`; verify it with `scripts/verify_coords.py
+--allow-unverified` before adding it. The fetcher prints each day's flags.
+CCOR-2 has no verified combination yet, so the detector refuses its frames.
+
 ## Answer key: `data/reports.sqlite`
 
 * `reports`: `report_id`, `reporter`, `report_timestamp` (posting time, UTC),
@@ -157,3 +190,58 @@ Quirks we handle (worth knowing when reading reports):
 
 Benchmark week 2025-07-17..24 (CCOR-1): 8 confirmed comets, CCR1 0073–0080,
 all linked to their reports.
+
+## Detector (`src/kreutz/detect/`)
+
+Three stages, each cached under `data/derived/<camera>/<version>/` and each
+inspectable (`--dump` writes every intermediate array of a frame as .npy + .png):
+
+**A. Per frame** (`detect/frames.py`). Exact zeros are pipeline fill and become
+NaN like the occulter and field edge. *Background* = median of the previous 16
+good frames (~4 h); anything static that long is corona, glow or occulter.
+*Stars*: the ~300 brightest point sources of this frame and of each of the 8
+before it are matched (a vote over pairwise offsets, then a rotation +
+translation fit); the earlier frames are warped onto this one and their median is
+a stars-only model, which is subtracted. Pixels within 4 px of stars in the
+model are masked. The measured drift is ~(+2.0, −0.3) px/frame in July 2025:
+stars move right (west), as they should. *DoG* (σ 1.2 / 4.0 px) keeps point
+sources; dividing by the local noise gives significance; the map is saved at
+half resolution.
+
+**B. Per window of 8 frames** (`detect/stack.py`). For every trial velocity the
+8 maps are shifted back along that path and summed (÷√8), so an object moving at
+that velocity piles up at its newest position. Maps are clipped to [−3, +8]σ
+first, so a single-frame cosmic ray adds at most 2.8σ. Shifts use real frame
+times, so gaps are fine. The velocity grid comes from the answer key: the line
+fitted to every confirmed CCOR-1 report (102 of them: vx −10.3…10.8, vy −8.0…3.0
+px/frame) plus 2 px/frame margin, every 0.5 px/frame, 1,664 velocities. Peaks
+above 5σ are kept.
+
+**C. Tracking** (`detect/track.py`). Windows slide one frame at a time. A peak
+that turns up where the previous window predicted (within 6 px and 2 px/frame)
+in 3 consecutive windows becomes a candidate, then is followed through up to 2
+missed windows. The times it reached 3, 4 and 5 hits are recorded separately;
+which of those is "good enough to submit" is decided from the scorecard, not
+in code.
+
+Frames that fail the quality check, and the binned `*_0C.fits` campaign frames
+(e.g. 2025-07-18 03:45–06:20), are left out entirely. The Moon, when in view, is
+masked: any connected region > 1.3× background and > 2,000 px, plus 25 px.
+
+One object gives several nearby stack peaks (neighbouring velocities), so a
+peak within 12 px of one already claimed in the same window doesn't start a new
+track, and candidate tracks that share ≥ 2 hit times within 8 px are merged
+into the longest.
+
+### Rejection rules and why each exists
+
+A candidate track is rejected (kept in the output, marked `rejected:<rule>`) if:
+
+| rule | test | why |
+|---|---|---|
+| `stationary` | speed < 1 px/frame | Things that don't move relative to the Sun are residual background (glare, hot pixels, slowly changing corona). Slowest confirmed comet: 3 px/frame. |
+| `star-drift` | velocity within 1.5 px/frame of the measured star drift | Imperfectly subtracted stars move together at the drift velocity. |
+| `outbound` | moving away from the Sun (cos of angle to the Sun direction < 0) | Kreutz comets are seen falling inward. Cost: 6 of 106 confirmed CCOR-1 reports moved away from the Sun: 5 Kracht II / non-group, 1 Kreutz moving nearly sideways. |
+| `glare-zone` | median distance from the Sun < 320 px | Variable glare at the occulter rim dominated the false positives (250 of 452 surviving tracks on 2025-07-17). Confirmed comets were never reported inside 392 px, and we want them earlier than that anyway. |
+| `edge` | never more than 25 px from the occulter, arm, field edge or array edge | The background and noise estimates break down at the borders of valid data. Cost: a comet entering the field is flagged ~3 frames later. |
+| `extended` | blob under the hits has median axis ratio > 3 | Streamer edges and other linear structures that survive the DoG filter drift slowly and look like movers. |

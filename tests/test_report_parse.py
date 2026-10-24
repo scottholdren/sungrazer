@@ -151,3 +151,13 @@ def test_confirmed_followup_not_overridden_by_rejected_parent():
     db.recompute_status(con)
     st = dict(con.execute("SELECT report_id, status FROM reports").fetchall())
     assert st == {"report_jr_20250717030831": "rejected", "report_jr_20250717052526": "confirmed"}
+
+
+def test_images_of_ranges():
+    from kreutz.score import images_of_range
+
+    assert images_of_range("Jul23-25,25") == (date(2025, 7, 23), date(2025, 7, 25))
+    assert images_of_range("Jul31-Aug01,25") == (date(2025, 7, 31), date(2025, 8, 1))
+    assert images_of_range("Jul08,25") == (date(2025, 7, 8), date(2025, 7, 8))
+    assert images_of_range("Jul24-25.26", year=2025) == (date(2025, 7, 24), date(2025, 7, 25))
+    assert images_of_range("") is None
