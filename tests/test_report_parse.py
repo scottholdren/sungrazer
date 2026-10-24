@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from kreutz.reports import db, parse
@@ -40,6 +40,13 @@ def test_frames_bad_lines_are_kept_not_dropped():
 
 
 # --- timestamps ------------------------------------------------------------------
+
+def test_report_id_offset_is_5h_in_january_4h_in_july():
+    for rid, naive, hours in [("report_jr_20250122194256", datetime(2025, 1, 22, 19, 42, 56), 5),
+                              ("report_jr_20250717052526", datetime(2025, 7, 17, 5, 25, 26), 4)]:
+        utc = parse.id_timestamp(rid)
+        assert utc - naive.replace(tzinfo=UTC) == timedelta(hours=hours)
+
 
 def test_report_id_is_eastern_time():
     # July: EDT = UTC-4
