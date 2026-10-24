@@ -48,6 +48,15 @@ python -m kreutz detect --camera ccor1 --start 2025-07-17 --end 2025-07-24 \
 python -m kreutz score --camera ccor1 --start 2025-07-17 --end 2025-07-24
 ```
 
+## Results (`results/`, committed)
+
+Every `kreutz score` run writes `results/<camera>/<start>_<end>/`:
+`scorecard.txt` (all printed output, headed by the code commit and stage
+versions), `tracks.json` (tracks that survived the rejection rules) and
+`sheets/` (contact sheets of every true positive and every unmatched track that
+reached 5 hits; the rest stay in `data/derived/`). Each run replaces the
+previous one; compare runs with `git log -p results/`.
+
 ## Data sources (verified 2026-10-24)
 
 | what | where | notes |
