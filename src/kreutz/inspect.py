@@ -51,6 +51,12 @@ def inspect(path: str, png: str | None = None) -> Path:
         print(f"  -> Sun centre (WCS) at report coords x={x:.1f}, y={y:.1f} "
               f"(origin upper-left, see README)")
 
+    try:
+        key = coords.check_orientation(hdr, source=path.name)
+        print(f"Orientation flags {key}: verified")
+    except coords.OrientationChanged as e:
+        print(f"WARNING: {e}")
+
     q = frame_quality(hdr, data)
     print("\nQuality flags:", ", ".join(f"{k}={v}" for k, v in q.flags.items()))
     print("Data stats:", ", ".join(f"{k}={v:.3g}" for k, v in q.stats.items()))

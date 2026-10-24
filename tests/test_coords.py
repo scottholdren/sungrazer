@@ -70,3 +70,47 @@ def test_sun_centre_in_report_coords():
     # The occulter covers the Sun: the pixel there is blank/NaN or very dark.
     v = f.data[int(round(row)), int(round(col))]
     assert not np.isfinite(v) or v < np.nanpercentile(f.data, 5)
+
+
+# --- orientation guard ---------------------------------------------------------------
+
+def _header(**kw):
+    from astropy.io import fits
+
+    h = fits.Header()
+    h["INSTRUME"] = "CCOR1"
+    h["L2RFLIP"], h["NROT90"], h["YAWFLIP"] = True, 0, 2
+    for k, v in kw.items():
+        h[k] = v
+    return h
+
+
+def test_verified_orientation_passes():
+    assert coords.check_orientation(_header()) == ("ccor1", True, 0, 2)
+
+
+@pytest.mark.parametrize("change", [{"NROT90": 2}, {"YAWFLIP": 0}, {"L2RFLIP": False}, {"INSTRUME": "CCOR2"}])
+def test_changed_orientation_raises(change):
+    with pytest.raises(coords.OrientationChanged):
+        coords.check_orientation(_header(**change))
+
+
+def test_missing_flags_raise():
+    h = _header()
+    del h["YAWFLIP"]
+    with pytest.raises(coords.OrientationChanged):
+        coords.check_orientation(h)
+
+
+def test_read_frame_enforces_guard(tmp_path):
+    from astropy.io import fits
+
+    from kreutz.fitsio import read_frame
+
+    p = tmp_path / "CCOR1_1B_20261024T151525_V00_NC.fits"
+    hdr = _header(NROT90=2, YAWFLIP=0)
+    hdr["DATE-OBS"] = "2026-10-24T15:15:25.000"
+    fits.HDUList([fits.PrimaryHDU(), fits.ImageHDU(np.zeros((4, 4), np.float32), hdr)]).writeto(p)
+    with pytest.raises(coords.OrientationChanged):
+        read_frame(p)
+    assert read_frame(p, check_orientation=False).data.shape == (4, 4)

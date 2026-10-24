@@ -21,6 +21,8 @@ from pathlib import Path
 import numpy as np
 from astropy.io import fits
 
+from . import coords
+
 _FILENAME_TIME = re.compile(r"_(\d{8}T\d{6})_")
 
 
@@ -80,7 +82,8 @@ def image_hdu_index(hdul) -> int:
     raise ValueError("no 2-D image HDU")
 
 
-def read_frame(path: str | Path) -> Frame:
+def read_frame(path: str | Path, check_orientation: bool = True) -> Frame:
+    """Load a frame. Raises coords.OrientationChanged on unverified orientation flags."""
     path = Path(path)
     with warnings.catch_warnings():
         # L1B files carry a BLANK keyword on float data; harmless, astropy complains.
@@ -90,6 +93,8 @@ def read_frame(path: str | Path) -> Frame:
             data = np.asarray(h.data, dtype=np.float32)
             header = h.header.copy()
     camera = str(header.get("INSTRUME", "")).strip().lower() or path.name.split("_")[0].lower()
+    if check_orientation:
+        coords.check_orientation(header, camera, source=path.name)
     return Frame(path, data, header, obs_time(header, path), camera)
 
 

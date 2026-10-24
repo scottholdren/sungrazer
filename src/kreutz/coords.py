@@ -18,12 +18,46 @@ Some hunters choose another corner ("Lower Left", "Upper/Lower Right"); those
 are mirrored into this convention on import (normalize_origin).
 Verified against confirmed comet reports by scripts/verify_coords.py; tested in tests/test_coords.py.
 Do not change this without updating the README and the tests.
+
+ORIENTATION GUARD
+The ground pipeline may flip/rotate the image before writing it (it records
+what it did in L2RFLIP, NROT90; YAWFLIP is the spacecraft's yaw state). The
+convention above was verified only for the flag combinations listed in
+VERIFIED_ORIENTATIONS. A frame with any other combination raises
+OrientationChanged: re-run scripts/verify_coords.py on frames with the new
+flags, and add them here (with the evidence) only if it passes.
 """
 
 from __future__ import annotations
 
 CCOR_HEIGHT = 1920
 CCOR_WIDTH = 2048
+
+# (camera, L2RFLIP, NROT90, YAWFLIP) -> how it was verified
+VERIFIED_ORIENTATIONS: dict[tuple, str] = {
+    ("ccor1", True, 0, 2): "2025-07-17..24, 50 positions of 8 confirmed comets; "
+                           "stack peak at offset (0,0), 14x scatter",
+}
+
+
+class OrientationChanged(Exception):
+    """A frame's orientation flags differ from every combination we verified."""
+
+
+def orientation_key(header, camera: str | None = None) -> tuple:
+    cam = (camera or str(header.get("INSTRUME", "")).strip()).lower()
+    return (cam, header.get("L2RFLIP"), header.get("NROT90"), header.get("YAWFLIP"))
+
+
+def check_orientation(header, camera: str | None = None, source: str = "") -> tuple:
+    """Return the flag key, or raise OrientationChanged if it was never verified."""
+    key = orientation_key(header, camera)
+    if key not in VERIFIED_ORIENTATIONS:
+        verified = ", ".join(str(k) for k in VERIFIED_ORIENTATIONS)
+        raise OrientationChanged(
+            f"{source or 'frame'}: orientation flags (camera, L2RFLIP, NROT90, YAWFLIP) = {key} "
+            f"not verified (verified: {verified}). Run scripts/verify_coords.py on these frames.")
+    return key
 
 
 def fits_to_report(col: float, row: float, height: int = CCOR_HEIGHT) -> tuple[float, float]:

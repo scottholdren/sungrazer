@@ -8,11 +8,14 @@ which source supplied it. Existing files are never re-downloaded.
 from __future__ import annotations
 
 import re
+import warnings
 from datetime import date, datetime, timedelta, timezone
 from xml.etree import ElementTree
 
-from . import cameras, net, paths
-from .fitsio import filename_time
+from astropy.io import fits
+
+from . import cameras, coords, net, paths
+from .fitsio import filename_time, image_hdu_index
 
 S3_NS = {"s3": "http://s3.amazonaws.com/doc/2006-03-01/"}
 
@@ -61,7 +64,7 @@ def fetch_archive(camera_id: str, start: date, end: date) -> dict[str, int]:
         counts["downloaded"] += new
         counts["already_had"] += len(items) - new
         if items:
-            print(f"{day}: {len(items)} frames ({new} new)", flush=True)
+            print(f"{day}: {len(items)} frames ({new} new); {orientation_note(cam.id, day)}", flush=True)
         day += timedelta(days=1)
     return counts
 
@@ -79,17 +82,35 @@ def fetch_live(camera_id: str, hours: float = 6, force: bool = False) -> dict[st
         return {"downloaded": 0, "already_had": 0}
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     counts = {"downloaded": 0, "already_had": 0}
+    days: set[date] = set()
     for url in live_urls(cam):
         name = url.rsplit("/", 1)[1]
         t = filename_time(name)
         if t < cutoff:
             continue
         dest = paths.frame_dir(cam.id, f"{t:%Y%m%d}") / name
+        days.add(t.date())
         if net.download(url, dest):
             counts["downloaded"] += 1
         else:
             counts["already_had"] += 1
+    for d in sorted(days):
+        print(f"{d}: {orientation_note(cam.id, d)}")
     return counts
+
+
+def orientation_note(camera_id: str, day: date) -> str:
+    """Orientation flags of the day's first frame on disk, and whether they're verified."""
+    frames = local_frames(camera_id, day, day)
+    if not frames:
+        return "no frames"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with fits.open(frames[0]) as hdul:
+            h = hdul[image_hdu_index(hdul)].header
+    key = coords.orientation_key(h, camera_id)
+    ok = "verified" if key in coords.VERIFIED_ORIENTATIONS else "NOT VERIFIED"
+    return f"orientation (L2RFLIP, NROT90, YAWFLIP) = {key[1:]} {ok}"
 
 
 def live_urls(cam: cameras.Camera) -> list[str]:
