@@ -116,3 +116,20 @@ def test_read_frame_enforces_guard(tmp_path):
     with pytest.raises(coords.OrientationChanged):
         read_frame(p)
     assert read_frame(p, check_orientation=False).data.shape == (4, 4)
+
+
+def test_report_mapping_is_keyed_by_evidence_not_declared_size():
+    from datetime import date
+
+    d = date(2025, 7, 1)
+    assert coords.report_mapping("A", (2048, 1920), d, [10], [10])[0] == "full"
+    assert coords.report_mapping("A", None, d, [10], [10])[0] == "full"  # no size given: assumed full
+    # declares 1024x1024 but quotes y = 1272: measured on the full frame
+    assert coords.report_mapping("A", (1024, 1024), d, [4, 13], [1271, 1272])[0] == "full"
+    assert coords.report_mapping("A", (1024, 1024), d, [400], [800])[0] == "unmapped"
+    assert coords.report_mapping("A", (1024, 960), d, [400], [800])[0] == "unmapped"
+    kind, t = coords.report_mapping("Bill Collins", (1024, 1024), date(2026, 10, 19), [897], [924])
+    assert kind == "transform"
+    assert t.apply(897, 924) == pytest.approx((1866.5, 1300.0), abs=1)
+    # same reporter outside the verified dates: unknown crop, so unmapped even with no size given
+    assert coords.report_mapping("Bill Collins", None, date(2026, 9, 1), [880], [770])[0] == "unmapped"

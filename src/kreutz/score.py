@@ -12,9 +12,19 @@ A track matches a truth object when at least MATCH_HITS of its hits lie within
 MATCH_PX of the object's straight-line path (fitted to the hunters' positions)
 at the same time, within +-MATCH_HOURS of the hunters' first/last frame.
 
-Lead time at threshold k = (time of the newest frame in the window where the
-track got its k-th hit; processing taken as ~0) - (first human posting time).
-Negative = we would have been first.
+A track counts at threshold k only if it was submittable then: its status
+when it got its k-th hit (status_at), not its final status. A rule that fires
+later (glare-zone as the comet nears the occulter, say) is listed but doesn't
+un-find the comet.
+
+Lead time at threshold k = (exposure start of the newest frame in the window
+where the track got its k-th hit) - (first human posting time); negative = we
+would have been first. "Real" lead adds what that frame time leaves out:
+SWPC's publication lag (median, measured from the live listing), half our
+15-minute poll interval on average, and PROCESSING_S to run the new window.
+
+Reports whose positions can't be mapped to CCOR pixels (coords.report_mapping)
+have no positions and so never become truth objects; they're counted.
 """
 
 from __future__ import annotations
@@ -37,6 +47,23 @@ MATCH_PX = 12.0
 MATCH_HITS = 2
 MATCH_HOURS = 3.0
 THRESHOLDS = (3, 4, 5)
+PROCESSING_S = 30.0  # stage A on one new frame (27 s, incl. reading its history) + stage B on its window (2 s); 2026-10-25
+
+
+def live_at(track: dict, k: int) -> bool:
+    return track.get("status_at", {}).get(str(k)) == "candidate"
+
+
+def latency_s(camera: str) -> tuple[float, str]:
+    """Seconds between a frame's exposure start and our verdict on its window."""
+    from . import fetch, net
+
+    lag = fetch.publication_lag(camera)
+    pub = lag["median_min"] * 60 if lag else 0.0
+    total = pub + net.POLL_INTERVAL_S / 2 + PROCESSING_S
+    src = lag["text"] if lag else "no publication log yet (run `kreutz fetch --live`); publication lag taken as 0"
+    return total, (f"latency {total / 60:.1f} min = publication {pub / 60:.1f} + poll wait {net.POLL_INTERVAL_S / 120:.1f}"
+                   f" + processing {PROCESSING_S / 60:.1f}. {src}")
 
 
 @dataclass
@@ -261,51 +288,78 @@ def _score(camera, start, end, workers, sheets, results) -> dict:
     con = db.connect()
     truth, provisional = truths(con, camera, start, end)
     others = other_reports(con, camera, start, end)
-    live = [t for t in tracks if t["status"] == "candidate"]
+    live = [t for t in tracks if any(live_at(t, k) for k in THRESHOLDS)]  # submittable at some threshold
+    lat, lat_text = latency_s(camera)
+    lo, hi = start.isoformat(), (end + timedelta(days=1)).isoformat()
+    unmapped = con.execute("SELECT report_id, reporter, image_size, status FROM reports WHERE camera=? AND "
+                           "image_date >= ? AND image_date < ? AND mapping='unmapped' AND "
+                           "sighting_type='Potential Comet' AND status != 'retracted'", (camera, lo, hi)).fetchall()
+    transformed = con.execute("SELECT report_id FROM reports WHERE camera=? AND image_date >= ? AND image_date < ? "
+                              "AND mapping='transform'", (camera, lo, hi)).fetchall()
 
     print()
     print(f"=== {camera} {start}..{end}: {len(truth)} truth objects"
           + (" (PROVISIONAL: no confirmation list covers this window; using hunter claims)" if provisional else ""))
-    print(f"    {len(tracks)} candidate tracks, {len(live)} after rejection rules "
-          f"({', '.join(f'{k}: {v}' for k, v in _count_rejections(tracks).items())})")
+    if unmapped:
+        print(f"    left out, positions not mappable to CCOR pixels: "
+              + ", ".join(f"{r[0]} ({r[1]}, {r[2] or 'no size'}, {r[3]})" for r in unmapped))
+    if transformed:
+        print(f"    mapped with a fitted reporter transform (coords.REPORT_TRANSFORMS): "
+              + ", ".join(r[0] for r in transformed))
+    print(f"    {len(tracks)} candidate tracks, {len(live)} submittable at 3, 4 or 5 hits; final status of all: "
+          f"{len(tracks) - sum(1 for t in tracks if t['status'].startswith('rejected'))} live, "
+          f"{', '.join(f'{k}: {v}' for k, v in _count_rejections(tracks).items())}")
+    print(f"    {lat_text}")
     print()
     counted = [tr for tr in truth if tr.status != "rejected"]
     hdr = f"{'object':<26} {'status':<9} {'first human post':<17} {'found':<6} " + " ".join(
-        f"{f'@{k} hits: time / lead':<29}" for k in THRESHOLDS) + " best sig"
+        f"{f'@{k} hits: time / lead / real':<36}" for k in THRESHOLDS) + " best sig"
     print(hdr)
     print("-" * len(hdr))
     found_tracks = set()
     rows = []
     for tr in truth:
-        m = [t for t in live if matches(t, tr)]
+        allm = [t for t in tracks if matches(t, tr)]
+        m = [t for t in allm if t in live]
         found_tracks.update(t["id"] for t in m)
         cells = []
         for k in THRESHOLDS:
-            reached = [datetime.fromisoformat(t["reached"][str(k)]) for t in m if str(k) in t["reached"]]
+            reached = [datetime.fromisoformat(t["reached"][str(k)]) for t in m if live_at(t, k)]
             if reached:
                 when = min(reached)
-                cells.append(f"{when:%m-%d %H:%M} / {_hours(when - tr.first_post)}")
+                cells.append(f"{when:%m-%d %H:%M} / {_hours(when - tr.first_post)} / "
+                             f"{_hours(when + timedelta(seconds=lat) - tr.first_post)}")
             else:
                 cells.append("-")
         best = max((h["sig"] for t in m for h in t["hits"]), default=float("nan"))
-        rows.append((tr, m))
+        rows.append((tr, m, allm))
         print(f"{tr.label:<26} {tr.status:<9} {tr.first_post:%m-%d %H:%M}        {'yes' if m else 'NO':<6} "
-              + " ".join(f"{c:<29}" for c in cells) + f" {best:5.1f}")
-    print("(lead = our time - first human post; negative = we would have been first)")
+              + " ".join(f"{c:<36}" for c in cells) + f" {best:5.1f}")
+    print("(lead = our frame time - first human post; real = lead + latency above; negative = we would have been first)")
+
+    print()
+    print("status of every track matching a truth object, when it reached 3 / 4 / 5 hits, and at the end:")
+    for tr, m, allm in rows:
+        if not allm:
+            print(f"  {tr.label:<26} no track at all")
+        for t in sorted(allm, key=lambda t: t["hits"][0]["frame_time"]):
+            at = " / ".join(t.get("status_at", {}).get(str(k), "-") for k in THRESHOLDS)
+            print(f"  {tr.label:<26} track {t['id']:>6} ({len(t['hits'])} hits, {t['merged']} merged): {at}; "
+                  f"final {t['status']}")
 
     print()
     print(f"{'threshold':<10} {'tracks':>6} {'match truth':>11} {'precision':>9} {'recall':>8}")
     summary = {}
     for k in THRESHOLDS:
-        at_k = [t for t in live if str(k) in t["reached"]]
+        at_k = [t for t in tracks if live_at(t, k)]
         tp = [t for t in at_k if t["id"] in found_tracks]
-        rec = sum(1 for tr, m in rows if tr.status != "rejected" and any(str(k) in t["reached"] for t in m))
+        rec = sum(1 for tr, m, _ in rows if tr.status != "rejected" and any(live_at(t, k) for t in m))
         prec = len(tp) / len(at_k) if at_k else float("nan")
         summary[k] = {"tracks": len(at_k), "tp": len(tp), "precision": prec, "recall": rec / max(len(counted), 1)}
         print(f"{k:>3} hits   {len(at_k):>6} {len(tp):>11} {prec:>9.2f} {rec:>4}/{len(counted):<3}")
     if provisional:
         by = {}
-        for tr, m in rows:
+        for tr, m, _ in rows:
             by.setdefault(tr.status, [0, 0])[0] += bool(m)
             by[tr.status][1] += 1
         print("claims by status (found/total): " + ", ".join(f"{k} {a}/{b}" for k, (a, b) in sorted(by.items()))
@@ -326,7 +380,7 @@ def _score(camera, start, end, workers, sheets, results) -> dict:
         print()
         print(f"{'threshold':<10} {'precision excluding tracks on those dates':>42}")
         for k in THRESHOLDS:
-            at_k = [t for t in live if str(k) in t["reached"] and not (t["id"] not in found_tracks and coincident(t))]
+            at_k = [t for t in tracks if live_at(t, k) and not (t["id"] not in found_tracks and coincident(t))]
             tp = [t for t in at_k if t["id"] in found_tracks]
             print(f"{k:>3} hits   {len(tp)}/{len(at_k)} = {len(tp) / len(at_k) if at_k else float('nan'):.2f}")
             summary[k]["precision_excl_soho_dates"] = len(tp) / len(at_k) if at_k else float("nan")
@@ -344,7 +398,7 @@ def _score(camera, start, end, workers, sheets, results) -> dict:
             shutil.rmtree(keep)  # results reflect this run only (git keeps history)
         keep.mkdir(parents=True)
         sheet_list = [(f"fp_{t['id']}", t, "5" in t["reached"]) for t in fps] + \
-                     [(f"tp_{tr.label.replace(' ', '_')}_{t['id']}", t, True) for tr, m in rows for t in m[:1]]
+                     [(f"tp_{tr.label.replace(' ', '_')}_{t['id']}", t, True) for tr, m, _ in rows for t in m[:1]]
         for name, t, publish in sheet_list:
             contact.contact_sheet(t, outdir / f"{name}.png")
             if publish:

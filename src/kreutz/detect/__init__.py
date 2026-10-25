@@ -111,7 +111,7 @@ def _stage_b_window(args):
     best, arg = B.stack_window(maps, times, grid)
     valid = np.isfinite(maps[-1])
     peaks = B.find_peaks(best, arg, valid, times[-1], grid, height=maps[-1].shape[0] * B.DS,
-                         edge=B.edge_distance(maps[-1]), newest=maps[-1])
+                         edge=B.edge_distance(maps[-1]), cutouts=B.Cutouts(maps, times, grid))
     out = peaks_path(camera, names[-1], grid)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps([asdict(p) for p in peaks]))
@@ -191,6 +191,7 @@ def track_dict(t: Track, camera: str) -> dict:
         "velocity": [vx, vy],
         "first_seen": _iso(t.hits[0].t),
         "reached": {str(k): _iso(v) for k, v in t.reached.items()},
+        "status_at": {str(k): v for k, v in t.status_at.items()},
         "star_drift": t.star_drift, "sun_xy": t.sun_xy,
         "hits": [{"frame_time": _iso(h.t), "x": h.x, "y": h.y, "sig": h.sig, "vx": h.vx, "vy": h.vy,
                   "edge": h.edge, "elong": h.elong} for h in t.hits],

@@ -13,6 +13,14 @@ a single-frame spike loses everything. (Earlier versions clipped each map at
 bright objects tied there, so ranking by significance meant nothing.) Maps are
 still clipped at -3 sigma so a masked-star hole can't cancel a real object.
 
+Shape (the "extended" rule): measured on the stack at the peak's own velocity,
+not on one frame. A comet piles up into a compact blob; a streamer edge sliding
+at the trial velocity stays a long ridge. The blob is cut at a quarter of the
+peak (at least 2.5 sigma), so a bright comet's tail falls below the cut and its
+head is what's measured. On the two test weeks this puts all 13 true comets at
+1.0-2.2 and the recurring streamer tracks at 2.6-10.8; the single-frame measure
+had them overlapping and rejected the bright Oct 19 2026 comet as extended.
+
 Work is done on the 2x-downsampled maps (half resolution). Shifts use the real
 time gaps between frames, so missing frames don't break the motion model.
 `backend` is a hook for a GPU version later; only "numpy" exists.
@@ -27,7 +35,7 @@ from scipy import ndimage
 
 from .velocity import FRAME_SECONDS, VelocityGrid
 
-VERSION = "b2"  # bump when stacking or peak finding changes (cached peaks are keyed on it)
+VERSION = "b3"  # bump when stacking or peak finding changes (cached peaks are keyed on it)
 N_FRAMES = 8
 MIN_FRAMES = 6  # a window needs this many good maps among its N
 MAX_SPAN_FRAMES = 14  # ...spanning at most this many 15-min slots (allows gaps)
@@ -46,7 +54,7 @@ class Peak:
     vy: float
     sig: float
     edge: float | None = None  # distance (full-res px) to the nearest large invalid region
-    elong: float | None = None  # axis ratio of the blob under the peak in the newest frame
+    elong: float | None = None  # axis ratio of the blob under the peak, in the stack at the peak's velocity
 
 
 def _shift_add(acc: np.ndarray, mx: np.ndarray, m: np.ndarray, dr: int, dc: int) -> None:
@@ -139,9 +147,40 @@ def elongation(sig: np.ndarray, r: int, c: int, half: int = 12, level: float = 2
     return float(np.sqrt(max(ev[1], 1e-6) / max(ev[0], 0.08)))
 
 
+class Cutouts:
+    """Stacked boxes around any pixel at any velocity, for shape measurements."""
+
+    def __init__(self, maps: list[np.ndarray], times: list[float], grid: VelocityGrid, half: int = 12):
+        self.dts = [(times[-1] - t) / FRAME_SECONDS for t in times]
+        vmax = max(np.abs(grid.vx).max(), np.abs(grid.vy).max()) / DS
+        self.half, self.pad = half, half + int(np.ceil(vmax * max(self.dts))) + 1
+        self.maps = [np.pad(np.maximum(np.nan_to_num(m, nan=0.0), FLOOR), self.pad, constant_values=0.0)
+                     for m in maps]
+        self.norm = 1.0 / np.sqrt(len(maps) - 1)
+
+    def box(self, r: int, c: int, vx: float, vy: float) -> np.ndarray:
+        """(2*half+1)^2 sum-minus-max stack centred on half-res pixel (r, c) of the newest map."""
+        h, n = self.half, 2 * self.half + 1
+        acc = np.zeros((n, n), np.float32)
+        mx = np.full((n, n), FLOOR, np.float32)
+        for m, dt in zip(self.maps, self.dts):
+            r0 = r - int(round(-vy / DS * dt)) + self.pad - h
+            c0 = c - int(round(vx / DS * dt)) + self.pad - h
+            src = m[r0:r0 + n, c0:c0 + n]
+            acc += src
+            np.maximum(mx, src, out=mx)
+        return (acc - mx) * self.norm
+
+
+def stacked_elongation(cut: Cutouts, r: int, c: int, vx: float, vy: float) -> float:
+    box = cut.box(r, c, vx, vy)
+    h = cut.half
+    return elongation(box, h, h, half=h, level=max(2.5, 0.25 * float(box[h - 2:h + 3, h - 2:h + 3].max())))
+
+
 def find_peaks(best: np.ndarray, arg: np.ndarray, valid: np.ndarray, t: float, grid: VelocityGrid,
                height: int, threshold: float = PEAK_THRESHOLD, max_peaks: int = MAX_PEAKS,
-               edge: np.ndarray | None = None, newest: np.ndarray | None = None) -> list[Peak]:
+               edge: np.ndarray | None = None, cutouts: Cutouts | None = None) -> list[Peak]:
     b = np.where(valid, best, -np.inf)
     local = (b == ndimage.maximum_filter(b, size=5)) & (b > threshold)
     rows, cols = np.nonzero(local)
@@ -152,8 +191,9 @@ def find_peaks(best: np.ndarray, arg: np.ndarray, valid: np.ndarray, t: float, g
         x, y = coords_from_ds(c, r, height)
         vi = arg[r, c]
         e = None if edge is None else float(edge[r, c] * DS)
-        el = None if newest is None else elongation(newest, r, c)
-        out.append(Peak(t, x, y, float(grid.vx[vi]), float(grid.vy[vi]), float(b[r, c]), e, el))
+        vx, vy = float(grid.vx[vi]), float(grid.vy[vi])
+        el = None if cutouts is None else stacked_elongation(cutouts, int(r), int(c), vx, vy)
+        out.append(Peak(t, x, y, vx, vy, float(b[r, c]), e, el))
     return out
 
 

@@ -7,11 +7,13 @@ which source supplied it. Existing files are never re-downloaded.
 
 from __future__ import annotations
 
+import json
 import re
 import warnings
 from datetime import date, datetime, timedelta, timezone
 from xml.etree import ElementTree
 
+import numpy as np
 from astropy.io import fits
 
 from . import cameras, coords, net, paths
@@ -73,17 +75,21 @@ def fetch_live(camera_id: str, hours: float = 6, force: bool = False) -> dict[st
     """Download frames from the last `hours` of the SWPC real-time index that we lack.
 
     The index covers ~30 days (~20 GB), so we deliberately don't take all of it;
-    use the archive fetch for history.
+    use the archive fetch for history. Every poll also logs when each file was
+    published (record_publication), for the latency in the scorecard's leads.
     """
     cam = cameras.get(camera_id)
     allowed, wait = net.poll_allowed(f"live:{cam.id}", force=force)
     if not allowed:
         print(f"last poll of {cam.id} live feed was <15 min ago; next allowed in {wait / 60:.1f} min")
         return {"downloaded": 0, "already_had": 0}
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=hours)
     counts = {"downloaded": 0, "already_had": 0}
     days: set[date] = set()
-    for url in live_urls(cam):
+    listing = live_listing(cam)
+    record_publication(cam.id, listing, now)
+    for url in [u for _, u, _ in listing] or live_urls(cam):
         name = url.rsplit("/", 1)[1]
         t = filename_time(name)
         if t < cutoff:
@@ -96,7 +102,71 @@ def fetch_live(camera_id: str, hours: float = 6, force: bool = False) -> dict[st
             counts["already_had"] += 1
     for d in sorted(days):
         print(f"{d}: {orientation_note(cam.id, d)}")
+    lag = publication_lag(cam.id)
+    if lag:
+        print(lag["text"])
     return counts
+
+
+_LISTED = re.compile(r'href="([^"/]+\.fits)">[^<]*</a>\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})')
+
+
+def live_listing(cam: cameras.Camera, html: str | None = None) -> list[tuple[str, str, datetime]]:
+    """(name, url, published) for every FITS file in the SWPC directory listing.
+
+    The listing's modification time (UTC, to the minute) is when the file
+    appeared: checked 2026-10-25 22:49 UTC, the newest file (22:30 frame) was
+    stamped 22:46."""
+    listing_url = cam.live_index.rsplit("/", 1)[0] + "/fits/"
+    html = net.get(listing_url).text if html is None else html
+    out = {}
+    for name, stamp in _LISTED.findall(html):
+        out[name] = (name, listing_url + name, datetime.strptime(stamp, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc))
+    return list(out.values())
+
+
+def _pub_log(camera_id: str):
+    return paths.STATE_DIR / f"published_{camera_id}.json"
+
+
+def record_publication(camera_id: str, listing, seen_at: datetime) -> None:
+    """Log obs time, listing time and our first-seen time for each live file.
+
+    first_seen only measures latency if we were already watching (previous poll
+    <= 20 min earlier); otherwise it's the backlog of a first poll."""
+    p = _pub_log(camera_id)
+    log = json.loads(p.read_text()) if p.exists() else {"polls": [], "files": {}}
+    watching = bool(log["polls"]) and (seen_at - datetime.fromisoformat(log["polls"][-1])) <= timedelta(minutes=20)
+    for name, _, published in listing:
+        if name not in log["files"]:
+            log["files"][name] = {"obs": filename_time(name).isoformat(), "listed": published.isoformat(),
+                                  "first_seen": seen_at.isoformat(timespec="seconds"), "watching": watching}
+    log["polls"].append(seen_at.isoformat(timespec="seconds"))
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(log, indent=0))
+
+
+def publication_lag(camera_id: str) -> dict | None:
+    """Minutes from exposure start to publication on SWPC (listing time), and to
+    our first sight of the file while watching."""
+    p = _pub_log(camera_id)
+    if not p.exists():
+        return None
+    files = json.loads(p.read_text())["files"].values()
+    obs = lambda f: datetime.fromisoformat(f["obs"])
+    listed = np.array([(datetime.fromisoformat(f["listed"]) - obs(f)).total_seconds() / 60 for f in files])
+    seen = np.array([(datetime.fromisoformat(f["first_seen"]) - obs(f)).total_seconds() / 60
+                     for f in files if f["watching"]])
+    if not len(listed):
+        return None
+    out = {"n": len(listed), "median_min": float(np.median(listed)), "p90_min": float(np.percentile(listed, 90)),
+           "n_watched": len(seen), "seen_median_min": float(np.median(seen)) if len(seen) else None}
+    first, last = min(obs(f) for f in files), max(obs(f) for f in files)
+    out["text"] = (f"SWPC publication lag ({camera_id}, {out['n']} files {first:%m-%d}..{last:%m-%d}): "
+                   f"median {out['median_min']:.1f} min, 90th percentile {out['p90_min']:.1f} min after exposure start"
+                   + (f"; first seen by our 15-min polls: median {out['seen_median_min']:.1f} min ({len(seen)} files)"
+                      if len(seen) else "; no files first seen while watching yet"))
+    return out
 
 
 def orientation_note(camera_id: str, day: date) -> str:

@@ -214,3 +214,60 @@ def test_arc_range_wraps_at_180():
 
     r = ArcRange.of([170, -175, 178], margin=5)
     assert 175 in r and -178 in r and 0 not in r
+
+
+def test_head_and_tail_pieces_of_one_comet_are_merged():
+    a, b, c = C.Track(1), C.Track(2), C.Track(3)
+    a.hits = [_peak(k, 1600 - 5 * k, 1500 - 4 * k, -5, -4) for k in range(6)]
+    b.hits = [_peak(k, 1625 - 5 * k, 1520 - 4 * k, -5, -4) for k in range(1, 5)]  # 32 px behind, along the motion
+    c.hits = [_peak(k, 1600 - 5 * k + 20, 1500 - 4 * k - 25, -5, -4) for k in range(1, 5)]  # 32 px off to the side
+    out = C.merge_duplicates([a, b, c])
+    assert sorted(t.id for t in out) == [1, 3]
+
+
+def test_later_rejection_does_not_rewrite_status_at_submission():
+    tr = C.Tracker()
+    sun = (1041.0, 962.0)
+    # inbound comet that starts ~480 px out and ends inside the 320-px glare zone
+    for k in range(12):
+        tr.update(k * 900.0, [_peak(k, 1441 - 30 * k, 1262 - 22 * k, -30, -22)], DRIFT, sun)
+    (t,) = tr.finish()
+    assert t.status_at[3] == "candidate"
+    assert t.status == "rejected:glare-zone"
+
+
+def test_merged_track_counts_from_its_earliest_submittable_piece():
+    a, b = C.Track(1), C.Track(2)
+    a.hits = [_peak(k, 1600 - 5 * k, 1500 - 4 * k, -5, -4) for k in range(2, 8)]
+    a.reached, a.status_at = {3: 4 * 900.0}, {3: "rejected:extended"}
+    b.hits = [_peak(k, 1601 - 5 * k, 1501 - 4 * k, -5, -4) for k in range(0, 5)]
+    b.reached, b.status_at = {3: 2 * 900.0}, {3: "candidate"}
+    (m,) = C.merge_duplicates([a, b])
+    assert m.reached[3] == 2 * 900.0 and m.status_at[3] == "candidate"
+
+
+def _stack_of(draw, n=8):
+    times = [k * 900.0 for k in range(n)]
+    maps = []
+    for k in range(n):
+        m = np.zeros((200, 200), np.float32)
+        draw(m, k)
+        maps.append(m)
+    return maps, times
+
+
+def test_stacked_shape_is_round_for_a_comet_with_a_tail_and_long_for_a_sliding_ridge():
+    grid = _grid(lo=(-4, -4), hi=(4, 4))
+
+    def comet(m, k):  # head moving +1 half-res col/frame (report vx = +2), faint tail behind it
+        c = 80 + k
+        m[100, c] = 60.0
+        m[100, c - 12:c] = 4.0
+
+    def ridge(m, k):  # a long faint line that slides along itself
+        m[100, 60 + k:140 + k] = 4.0
+
+    for draw, lo, hi in ((comet, 0, 2.5), (ridge, 3.0, np.inf)):
+        maps, times = _stack_of(draw)
+        cut = B.Cutouts(maps, times, grid)
+        assert lo <= B.stacked_elongation(cut, 100, 87, 2.0, 0.0) < hi

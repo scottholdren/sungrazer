@@ -51,6 +51,7 @@ def sync(cams: list[str], since: date = date(2025, 1, 1), force: bool = False) -
     con.commit()
 
     db.recompute_status(con)
+    db.rebuild_frames(con)  # cheap; keeps positions in step with coords.report_mapping
     con.commit()
     for row in con.execute("SELECT camera, status, COUNT(*) n FROM reports GROUP BY 1, 2 ORDER BY 1, 2"):
         print(f"  {row['camera']:<6} {row['status']:<10} {row['n']}")

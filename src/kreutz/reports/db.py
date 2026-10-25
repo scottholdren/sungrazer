@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS reports (
     parent_id        TEXT,
     endorsements     TEXT,
     status           TEXT NOT NULL DEFAULT 'reported',
+    mapping          TEXT,      -- full / transform / unmapped (coords.report_mapping)
     frames_text      TEXT,      -- raw position block exactly as posted
     page_fetched     INTEGER NOT NULL DEFAULT 0,
     updated_at       TEXT
@@ -82,6 +83,8 @@ def connect(path=None) -> sqlite3.Connection:
     con = sqlite3.connect(path)
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    if "mapping" not in [r[1] for r in con.execute("PRAGMA table_info(reports)")]:
+        con.execute("ALTER TABLE reports ADD COLUMN mapping TEXT")  # added Oct 2026: see coords.report_mapping
     return con
 
 
@@ -95,12 +98,17 @@ def _iso(t: datetime | date | None) -> str | None:
     return t.isoformat() if t else None
 
 
-def image_shape(image_size: str | None) -> tuple[int, int]:
-    """(width, height) from e.g. "2048x1920 (CCOR1)"; CCOR size if unknown."""
+def image_shape(image_size: str | None) -> tuple[int, int] | None:
+    """(width, height) from e.g. "2048x1920 (CCOR1)"; None if not given."""
     m = re.match(r"\s*(\d+)\s*x\s*(\d+)", image_size or "")
-    if m:
-        return int(m.group(1)), int(m.group(2))
-    return coords.CCOR_WIDTH, coords.CCOR_HEIGHT
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def rebuild_frames(con) -> dict[str, int]:
+    """Recompute every report's converted positions (after a coords.py change)."""
+    for (rid,) in con.execute("SELECT report_id FROM reports").fetchall():
+        write_frames(con, rid)
+    return dict(con.execute("SELECT mapping, COUNT(*) FROM reports GROUP BY 1").fetchall())
 
 
 def upsert_report(con, r: Report, from_page: bool) -> None:
@@ -139,13 +147,18 @@ def write_frames(con, report_id: str) -> None:
 
     row = con.execute("SELECT * FROM reports WHERE report_id=?", (report_id,)).fetchone()
     d = date.fromisoformat(row["image_date"]) if row["image_date"] else None
-    w, h = image_shape(row["image_size"])
     con.execute("DELETE FROM frames WHERE report_id=?", (report_id,))
-    for f in parse_frames(row["frames_text"] or "", d):
+    frames = parse_frames(row["frames_text"] or "", d)
+    kind, tf = coords.report_mapping(row["reporter"], image_shape(row["image_size"]), d,
+                                     [f.x for f in frames], [f.y for f in frames])
+    con.execute("UPDATE reports SET mapping=? WHERE report_id=?", (kind, report_id))
+    for f in frames:
         xu = yu = None
-        if f.x is not None:
+        if f.x is not None and kind == "transform":
+            xu, yu = tf.apply(f.x, f.y)
+        elif f.x is not None and kind == "full":
             try:
-                xu, yu = coords.normalize_origin(f.x, f.y, row["origin"], h, w)
+                xu, yu = coords.normalize_origin(f.x, f.y, row["origin"])
             except ValueError:
                 pass
         con.execute("INSERT INTO frames VALUES (?,?,?,?,?,?,?,?)",
