@@ -57,6 +57,9 @@ versions), `tracks.json` (tracks that survived the rejection rules) and
 reached 5 hits; the rest stay in `data/derived/`). Each run replaces the
 previous one; compare runs with `git log -p results/`.
 
+[`results/STATUS.md`](results/STATUS.md) says what the latest numbers mean and
+lists the next steps.
+
 ## Data sources (verified 2026-10-24)
 
 | what | where | notes |
