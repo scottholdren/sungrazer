@@ -362,6 +362,10 @@ def _sync_reports(camera: str, since: date) -> bool:
     "unreported" means unreported on any Sungrazer camera."""
     from .reports import sync
 
+    # its guard was armed a few seconds after the fetch's last cycle; don't lose a whole cycle over that
+    remaining = net.last_poll("sungrazer") + net.POLL_INTERVAL_S - time.time()
+    if 0 < remaining <= 60:
+        time.sleep(remaining + 0.5)
     try:
         sync.sync([camera, "c2", "c3"], since=since)
         return True
