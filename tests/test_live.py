@@ -42,6 +42,14 @@ def test_summary_matches_report_and_computes_lead(tmp_path):
     assert -2.3 < d["report"]["lead_h"] < -2.0
     unrep = live._track_summary(t, [], 0.0, con)
     assert unrep["report"] is None
+    # a LASCO C3 claim overlapping in time is offered as a time-only match
+    con.execute("INSERT INTO reports (report_id, reporter, camera, sighting_type, status, report_timestamp) "
+                "VALUES (?,?,?,?,?,?)", ("report_cf_x", "Chuck Fields", "c3", "Potential Comet", "reported",
+                                         (t0 + timedelta(hours=5)).isoformat()))
+    con.execute("INSERT INTO frames VALUES (?,?,?,?,?,?,?,?)",
+                ("report_cf_x", 1, (t0 + timedelta(hours=4)).isoformat(), 600, 700, None, None, "0445 600 700"))
+    d = live._track_summary(t, [], 0.0, con)
+    assert d["report"]["camera"] == "C3" and d["report"]["reporter"] == "Chuck Fields" and d["report"]["lead_h"] < 0
 
 
 def test_build_state_splits_live_and_rejected(monkeypatch):
@@ -54,7 +62,9 @@ def test_build_state_splits_live_and_rejected(monkeypatch):
     monkeypatch.setattr(live, "_reports", lambda con, cam, now: [])
     chain = Track(1, [Peak(**{k: v for k, v in dict(t=now.timestamp(), x=1.0, y=2.0, sig=6.0, vx=-8.0, vy=-3.0,
                                                    edge=None, elong=None).items()})] * 2)
-    state = live.build_state("ccor1", [fresh, old, bad], [chain], [], [], None, None, now)
+    from kreutz.reports import db
+
+    state = live.build_state("ccor1", [fresh, old, bad], [chain], [], [], None, db.connect(":memory:"), now)
     assert [t["n_hits"] for t in state["tracks"]] == [5]
     assert [t["status"] for t in state["rejected"]] == ["rejected:extended"]
     assert state["open_chains"] == 1 and state["longest"]["hits"] == 2

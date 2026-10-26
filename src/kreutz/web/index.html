@@ -120,7 +120,8 @@ function badges(t) {
   if (r && r.status === 'confirmed') b.push(`<span class="b green">confirmed, ${t.n_hits} frames</span>`);
   else b.push(`<span class="b amber">candidate, ${t.n_hits} frames measured</span>`);
   if (r) {
-    b.push(`<span class="b blue"><a href="${esc(r.url)}" target="_blank" onclick="event.stopPropagation()">reported by ${esc(r.reporter)} ${fmt(r.posted)}</a></span>`);
+    const where = r.camera ? ` on ${esc(r.camera)} (time only)` : '';
+    b.push(`<span class="b blue"><a href="${esc(r.url)}" target="_blank" onclick="event.stopPropagation()">reported by ${esc(r.reporter)} ${fmt(r.posted)}${where}</a></span>`);
     b.push(r.lead_h < 0 ? `<span class="b green">found here ${hrs(r.lead_h)} before the report</span>` : `<span class="b">reported ${hrs(r.lead_h)} before we found it</span>`);
   } else b.push(`<span class="b amber">UNREPORTED</span>`);
   if (t.merged) b.push(`<span class="b outline">${t.merged} pieces merged</span>`);

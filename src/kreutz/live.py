@@ -96,7 +96,6 @@ class Watcher:
         self.tracker_key = None
         self.fed_until = 0.0  # window time last given to the tracker
         self.tiles: dict[str, dict] = {}  # track id -> contact-sheet column cache
-        self.full_sync_done = False
         self.activity = Activity(camera)
         self.known: dict[str, dict] | None = None  # track id -> summary from the previous cycle
         self.stage_a: A.StageA | None = None  # resident stage A, primed after the first backlog run
@@ -136,10 +135,11 @@ class Watcher:
         else:
             act.event(f"fetched {counts['downloaded']} new frame(s)" + (": " + ", ".join(
                 n[9:24] for n in counts["new"]) if counts["new"] else ""), kind="fetch")
-        since = date(2025, 1, 1) if not self.full_sync_done else now.date() - timedelta(days=SYNC_DAYS)
-        act.now("reports", f"syncing Sungrazer reports since {since}")
-        if _sync_reports(camera, since):
-            self.full_sync_done = True
+        full = now.timestamp() - _last_full_sync() > 86400
+        since = date(2025, 1, 1) if full else now.date() - timedelta(days=SYNC_DAYS)
+        act.now("reports", f"syncing Sungrazer reports since {since}" + (" (daily full sync)" if full else ""))
+        if _sync_reports(camera, since) and full:
+            _write_json(_full_sync_file(), {"at": now.isoformat(timespec="seconds")})
         timings["reports"] = _lap(t0, timings)
         con = db.connect()
         newest = con.execute("SELECT reporter, report_timestamp FROM reports WHERE camera=? "
@@ -337,11 +337,25 @@ def seconds_to_next_poll(camera: str) -> float:
     return max(earliest - now.timestamp(), 30)
 
 
+def _full_sync_file() -> Path:
+    return paths.STATE_DIR / "reports_full_sync.json"
+
+
+def _last_full_sync() -> float:
+    p = _full_sync_file()
+    try:
+        return datetime.fromisoformat(json.loads(p.read_text())["at"]).timestamp()
+    except Exception:
+        return 0.0
+
+
 def _sync_reports(camera: str, since: date) -> bool:
+    """Sync this camera's reports plus LASCO C2/C3 (matched by time only), so
+    "unreported" means unreported on any Sungrazer camera."""
     from .reports import sync
 
     try:
-        sync.sync([camera], since=since)
+        sync.sync([camera, "c2", "c3"], since=since)
         return True
     except SystemExit:
         pass
@@ -410,8 +424,33 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con) -> di
         out["report"] = {"id": rid, "reporter": row["reporter"] if row else rid, "status": rep.status,
                          "posted": rep.first_post.isoformat(timespec="minutes"),
                          "url": f"https://sungrazer.nrl.navy.mil/report/{rid.replace('_', '')}",
-                         "lead_h": round(lead_h, 1)}
+                         "lead_h": round(lead_h, 1), "camera": None}
+    else:
+        out["report"] = lasco_report(con, first["frame_time"], last["frame_time"], found, lat_s)
     return out
+
+
+LASCO_SLACK_H = 6.0  # a LASCO report whose frames fall within this of our track counts as "maybe the same object"
+
+
+def lasco_report(con, first: str, last: str, found: str, lat_s: float) -> dict | None:
+    """The earliest LASCO C2/C3 claim whose frame times overlap ours (we can't compare
+    positions across instruments, so this is a time coincidence, flagged as such)."""
+    lo = (datetime.fromisoformat(first) - timedelta(hours=LASCO_SLACK_H)).isoformat()
+    hi = (datetime.fromisoformat(last) + timedelta(hours=LASCO_SLACK_H)).isoformat()
+    row = con.execute("""SELECT r.report_id, r.reporter, r.camera, r.status, r.report_timestamp
+                         FROM reports r JOIN frames f USING (report_id)
+                         WHERE r.camera IN ('c2', 'c3') AND r.sighting_type = 'Potential Comet'
+                           AND r.status != 'retracted' AND f.frame_time BETWEEN ? AND ?
+                         ORDER BY r.report_timestamp LIMIT 1""", (lo, hi)).fetchone()
+    if row is None:
+        return None
+    posted = datetime.fromisoformat(row["report_timestamp"])
+    return {"id": row["report_id"], "reporter": row["reporter"], "status": row["status"],
+            "posted": posted.isoformat(timespec="minutes"),
+            "url": f"https://sungrazer.nrl.navy.mil/report/{row['report_id'].replace('_', '')}",
+            "lead_h": round((_ts(found) + lat_s - posted.timestamp()) / 3600, 1),
+            "camera": row["camera"].upper()}
 
 
 def _images(camera: str, state: dict, paths_, metas, out: Path, tiles: dict | None = None) -> int:

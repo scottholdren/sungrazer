@@ -59,8 +59,11 @@ def sync(cams: list[str], since: date = date(2025, 1, 1), force: bool = False) -
     print(f"confirmations: {nconf[0]} rows, {nconf[1]} linked to a synced report")
 
 
+LASCO = {"c2": "C2", "c3": "C3"}  # synced for time coincidence only; their pixels aren't mapped
+
+
 def _cam(cam_id: str) -> str:
-    return cameras.get(cam_id).sungrazer_name
+    return LASCO.get(cam_id) or cameras.get(cam_id).sungrazer_name
 
 
 def crawl_listing(con, sungrazer_camera: str, since: date) -> int:
