@@ -12,6 +12,7 @@ DATE-AVG is mid-exposure, better for precise motion fits. Both are UTC.
 
 from __future__ import annotations
 
+import functools
 import re
 import warnings
 from dataclasses import dataclass, field
@@ -96,6 +97,12 @@ def read_frame(path: str | Path, check_orientation: bool = True) -> Frame:
     if check_orientation:
         coords.check_orientation(header, camera, source=path.name)
     return Frame(path, data, header, obs_time(header, path), camera)
+
+
+@functools.lru_cache(maxsize=6)
+def read_frame_cached(path: str | Path) -> Frame:
+    """read_frame with a small cache for display code that revisits recent frames. Don't mutate the result."""
+    return read_frame(path)
 
 
 # --- frame quality -------------------------------------------------------------

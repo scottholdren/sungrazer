@@ -61,6 +61,43 @@ def test_build_state_splits_live_and_rejected(monkeypatch):
     assert state["window"] is None
 
 
+def test_poll_phase_minimises_wait(monkeypatch):
+    # files land 14..16 min after exposure start, a few stragglers at 22
+    lags = [14.0, 14.5, 15.0, 15.5, 16.0] * 20 + [22.0] * 5
+    monkeypatch.setattr(live.fetch, "publication_lags", lambda cam: lags)
+    p = live.poll_phase("ccor1")
+    assert p["phase_min"] == 1.0  # 16 min after the frame = minute 1 of the next slot
+    assert p["expected_wait_min"] < 2
+    monkeypatch.setattr(live.fetch, "publication_lags", lambda cam: None)
+    assert live.poll_phase("ccor1")["phase_min"] is None
+
+
+def test_next_poll_respects_guard_and_phase(monkeypatch):
+    monkeypatch.setattr(live, "poll_phase", lambda cam: {"phase_min": 2.0})
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(live.net, "last_poll", lambda name: now.timestamp() - 14 * 60)
+    wait = live.seconds_to_next_poll("ccor1")
+    t = now + timedelta(seconds=round(wait))
+    assert 60 <= wait <= 16 * 60
+    assert t.minute % 15 == 2 and abs(t.second - 25) <= 1
+
+
+def test_tracker_snapshot_leaves_state_alone():
+    from kreutz.detect.track import Tracker
+
+    tr = Tracker()
+    t0 = 1_700_000_000.0
+    for k in range(5):
+        tr.update(t0 + 900 * k, [Peak(t0 + 900 * k, 1500 - 8 * k, 1200 - 3 * k, -8.0, -3.0, 20.0, 100.0, 1.2)],
+                  None, [1041, 962])
+    a = tr.snapshot()
+    b = tr.snapshot()
+    assert len(a) == len(b) == 1 and a[0].merged == b[0].merged == 0
+    assert len(tr.active) == 1  # still running
+    tr.prune(t0 + 10 * 900)
+    assert tr.done == []
+
+
 def test_server_routes(tmp_path, monkeypatch):
     monkeypatch.setattr(live.paths, "DATA", tmp_path)
     (tmp_path / "live" / "ccor1").mkdir(parents=True)

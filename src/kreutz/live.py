@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import json
 import os
+import pickle
 import time
 import traceback
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +26,8 @@ import numpy as np
 from . import cameras, contact, detect, fetch, net, paths, score
 from .detect import envelope as E
 from .detect import frames as A
+from .detect import stack as B
+from .detect import track as C
 from .detect.track import Track, Tracker
 from .fitsio import filename_time
 from .inspect import stretch, write_png
@@ -33,6 +36,7 @@ from .reports import db
 SPAN_H = 48  # hours of windows tracked each cycle
 SHOW_H = 24  # tracks whose last hit is older than this fall off the dashboard
 FETCH_H = 36  # hours of live feed to fill on each poll (files on disk are skipped)
+SYNC_DAYS = 60  # reports listing depth after the first (full) sync of a run
 MAX_REJECTED = 60  # rejected tracks listed per cycle (no images)
 PREVIEW_DS = 4  # full-frame preview downsample
 LABELS = {"ccor1": "CCOR-1", "ccor2": "CCOR-2"}
@@ -47,81 +51,172 @@ def track_key(t: dict) -> str:
     return f"{h['frame_time'][:16].replace('-', '').replace(':', '')}_{h['x']:.0f}_{h['y']:.0f}"
 
 
-def watch(camera: str, once: bool = False, span_h: float = SPAN_H, fetch_h: float = FETCH_H) -> None:
-    while True:
+class Watcher:
+    """State kept between cycles: the tracker, drawn sheet tiles, sync depth."""
+
+    def __init__(self, camera: str, span_h: float = SPAN_H, fetch_h: float = FETCH_H):
+        self.camera, self.span_h, self.fetch_h = camera, span_h, fetch_h
+        self.tracker: Tracker | None = None
+        self.tracker_key = None
+        self.fed_until = 0.0  # window time last given to the tracker
+        self.tiles: dict[str, dict] = {}  # track id -> contact-sheet column cache
+        self.full_sync_done = False
+
+    def run(self, once: bool = False) -> None:
+        while True:
+            try:
+                self.cycle()
+            except (Exception, SystemExit):
+                traceback.print_exc()
+            if once:
+                return
+            wait = seconds_to_next_poll(self.camera)
+            print(f"next poll in {wait / 60:.1f} min", flush=True)
+            time.sleep(wait)
+
+    def cycle(self) -> dict:
+        camera, timings = self.camera, {}
         t0 = time.time()
-        try:
-            cycle(camera, span_h=span_h, fetch_h=fetch_h)
-        except (Exception, SystemExit):
-            traceback.print_exc()
-        if once:
-            return
-        # the fetch at the start of the cycle armed the 15-min poll guard
-        time.sleep(max(net.POLL_INTERVAL_S - (time.time() - t0) + 5, 30))
+        now = datetime.now(timezone.utc)
+
+        counts = fetch.fetch_live(camera, hours=self.fetch_h)
+        timings["fetch"] = _lap(t0)
+        print(f"[{now:%H:%M:%S}] fetch: {counts['downloaded']} new frames", flush=True)
+        since = date(2025, 1, 1) if not self.full_sync_done else now.date() - timedelta(days=SYNC_DAYS)
+        if _sync_reports(camera, since):
+            self.full_sync_done = True
+        timings["reports"] = _lap(t0, timings)
+        con = db.connect()
+
+        t_start = now - timedelta(hours=self.span_h)
+        paths_ = detect.frame_list(camera, (t_start - detect.HISTORY).date(), now.date())
+        times = [filename_time(p.name) for p in paths_]
+        targets = [i for i, t in enumerate(times) if t >= t_start - detect.HISTORY]
+        windows = [i for i, t in enumerate(times) if t >= t_start]
+        months = sorted({times[i].month for i in windows}) or [now.month]
+        envelopes = {m: E.for_month(con, camera, m) for m in months}
+        detect.run_stage_a(camera, paths_, targets)
+        timings["stage_a"] = _lap(t0, timings)
+        metas = [A.load_meta(camera, p.name) for p in paths_]
+        detect.run_stage_b(camera, paths_, metas, windows, envelopes)
+        timings["stage_b"] = _lap(t0, timings)
+        tracks, open_chains, last_window = self._track(paths_, metas, windows, envelopes, t_start)
+        timings["stage_c"] = _lap(t0, timings)
+
+        state = build_state(camera, [detect.track_dict(t, camera) for t in tracks], open_chains, metas, windows,
+                            last_window, con, now)
+        timings["state"] = _lap(t0, timings)
+        out = live_dir(camera)
+        _images(camera, state, paths_, metas, out, self.tiles)
+        timings["images"] = _lap(t0, timings)
+        state["cycle_s"] = round(time.time() - t0, 1)
+        state["timings"] = timings
+        state["poll"] = poll_phase(camera)
+        _write_json(out / "state.json", state)
+        print(f"[{now:%H:%M:%S}] {camera}: {len(state['tracks'])} following, {len(state['rejected'])} rejected, "
+              f"{state['open_chains']} open chains; cycle {state['cycle_s']} s: "
+              + ", ".join(f"{k} {v}" for k, v in timings.items()), flush=True)
+        return state
+
+    def _track(self, paths_, metas, windows, envelopes, t_start: datetime):
+        """Stage C. The tracker persists between cycles and across restarts (tracker.pkl),
+        so normally only the newest window is fed; any change to the rules, the
+        velocity grid or the span rebuilds it from scratch."""
+        key = (C.VERSION, B.VERSION, tuple(sorted((m, e.grid.key()) for m, e in envelopes.items())), self.span_h)
+        pkl = live_dir(self.camera) / "tracker.pkl"
+        if self.tracker is None and pkl.exists():
+            try:
+                saved = pickle.loads(pkl.read_bytes())
+                if saved["key"] == key:
+                    self.tracker, self.tracker_key, self.fed_until = saved["tracker"], key, saved["fed_until"]
+            except Exception as e:
+                print(f"tracker.pkl unreadable, rebuilding: {e}", flush=True)
+        if self.tracker is None or self.tracker_key != key:
+            self.tracker, self.tracker_key, self.fed_until = Tracker(), key, 0.0
+        tr, last, fed = self.tracker, None, 0
+        for i in windows:
+            if metas[i] is None or not metas[i].ok:
+                continue
+            last = metas[i]
+            if metas[i].time <= self.fed_until:
+                continue
+            mem = detect.window_members(metas, i)
+            if mem is None:
+                continue
+            env = envelopes[detect.month_of(metas[i].time)]
+            p = detect.peaks_path(self.camera, paths_[i].name, env.grid)
+            if not p.exists():
+                continue
+            peaks = [B.Peak(**d) for d in json.loads(p.read_text())]
+            drifts = [metas[j].drift for j in mem if metas[j].drift]
+            drift = list(np.mean(drifts, axis=0)) if drifts else None
+            seed = all(A.is_warm(metas[j]) for j in mem)
+            tr.update(metas[i].time, peaks, drift, metas[i].sun_xy, envelope=env, seed=seed)
+            self.fed_until = metas[i].time
+            fed += 1
+        tr.prune(t_start.timestamp())
+        _write_bytes(pkl, pickle.dumps({"key": key, "tracker": tr, "fed_until": self.fed_until}))
+        open_chains = [t for t in tr.active if len(t.hits) >= 2]
+        print(f"stage C: {fed} new window(s) fed; {len(tr.active)} active, {len(tr.done)} finished", flush=True)
+        return tr.snapshot(), open_chains, last
+
+
+def watch(camera: str, once: bool = False, span_h: float = SPAN_H, fetch_h: float = FETCH_H) -> None:
+    Watcher(camera, span_h, fetch_h).run(once=once)
 
 
 def cycle(camera: str, span_h: float = SPAN_H, fetch_h: float = FETCH_H) -> dict:
-    t0 = time.time()
+    return Watcher(camera, span_h, fetch_h).cycle()
+
+
+def _lap(t0: float, timings: dict | None = None) -> float:
+    return round(time.time() - t0 - sum(timings.values() if timings else ()), 1)
+
+
+def poll_phase(camera: str) -> dict:
+    """When in each 15-minute slot to poll, from the publication log: the minute
+    after the slot's frame that minimises the expected wait between a file
+    appearing on SWPC and our next poll (files missed wait a whole interval)."""
+    lag = fetch.publication_lags(camera)
+    if lag is None or len(lag) < 50:
+        return {"phase_min": None, "expected_wait_min": net.POLL_INTERVAL_S / 120, "basis": "none"}
+    lag = np.asarray(lag)
+    best = None
+    for phase in np.arange(0, 15, 0.5):
+        wait = (phase - lag) % 15  # minutes from publication to the next poll at this phase
+        exp = float(wait.mean())
+        if best is None or exp < best[1]:
+            best = (float(phase), exp)
+    return {"phase_min": best[0], "expected_wait_min": round(best[1], 1), "basis": f"{len(lag)} files"}
+
+
+def seconds_to_next_poll(camera: str) -> float:
+    """Sleep until the next slot's poll time, never under the 15-minute guard."""
     now = datetime.now(timezone.utc)
-    counts = fetch.fetch_live(camera, hours=fetch_h)
-    print(f"[{now:%H:%M:%S}] fetch: {counts['downloaded']} new frames", flush=True)
-    _sync_reports(camera)
-    con = db.connect()
-
-    t_start = now - timedelta(hours=span_h)
-    paths_ = detect.frame_list(camera, (t_start - detect.HISTORY).date(), now.date())
-    times = [filename_time(p.name) for p in paths_]
-    targets = [i for i, t in enumerate(times) if t >= t_start - detect.HISTORY]
-    windows = [i for i, t in enumerate(times) if t >= t_start]
-    months = sorted({times[i].month for i in windows}) or [now.month]
-    envelopes = {m: E.for_month(con, camera, m) for m in months}
-    detect.run_stage_a(camera, paths_, targets)
-    metas = [A.load_meta(camera, p.name) for p in paths_]
-    detect.run_stage_b(camera, paths_, metas, windows, envelopes)
-    tracks, open_chains, last_window = _track(camera, paths_, metas, windows, envelopes)
-
-    state = build_state(camera, [detect.track_dict(t, camera) for t in tracks], open_chains, metas, windows,
-                        last_window, con, now)
-    out = live_dir(camera)
-    _images(camera, state, paths_, metas, out)
-    state["cycle_s"] = round(time.time() - t0, 1)
-    _write_json(out / "state.json", state)
-    print(f"[{now:%H:%M:%S}] {camera}: {len(state['tracks'])} following, {len(state['rejected'])} rejected, "
-          f"{state['open_chains']} open chains; cycle {state['cycle_s']} s -> {out / 'state.json'}", flush=True)
-    return state
+    phase = poll_phase(camera)["phase_min"]
+    earliest = net.last_poll(f"live:{camera}") + net.POLL_INTERVAL_S
+    if phase is None:
+        return max(earliest - now.timestamp(), 30)
+    # frames start at HH:00:25, :15:25, ...; the poll goes `phase` minutes after that
+    slot = now.replace(minute=(now.minute // 15) * 15, second=25, microsecond=0)
+    for k in range(0, 4):
+        t = slot + timedelta(minutes=15 * k + phase)
+        if t.timestamp() >= earliest and t > now:
+            return max(t.timestamp() - now.timestamp(), 1)
+    return max(earliest - now.timestamp(), 30)
 
 
-def _sync_reports(camera: str) -> None:
+def _sync_reports(camera: str, since: date) -> bool:
     from .reports import sync
 
     try:
-        sync.sync([camera])
+        sync.sync([camera], since=since)
+        return True
     except SystemExit:
         pass
     except Exception as e:  # the site being down must not stop the watcher
         print(f"reports sync failed: {e}", flush=True)
-
-
-def _track(camera, paths_, metas, windows, envelopes):
-    """Stage C, keeping the open (not yet candidate) chains for the status line."""
-    tr = Tracker()
-    last = None
-    for i in windows:
-        mem = detect.window_members(metas, i)
-        if mem is None:
-            continue
-        env = envelopes[detect.month_of(metas[i].time)]
-        p = detect.peaks_path(camera, paths_[i].name, env.grid)
-        if not p.exists():
-            continue
-        peaks = [detect.B.Peak(**d) for d in json.loads(p.read_text())]
-        drifts = [metas[j].drift for j in mem if metas[j].drift]
-        drift = list(np.mean(drifts, axis=0)) if drifts else None
-        seed = all(A.is_warm(metas[j]) for j in mem)
-        tr.update(metas[i].time, peaks, drift, metas[i].sun_xy, envelope=env, seed=seed)
-        last = metas[i]
-    open_chains = [t for t in tr.active if len(t.hits) >= 2]
-    return tr.finish(), open_chains, last
+    return False
 
 
 def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas, windows, last_window,
@@ -188,9 +283,13 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con) -> di
     return out
 
 
-def _images(camera: str, state: dict, paths_, metas, out: Path) -> None:
+def _images(camera: str, state: dict, paths_, metas, out: Path, tiles: dict | None = None) -> None:
     tdir = out / "tracks"
     tdir.mkdir(parents=True, exist_ok=True)
+    if tiles is not None:
+        for k in list(tiles):
+            if not any(d["id"] == k for d in state["tracks"]):
+                del tiles[k]
     for d in state["tracks"]:
         sheet = tdir / f"{d['id']}.png"
         info = sheet.with_suffix(".json")
@@ -200,7 +299,8 @@ def _images(camera: str, state: dict, paths_, metas, out: Path) -> None:
         meta = json.loads(info.read_text()) if info.exists() else {}
         if meta.get("n_hits") != d["n_hits"]:  # new or grew since it was drawn
             try:
-                _, cols = contact.contact_sheet(track, sheet)
+                cache = tiles.setdefault(d["id"], {}) if tiles is not None else None
+                _, cols = contact.contact_sheet(track, sheet, tiles=cache)
                 _thumbnail(camera, d, thumb)
                 meta = {"n_hits": d["n_hits"], "columns": cols}
                 _write_json(info, meta)
@@ -218,21 +318,21 @@ def _images(camera: str, state: dict, paths_, metas, out: Path) -> None:
 
 
 def _thumbnail(camera: str, d: dict, out: Path) -> None:
-    from .fitsio import read_frame
+    from .fitsio import read_frame_cached
     from .frameindex import FrameIndex
 
     last = d["hits"][-1]
-    idx = FrameIndex(camera)
+    idx = FrameIndex(camera, datetime.fromisoformat(last["t"]).date() - timedelta(days=1))
     i = idx.nearest(datetime.fromisoformat(last["t"]))
     if i is None:
         return
-    f = read_frame(idx.paths[i])
+    f = read_frame_cached(idx.paths[i])
     raw = contact._cut_report(f.data, last["x"], last["y"], 1)
     write_png(out, contact._zoom(contact._stretch(raw, None)))
 
 
 def _preview(camera: str, state: dict, paths_, metas, out: Path) -> None:
-    from .fitsio import read_frame
+    from .fitsio import read_frame_cached
 
     name = state.get("latest_frame")
     if not name:
@@ -243,20 +343,25 @@ def _preview(camera: str, state: dict, paths_, metas, out: Path) -> None:
     p = next((p for p in paths_ if p.name == name), None)
     if p is None:
         return
-    f = read_frame(p)
-    img = stretch(f.data)
-    h, w = (img.shape[0] // PREVIEW_DS) * PREVIEW_DS, (img.shape[1] // PREVIEW_DS) * PREVIEW_DS
-    small = img[:h, :w].reshape(h // PREVIEW_DS, PREVIEW_DS, w // PREVIEW_DS, PREVIEW_DS).mean(axis=(1, 3))
-    write_png(png, small.astype(np.uint8))
+    f = read_frame_cached(p)
+    d = f.data
+    h, w = (d.shape[0] // PREVIEW_DS) * PREVIEW_DS, (d.shape[1] // PREVIEW_DS) * PREVIEW_DS
+    with np.errstate(all="ignore"):
+        small = np.nanmean(d[:h, :w].reshape(h // PREVIEW_DS, PREVIEW_DS, w // PREVIEW_DS, PREVIEW_DS), axis=(1, 3))
+    write_png(png, stretch(small))  # stretching the small image: the radial profile loop is 16x cheaper
     m = next((m for m in metas if m and m.name == name), None)
     _write_json(out / "latest.json", {"frame": name, "ds": PREVIEW_DS, "width": w // PREVIEW_DS,
                                       "height": h // PREVIEW_DS, "sun_xy": m.sun_xy if m else None})
 
 
 def _write_json(path: Path, obj) -> None:
+    _write_bytes(path, json.dumps(obj, indent=0).encode())
+
+
+def _write_bytes(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(obj, indent=0))
+    tmp.write_bytes(data)
     os.replace(tmp, path)
 
 

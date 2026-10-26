@@ -39,6 +39,7 @@ import numpy as np
 from .stack import Peak
 from .velocity import FRAME_SECONDS
 
+VERSION = "c1"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
 MATCH_RADIUS = 6.0  # px, full resolution (half-res stacking + 0.5 px/frame velocity steps)
 MATCH_DV = 2.0  # px/frame
 MAX_MISSES = 2
@@ -189,6 +190,17 @@ class Tracker:
         self.done.extend(t for t in self.active if t.candidate)
         self.active = []
         return merge_duplicates(sorted(self.done, key=lambda t: t.hits[0].t))
+
+    def snapshot(self) -> list[Track]:
+        """Merged candidates so far, leaving the tracker running (merging mutates, so copy)."""
+        import copy
+
+        cands = copy.deepcopy(self.done + [t for t in self.active if t.candidate])
+        return merge_duplicates(sorted(cands, key=lambda t: t.hits[0].t))
+
+    def prune(self, before: float) -> None:
+        """Forget finished tracks whose last hit is older than `before`."""
+        self.done = [t for t in self.done if t.last.t >= before]
 
 
 def _same_object(a: Track, b: Track) -> bool:

@@ -146,6 +146,16 @@ def record_publication(camera_id: str, listing, seen_at: datetime) -> None:
     p.write_text(json.dumps(log, indent=0))
 
 
+def publication_lags(camera_id: str) -> list[float] | None:
+    """Minutes from each file's exposure start to its appearance in the SWPC listing."""
+    p = _pub_log(camera_id)
+    if not p.exists():
+        return None
+    files = json.loads(p.read_text())["files"].values()
+    return [(datetime.fromisoformat(f["listed"]) - datetime.fromisoformat(f["obs"])).total_seconds() / 60
+            for f in files]
+
+
 def publication_lag(camera_id: str) -> dict | None:
     """Minutes from exposure start to publication on SWPC (listing time), and to
     our first sight of the file while watching."""

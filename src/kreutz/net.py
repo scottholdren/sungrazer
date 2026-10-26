@@ -93,6 +93,13 @@ def download(url: str, dest: Path, expected_size: int | None = None) -> bool:
     raise AssertionError("unreachable")
 
 
+def last_poll(name: str) -> float:
+    """Unix time of the last recorded poll of a named endpoint (0 if never)."""
+    state_file = paths.STATE_DIR / "polls.json"
+    state = json.loads(state_file.read_text()) if state_file.exists() else {}
+    return float(state.get(name, 0))
+
+
 def poll_allowed(name: str, force: bool = False) -> tuple[bool, float]:
     """Check (and record) the 15-minute poll guard for a named endpoint.
 

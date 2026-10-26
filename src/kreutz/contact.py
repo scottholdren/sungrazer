@@ -20,7 +20,7 @@ import numpy as np
 from . import coords
 from .detect import frames as A
 from .detect.velocity import FRAME_SECONDS
-from .fitsio import read_frame
+from .fitsio import read_frame, read_frame_cached
 from .inspect import write_png
 
 HALF = 24  # cutout half-size, full-res px
@@ -28,8 +28,11 @@ SCALE = 3
 MAX_COLS = 20
 
 
-def contact_sheet(track: dict, out: Path) -> tuple[Path, list[str]]:
-    """Write the sheet; return its path and the frame name of each column."""
+def contact_sheet(track: dict, out: Path, tiles: dict | None = None) -> tuple[Path, list[str]]:
+    """Write the sheet; return its path and the frame name of each column.
+
+    `tiles` (frame name -> (x, y, top, bottom)) caches drawn columns across calls
+    for a growing track: a column is reused while the fitted path moves < 1.5 px."""
     camera = track["camera"]
     hits = track["hits"]
     t = np.array([datetime.fromisoformat(h["frame_time"]).timestamp() for h in hits])
@@ -53,12 +56,18 @@ def contact_sheet(track: dict, out: Path) -> tuple[Path, list[str]]:
     for j, p in enumerate(paths):
         ts = _ts(p)
         x, y = np.polyval(fx, ts / FRAME_SECONDS), np.polyval(fy, ts / FRAME_SECONDS)
-        f = read_frame(p)
-        raw = _cut_report(f.data, x, y, 1)
-        sig = np.repeat(np.repeat(A.load_sig(camera, p.name), 2, axis=0), 2, axis=1)
-        sig = _cut_report(sig, x, y, 1)
-        top = _stretch(raw, None)
-        bot = _stretch(sig, (-2, 6))
+        hit = tiles.get(p.name) if tiles is not None else None
+        if hit is not None and np.hypot(hit[0] - x, hit[1] - y) < 1.5:
+            top, bot = hit[2], hit[3]
+        else:
+            f = read_frame_cached(p) if tiles is not None else read_frame(p)
+            raw = _cut_report(f.data, x, y, 1)
+            sig = np.repeat(np.repeat(A.load_sig(camera, p.name), 2, axis=0), 2, axis=1)
+            sig = _cut_report(sig, x, y, 1)
+            top = _stretch(raw, None)
+            bot = _stretch(sig, (-2, 6))
+            if tiles is not None:
+                tiles[p.name] = (x, y, top, bot)
         c0 = 4 + j * (tile + 4)
         sheet[4:4 + tile, c0:c0 + tile] = _ticks(_zoom(top))
         sheet[8 + tile:8 + 2 * tile, c0:c0 + tile] = _ticks(_zoom(bot))
