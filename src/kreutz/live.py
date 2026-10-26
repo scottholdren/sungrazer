@@ -254,7 +254,8 @@ class Watcher:
         _write_bytes(pkl, pickle.dumps({"key": key, "tracker": tr, "fed_until": self.fed_until}))
         open_chains = [t for t in tr.active if len(t.hits) >= 2]
         print(f"stage C: {fed} new window(s) fed; {len(tr.active)} active, {len(tr.done)} finished", flush=True)
-        return tr.snapshot(), open_chains, last
+        shown_since = (datetime.now(timezone.utc) - timedelta(hours=SHOW_H)).timestamp()
+        return tr.snapshot(since=shown_since), open_chains, last
 
 
 def watch(camera: str, once: bool = False, span_h: float = SPAN_H, fetch_h: float = FETCH_H) -> None:

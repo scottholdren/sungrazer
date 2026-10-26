@@ -191,11 +191,12 @@ class Tracker:
         self.active = []
         return merge_duplicates(sorted(self.done, key=lambda t: t.hits[0].t))
 
-    def snapshot(self) -> list[Track]:
-        """Merged candidates so far, leaving the tracker running (merging mutates, so copy)."""
+    def snapshot(self, since: float = 0.0) -> list[Track]:
+        """Merged candidates with a hit at or after `since`, leaving the tracker running
+        (merging mutates, so copy)."""
         import copy
 
-        cands = copy.deepcopy(self.done + [t for t in self.active if t.candidate])
+        cands = copy.deepcopy([t for t in self.done + self.active if t.candidate and t.last.t >= since])
         return merge_duplicates(sorted(cands, key=lambda t: t.hits[0].t))
 
     def prune(self, before: float) -> None:
@@ -229,10 +230,12 @@ def _absorb(keep: Track, other: Track) -> None:
 
 
 def merge_duplicates(tracks: list[Track]) -> list[Track]:
-    """Fold candidate tracks that follow the same object into the longest one."""
+    """Fold candidate tracks that follow the same object into the longest one.
+    Merging needs >= 2 common hit times, so only tracks overlapping in time are compared."""
     keep: list[Track] = []
     for t in sorted(tracks, key=lambda t: -len(t.hits)):
-        dup = next((k for k in keep if _same_object(k, t)), None)
+        t0, t1 = t.hits[0].t, t.last.t
+        dup = next((k for k in keep if k.hits[0].t <= t1 and k.last.t >= t0 and _same_object(k, t)), None)
         if dup is None:
             t.merged = getattr(t, "merged", 0)
             keep.append(t)
