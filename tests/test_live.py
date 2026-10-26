@@ -89,7 +89,15 @@ def test_next_poll_respects_guard_and_phase(monkeypatch):
     wait = live.seconds_to_next_poll("ccor1")
     t = now + timedelta(seconds=round(wait))
     assert 60 <= wait <= 16 * 60
-    assert t.minute % 15 == 2 and abs(t.second - 25) <= 1
+    assert t.minute % 15 == 2 and abs(t.second - 25) <= 2
+    # last poll ran 5 s after its slot: the next slot is 5 s inside the guard, still take it
+    slot = now.replace(minute=(now.minute // 15) * 15, second=25, microsecond=0) + timedelta(minutes=2)
+    if slot <= now:
+        slot += timedelta(minutes=15)
+    monkeypatch.setattr(live.net, "last_poll", lambda name: (slot - timedelta(minutes=15)).timestamp() + 5)
+    wait = live.seconds_to_next_poll("ccor1")
+    t = now + timedelta(seconds=wait)
+    assert abs((t - slot).total_seconds() - 6) <= 2  # the guard's 5 s plus 1
 
 
 def test_tracker_snapshot_leaves_state_alone():

@@ -332,8 +332,10 @@ def seconds_to_next_poll(camera: str) -> float:
     slot = now.replace(minute=(now.minute // 15) * 15, second=25, microsecond=0)
     for k in range(0, 4):
         t = slot + timedelta(minutes=15 * k + phase)
-        if t.timestamp() >= earliest and t > now:
-            return max(t.timestamp() - now.timestamp(), 1)
+        # a slot a few seconds inside the guard (the last poll ran seconds after its
+        # slot) is still this slot: wait for the guard, not for the next slot
+        if t.timestamp() >= earliest - 60 and t > now:
+            return max(t.timestamp(), earliest) - now.timestamp() + 1
     return max(earliest - now.timestamp(), 30)
 
 
