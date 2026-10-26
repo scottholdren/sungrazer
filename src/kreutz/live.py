@@ -42,6 +42,7 @@ NEWS_H = 3  # "new object" events only for tracks that began within this many ho
 # Alert tiers, from the operating-point tables of 2026-10-26 (results/STATUS.md): (min hits, min best sigma).
 # alert: Oct 17-24 precision 0.60, 3/5 comets, median real lead -3.6 h; watch: July 7/8 comets at ~+0.2 h.
 TIERS = {"alert": (4, 15.0), "watch": (5, 10.0)}
+DASHBOARD_URL = os.environ.get("KREUTZ_DASHBOARD_URL")  # appended to Discord posts when set
 PREVIEW_DS = 4  # full-frame preview downsample
 LABELS = {"ccor1": "CCOR-1", "ccor2": "CCOR-2"}
 
@@ -105,6 +106,7 @@ class Watcher:
         self.stage_a: A.StageA | None = None  # resident stage A, primed after the first backlog run
         self.snapshot: list[Track] | None = None  # merged candidates as of the last window fed
         self.phase = poll_phase(camera)["phase_min"]  # fixed for the life of the process: no slot flapping
+        self.pending_posts: list[str] = []  # alert-tier track ids to post to Discord once their sheet exists
 
     def run(self, once: bool = False) -> None:
         if not once and net.last_poll(f"live:{self.camera}") + net.POLL_INTERVAL_S > time.time():
@@ -193,6 +195,7 @@ class Watcher:
         act.now("images", f"drawing sheets for tracks that grew")
         n_drawn = _images(camera, state, paths_, metas, out, self.tiles)
         timings["images"] = _lap(t0, timings)
+        self._post_alerts(state, out)
         state["cycle_s"] = round(time.time() - t0, 1)
         state["timings"] = timings
         state["poll"] = poll_phase(camera)
@@ -204,6 +207,26 @@ class Watcher:
               f"{state['open_chains']} open chains; cycle {state['cycle_s']} s: "
               + ", ".join(f"{k} {v}" for k, v in timings.items()), flush=True)
         return state
+
+    def _post_alerts(self, state: dict, out: Path) -> None:
+        """Discord posts for the alert-tier objects announced this cycle (after their sheets are drawn)."""
+        from . import notify
+
+        if not self.pending_posts:
+            return
+        ids, self.pending_posts = self.pending_posts, []
+        if not notify.webhook_url():
+            return
+        by_id = {d["id"]: d for d in state["tracks"]}
+        for tid in ids:
+            d = by_id.get(tid)
+            if d is None:
+                continue
+            try:
+                if notify.post_alert(d, state["label"], out / "tracks" / f"{tid}.png", DASHBOARD_URL):
+                    self.activity.event(f"posted {tid} to Discord", kind="info", track=tid)
+            except Exception as e:
+                self.activity.event(f"Discord post for {tid} failed: {e}", kind="error", track=tid)
 
     def _announce(self, state: dict) -> None:
         """Events for tracks that appeared, grew into something, or matched a report since last cycle."""
@@ -230,6 +253,7 @@ class Watcher:
             elif d["tier"] == "alert" and old.get("tier") != "alert" and _recent(d["tier_at"]):
                 self.activity.event(f"ALERT {tid} {where}" + (" — UNREPORTED" if not d["report"] else ""),
                                     kind="alert", track=tid)
+                self.pending_posts.append(tid)
             elif d["tier"] == "watch" and old.get("tier") is None and _recent(d["tier_at"]):
                 self.activity.event(f"watch {tid} {where}" + (" — UNREPORTED" if not d["report"] else ""),
                                     kind="track", track=tid)

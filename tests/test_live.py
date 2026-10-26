@@ -89,6 +89,35 @@ def test_tiers_fire_in_real_time_order():
     assert w["tier"] == "watch" and w["tier_at"] == w["hits"][4]["t"]
 
 
+def test_discord_post_once_with_sheet(tmp_path, monkeypatch):
+    from kreutz import notify
+
+    monkeypatch.setattr(notify.paths, "STATE_DIR", tmp_path)
+    con = __import__("kreutz.reports.db", fromlist=["db"]).connect(":memory:")
+    d = live._track_summary(_track(datetime(2026, 10, 25, 1, 0, 25, tzinfo=timezone.utc), 6, sig=30.0), [], 0.0, con)
+    assert notify.post_alert(d, "CCOR-1", None) is False  # no webhook configured
+    (tmp_path / "discord_webhook.txt").write_text("https://discord.example/webhook\n")
+    sheet = tmp_path / "s.png"
+    sheet.write_bytes(b"\x89PNG fake")
+    calls = []
+
+    class R:
+        def raise_for_status(self):
+            pass
+
+    class S:
+        def post(self, url, data=None, files=None, timeout=None):
+            calls.append((url, data["content"], files["file"][0] if files else None))
+            return R()
+
+    monkeypatch.setattr(notify.net, "session", lambda: S())
+    assert notify.post_alert(d, "CCOR-1", sheet, "http://dash/") is True
+    assert notify.post_alert(d, "CCOR-1", sheet) is False  # same id again: not reposted
+    (url, content, fname), = calls
+    assert url.endswith("/webhook") and "ALERT" in content and "UNREPORTED on CCOR-1" in content and fname == "s.png"
+    assert "http://dash/" in content
+
+
 def test_window_shrinks_after_a_gap():
     from kreutz import detect
     from kreutz.detect.frames import FrameMeta
