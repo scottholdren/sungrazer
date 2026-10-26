@@ -82,10 +82,10 @@ def fetch_live(camera_id: str, hours: float = 6, force: bool = False) -> dict[st
     allowed, wait = net.poll_allowed(f"live:{cam.id}", force=force)
     if not allowed:
         print(f"last poll of {cam.id} live feed was <15 min ago; next allowed in {wait / 60:.1f} min")
-        return {"downloaded": 0, "already_had": 0}
+        return {"downloaded": 0, "already_had": 0, "new": [], "skipped": True}
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=hours)
-    counts = {"downloaded": 0, "already_had": 0}
+    counts = {"downloaded": 0, "already_had": 0, "new": []}
     days: set[date] = set()
     listing = live_listing(cam)
     record_publication(cam.id, listing, now)
@@ -98,6 +98,7 @@ def fetch_live(camera_id: str, hours: float = 6, force: bool = False) -> dict[st
         days.add(t.date())
         if net.download(url, dest):
             counts["downloaded"] += 1
+            counts["new"].append(name)
         else:
             counts["already_had"] += 1
     for d in sorted(days):

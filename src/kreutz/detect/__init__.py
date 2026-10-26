@@ -50,10 +50,13 @@ def _stage_a_chunk(args):
     return hi - lo
 
 
-def run_stage_a(camera: str, paths: list[Path], targets: list[int], workers=None, dump=()) -> None:
+def run_stage_a(camera: str, paths: list[Path], targets: list[int], workers=None, dump=(), progress=None) -> None:
+    """progress(done, total, names) is called before the work and after each chunk."""
     todo = [i for i in targets if not A.meta_path(camera, paths[i].name).exists() or paths[i].name in dump]
     if not todo:
         return
+    if progress:
+        progress(0, len(todo), [paths[i].name for i in todo])
     nw = _workers(workers, 6)
     # Each chunk re-reads its history (24 frames), so chunks should be long; but
     # split evenly across the workers so none sits idle at the end.
@@ -73,6 +76,8 @@ def run_stage_a(camera: str, paths: list[Path], targets: list[int], workers=None
         for n in ex.map(_stage_a_chunk, [(camera, paths, c[0], c[-1] + 1, list(dump)) for c in chunks]):
             done += n
             print(f"  {done}/{len(todo)} frames, {(_time.time() - t0) / 60:.1f} min", flush=True)
+            if progress:
+                progress(done, len(todo), [paths[i].name for i in todo])
 
 
 def window_members(metas: list[A.FrameMeta | None], i: int) -> list[int] | None:
@@ -122,7 +127,8 @@ def _stage_b_window(args):
     return len(peaks)
 
 
-def run_stage_b(camera, paths, metas, windows, envelopes, workers=None) -> None:
+def run_stage_b(camera, paths, metas, windows, envelopes, workers=None, progress=None) -> None:
+    """progress(done, total, names) is called before the work and after each window."""
     jobs = []
     for i in windows:
         mem = window_members(metas, i)
@@ -135,12 +141,17 @@ def run_stage_b(camera, paths, metas, windows, envelopes, workers=None) -> None:
     if not jobs:
         return
     grids = {m: e.grid for m, e in envelopes.items()}
+    names = [j[1][-1] for j in jobs]
     print(f"stage B: {len(jobs)} windows x {'/'.join(str(len(g)) for g in grids.values())} velocities", flush=True)
+    if progress:
+        progress(0, len(jobs), names)
     t0 = _time.time()
     with ProcessPoolExecutor(_workers(workers, 14), initializer=_init_grids, initargs=(grids,)) as ex:
         for k, _ in enumerate(ex.map(_stage_b_window, jobs, chunksize=4), 1):
             if k % 50 == 0 or k == len(jobs):
                 print(f"  {k}/{len(jobs)} windows, {(_time.time() - t0) / 60:.1f} min", flush=True)
+            if progress:
+                progress(k, len(jobs), names)
 
 
 def run_stage_c(camera, paths, metas, windows, envelopes) -> list[Track]:

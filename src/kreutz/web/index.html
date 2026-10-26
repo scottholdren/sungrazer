@@ -32,12 +32,21 @@ canvas { background:#000; border-radius:4px; image-rendering:pixelated }
 table { border-collapse:collapse; font-size:12px; font-family:ui-monospace, monospace } td,th { padding:2px 8px; border-bottom:1px solid var(--line); text-align:right } th { color:var(--dim) }
 .full { position:relative; display:inline-block } .full img { display:block; width:512px; height:480px } .full svg { position:absolute; inset:0 }
 code { background:#000; padding:2px 6px; border-radius:4px; font-size:12px }
+.now { margin:10px 0; padding:8px 10px; background:var(--card); border:1px solid var(--line); border-radius:8px }
+.now .st { font-weight:700; color:#fff } .now .bar { display:inline-block; width:140px; height:6px; background:#000; border-radius:3px; vertical-align:middle; margin-left:8px; overflow:hidden } .now .bar i { display:block; height:100%; background:#4fd37a }
+.now .names { font-family:ui-monospace, monospace; font-size:12px; color:var(--dim) }
+.ev { font-size:13px; padding:2px 0 } .ev .t { color:var(--dim); font-family:ui-monospace, monospace; margin-right:8px } .ev.track { color:#ffd34d } .ev.error { color:#ff7b7b } .ev.warn { color:#f0b64d } .ev.cycle { color:var(--dim) }
+#evall { max-height:360px; overflow:auto; border-top:1px solid var(--line); margin-top:6px; padding-top:6px }
+.pulse { display:inline-block; width:8px; height:8px; border-radius:50%; background:#4fd37a; margin-right:6px; animation:pulse 1.2s infinite } @keyframes pulse { 50% { opacity:.2 } } .pulse.idle { background:#8a93a0; animation:none }
 </style>
 </head>
 <body>
 <h1>kreutz live</h1>
 <div id="cams"></div>
-<div class="dim">tracks under three hits are open chains and aren't shown; rejected tracks are listed at the bottom</div>
+<div class="now" id="now"><span class="dim">waiting for the watcher…</span></div>
+<div id="recent"></div>
+<details id="evdet"><summary class="dim">all recent activity</summary><div id="evall"></div></details>
+<div class="dim" style="margin-top:8px">tracks under three hits are open chains and aren't shown; rejected tracks are listed at the bottom</div>
 <div class="chips" id="chips"></div>
 <h2>FOLLOWING</h2>
 <div id="following"></div>
@@ -57,6 +66,34 @@ async function refresh() {
     STATE = await r.json();
     render();
   } catch (e) { console.error(e); }
+}
+
+let ACT = null, ACT_AT = 0;
+const label = cam => (STATE && STATE.cameras.find(c => c.camera === cam) || {}).label || cam.toUpperCase();
+const clock = iso => iso.slice(11, 19);
+async function refreshActivity() {
+  try {
+    const r = await fetch('/api/activity', {cache:'no-store'});
+    ACT = await r.json(); ACT_AT = Date.now();
+    renderActivity();
+  } catch (e) { console.error(e); }
+}
+function renderActivity() {
+  if (!ACT) return;
+  const cams = Object.entries(ACT.cameras);
+  if (!cams.length) return;
+  $('#now').innerHTML = cams.map(([cam, a]) => {
+    const c = a.current; if (!c) return '';
+    const idle = c.stage === 'idle';
+    const secs = Math.max(0, Math.round((Date.now() - Date.parse(c.since)) / 1000));
+    const bar = c.total ? `<span class="bar"><i style="width:${Math.round(100 * (c.done || 0) / c.total)}%"></i></span>` : '';
+    const names = c.names && c.names.length ? `<div class="names">${c.names.map(n => esc(n.slice(9, 24))).join(' · ')}</div>` : '';
+    return `<div><span class="pulse ${idle ? 'idle' : ''}"></span><b>${esc(label(cam))}</b> <span class="st">${esc(c.stage)}</span> <span class="dim">·</span> ${esc(c.detail || '')}${bar} <span class="dim">· ${idle ? '' : 'for '}${secs}s</span>${names}</div>`;
+  }).join('');
+  const ev = cams.flatMap(([cam, a]) => (a.events || []).map(e => ({...e, cam}))).sort((x, y) => y.t.localeCompare(x.t));
+  const line = e => `<div class="ev ${esc(e.kind || '')}"><span class="t">${clock(e.t)}</span>${cams.length > 1 ? `<span class="b outline">${esc(label(e.cam))}</span> ` : ''}${e.track ? `<a href="#" onclick="openDetail('${e.cam}','${e.track}');return false" style="color:inherit">${esc(e.msg)}</a>` : esc(e.msg)}</div>`;
+  $('#recent').innerHTML = ev.slice(0, 5).map(line).join('');
+  $('#evall').innerHTML = ev.slice(0, 300).map(line).join('');
 }
 
 function render() {
@@ -147,8 +184,11 @@ function draw() {
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
 $('#detail').addEventListener('click', e => { if (e.target.id === 'detail') closeDetail(); });
 refresh();
+refreshActivity();
 setInterval(refresh, 60000);
+setInterval(refreshActivity, 3000);
 setInterval(() => { if (STATE && !OPEN) render(); }, 30000);
+setInterval(() => { if (ACT && !$('#evdet').open) renderActivity(); }, 1000);
 </script>
 </body>
 </html>

@@ -51,6 +51,42 @@ def track_key(t: dict) -> str:
     return f"{h['frame_time'][:16].replace('-', '').replace(':', '')}_{h['x']:.0f}_{h['y']:.0f}"
 
 
+class Activity:
+    """What the watcher is doing right now and what it did lately, for the dashboard.
+
+    data/live/<camera>/activity.json = {"current": {...}, "events": [...]}; rewritten
+    on every change so the page can poll it every few seconds."""
+
+    MAX_EVENTS = 300
+
+    def __init__(self, camera: str):
+        self.path = live_dir(camera) / "activity.json"
+        self.events: list[dict] = []
+        self.current: dict | None = None
+        if self.path.exists():
+            try:
+                self.events = json.loads(self.path.read_text()).get("events", [])
+            except Exception:
+                pass
+
+    def now(self, stage: str, detail: str = "", done: int | None = None, total: int | None = None,
+            names: list[str] | None = None) -> None:
+        keep_since = self.current and self.current.get("stage") == stage
+        self.current = {"stage": stage, "detail": detail, "done": done, "total": total,
+                        "names": (names or [])[:12],
+                        "since": self.current["since"] if keep_since else _now_iso()}
+        self._write()
+
+    def event(self, msg: str, kind: str = "info", **extra) -> None:
+        self.events.append({"t": _now_iso(), "kind": kind, "msg": msg, **extra})
+        self.events = self.events[-self.MAX_EVENTS:]
+        print(f"  * {msg}", flush=True)
+        self._write()
+
+    def _write(self) -> None:
+        _write_json(self.path, {"current": self.current, "events": self.events})
+
+
 class Watcher:
     """State kept between cycles: the tracker, drawn sheet tiles, sync depth."""
 
@@ -61,32 +97,49 @@ class Watcher:
         self.fed_until = 0.0  # window time last given to the tracker
         self.tiles: dict[str, dict] = {}  # track id -> contact-sheet column cache
         self.full_sync_done = False
+        self.activity = Activity(camera)
+        self.known: dict[str, dict] | None = None  # track id -> summary from the previous cycle
 
     def run(self, once: bool = False) -> None:
         while True:
             try:
                 self.cycle()
-            except (Exception, SystemExit):
+            except (Exception, SystemExit) as e:
                 traceback.print_exc()
+                self.activity.event(f"cycle failed: {type(e).__name__}: {e}", kind="error")
             if once:
                 return
             wait = seconds_to_next_poll(self.camera)
+            at = datetime.now(timezone.utc) + timedelta(seconds=wait)
             print(f"next poll in {wait / 60:.1f} min", flush=True)
+            self.activity.now("idle", f"next poll at {at:%H:%M:%S} UTC")
             time.sleep(wait)
 
     def cycle(self) -> dict:
-        camera, timings = self.camera, {}
+        camera, timings, act = self.camera, {}, self.activity
         t0 = time.time()
         now = datetime.now(timezone.utc)
 
+        act.now("fetch", "polling the SWPC listing")
         counts = fetch.fetch_live(camera, hours=self.fetch_h)
         timings["fetch"] = _lap(t0)
         print(f"[{now:%H:%M:%S}] fetch: {counts['downloaded']} new frames", flush=True)
+        if counts.get("skipped"):
+            act.event("fetch skipped: polled less than 15 min ago", kind="warn")
+        else:
+            act.event(f"fetched {counts['downloaded']} new frame(s)" + (": " + ", ".join(
+                n[9:24] for n in counts["new"]) if counts["new"] else ""), kind="fetch")
         since = date(2025, 1, 1) if not self.full_sync_done else now.date() - timedelta(days=SYNC_DAYS)
+        act.now("reports", f"syncing Sungrazer reports since {since}")
         if _sync_reports(camera, since):
             self.full_sync_done = True
         timings["reports"] = _lap(t0, timings)
         con = db.connect()
+        newest = con.execute("SELECT reporter, report_timestamp FROM reports WHERE camera=? "
+                             "ORDER BY report_timestamp DESC LIMIT 1", (camera,)).fetchone()
+        if newest:
+            act.event(f"reports synced; newest {LABELS.get(camera, camera)} report by {newest[0]} "
+                      f"at {newest[1][5:16].replace('T', ' ')} UTC", kind="reports")
 
         t_start = now - timedelta(hours=self.span_h)
         paths_ = detect.frame_list(camera, (t_start - detect.HISTORY).date(), now.date())
@@ -95,28 +148,71 @@ class Watcher:
         windows = [i for i, t in enumerate(times) if t >= t_start]
         months = sorted({times[i].month for i in windows}) or [now.month]
         envelopes = {m: E.for_month(con, camera, m) for m in months}
-        detect.run_stage_a(camera, paths_, targets)
+
+        def prog_a(done, total, names):
+            act.now("stage A", f"background, stars and significance: {done}/{total} frame(s)", done, total, names)
+            if done == 0:
+                act.event(f"stage A: {total} frame(s) to process" + (": " + ", ".join(n[9:24] for n in names[:4])
+                                                                     + (" ..." if total > 4 else "")), kind="stage")
+        act.now("stage A", "checking which frames need processing")
+        detect.run_stage_a(camera, paths_, targets, progress=prog_a)
         timings["stage_a"] = _lap(t0, timings)
         metas = [A.load_meta(camera, p.name) for p in paths_]
-        detect.run_stage_b(camera, paths_, metas, windows, envelopes)
+
+        def prog_b(done, total, names):
+            act.now("stage B", f"shift-and-stack over {sum(len(e.grid) for e in envelopes.values())} velocities: "
+                    f"{done}/{total} window(s)", done, total, names)
+            if done == 0:
+                act.event(f"stage B: {total} window(s) to stack, newest ending {names[-1][9:24]}", kind="stage")
+        act.now("stage B", "checking which windows need stacking")
+        detect.run_stage_b(camera, paths_, metas, windows, envelopes, progress=prog_b)
         timings["stage_b"] = _lap(t0, timings)
+        act.now("stage C", "linking peaks into tracks")
         tracks, open_chains, last_window = self._track(paths_, metas, windows, envelopes, t_start)
         timings["stage_c"] = _lap(t0, timings)
 
+        act.now("state", "matching tracks against hunter reports")
         state = build_state(camera, [detect.track_dict(t, camera) for t in tracks], open_chains, metas, windows,
                             last_window, con, now)
         timings["state"] = _lap(t0, timings)
+        self._announce(state)
         out = live_dir(camera)
-        _images(camera, state, paths_, metas, out, self.tiles)
+        act.now("images", f"drawing sheets for tracks that grew")
+        n_drawn = _images(camera, state, paths_, metas, out, self.tiles)
         timings["images"] = _lap(t0, timings)
         state["cycle_s"] = round(time.time() - t0, 1)
         state["timings"] = timings
         state["poll"] = poll_phase(camera)
         _write_json(out / "state.json", state)
+        act.event(f"cycle done in {state['cycle_s']} s: {len(state['tracks'])} following, "
+                  f"{state['n_rejected']} rejected, {state['open_chains']} open chains, {n_drawn} sheet(s) drawn; "
+                  + ", ".join(f"{k} {v}s" for k, v in timings.items()), kind="cycle")
         print(f"[{now:%H:%M:%S}] {camera}: {len(state['tracks'])} following, {len(state['rejected'])} rejected, "
               f"{state['open_chains']} open chains; cycle {state['cycle_s']} s: "
               + ", ".join(f"{k} {v}" for k, v in timings.items()), flush=True)
         return state
+
+    def _announce(self, state: dict) -> None:
+        """Events for tracks that appeared, grew into something, or matched a report since last cycle."""
+        cur = {d["id"]: d for d in state["tracks"]}
+        if self.known is None:
+            p = live_dir(self.camera) / "state.json"
+            prev = json.loads(p.read_text())["tracks"] if p.exists() else []
+            self.known = {d["id"]: d for d in prev}
+        for tid, d in cur.items():
+            old = self.known.get(tid)
+            where = f"at {d['x']},{d['y']}, {d['speed']} px/frame, {d['n_hits']} hits, {d['best_sig']}σ"
+            if old is None:
+                act_kind = "track"
+                self.activity.event(f"new track {tid} {where}" + (" — UNREPORTED" if not d["report"] else ""),
+                                    kind=act_kind, track=tid)
+            elif d["report"] and not old.get("report"):
+                r = d["report"]
+                self.activity.event(f"track {tid} matches a report by {r['reporter']} ({r['lead_h']:+.1f} h)",
+                                    kind="track", track=tid)
+            elif d["n_hits"] >= 5 and old["n_hits"] < 5:
+                self.activity.event(f"track {tid} reached 5 hits {where}", kind="track", track=tid)
+        self.known = cur
 
     def _track(self, paths_, metas, windows, envelopes, t_start: datetime):
         """Stage C. The tracker persists between cycles and across restarts (tracker.pkl),
@@ -283,13 +379,15 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con) -> di
     return out
 
 
-def _images(camera: str, state: dict, paths_, metas, out: Path, tiles: dict | None = None) -> None:
+def _images(camera: str, state: dict, paths_, metas, out: Path, tiles: dict | None = None) -> int:
+    """Draw/refresh each followed track's sheet and thumbnail; returns how many were drawn."""
     tdir = out / "tracks"
     tdir.mkdir(parents=True, exist_ok=True)
     if tiles is not None:
         for k in list(tiles):
             if not any(d["id"] == k for d in state["tracks"]):
                 del tiles[k]
+    drawn = 0
     for d in state["tracks"]:
         sheet = tdir / f"{d['id']}.png"
         info = sheet.with_suffix(".json")
@@ -304,6 +402,7 @@ def _images(camera: str, state: dict, paths_, metas, out: Path, tiles: dict | No
                 _thumbnail(camera, d, thumb)
                 meta = {"n_hits": d["n_hits"], "columns": cols}
                 _write_json(info, meta)
+                drawn += 1
             except Exception as e:
                 print(f"images for {d['id']} failed: {e}", flush=True)
         d["sheet"] = f"{camera}/tracks/{sheet.name}" if sheet.exists() else None
@@ -315,6 +414,7 @@ def _images(camera: str, state: dict, paths_, metas, out: Path, tiles: dict | No
     for p in tdir.iterdir():
         if p.name not in keep:
             p.unlink()
+    return drawn
 
 
 def _thumbnail(camera: str, d: dict, out: Path) -> None:
@@ -367,6 +467,23 @@ def _write_bytes(path: Path, data: bytes) -> None:
 
 def _ts(iso: str) -> float:
     return datetime.fromisoformat(iso).timestamp()
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def merged_activity() -> dict:
+    """Every camera's activity.json, for /api/activity."""
+    out = {"now": _now_iso(), "cameras": {}}
+    for cam in cameras.CAMERAS:
+        p = live_dir(cam) / "activity.json"
+        if p.exists():
+            try:
+                out["cameras"][cam] = json.loads(p.read_text())
+            except Exception:
+                pass
+    return out
 
 
 def _iso(ts: float) -> str:

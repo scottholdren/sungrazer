@@ -98,6 +98,21 @@ def test_tracker_snapshot_leaves_state_alone():
     assert tr.done == []
 
 
+def test_activity_log_rolls_and_tracks_current(tmp_path, monkeypatch):
+    monkeypatch.setattr(live.paths, "DATA", tmp_path)
+    a = live.Activity("ccor1")
+    a.now("stage A", "working", 0, 3, ["CCOR1_1B_20261026T040025_V00_NC.fits"])
+    since = a.current["since"]
+    a.now("stage A", "working", 1, 3)
+    assert a.current["since"] == since and a.current["done"] == 1  # same stage keeps its start time
+    for i in range(live.Activity.MAX_EVENTS + 5):
+        a.event(f"e{i}")
+    saved = json.loads((tmp_path / "live" / "ccor1" / "activity.json").read_text())
+    assert len(saved["events"]) == live.Activity.MAX_EVENTS and saved["events"][-1]["msg"].startswith("e")
+    assert live.Activity("ccor1").events[-1]["msg"] == saved["events"][-1]["msg"]  # reloaded on restart
+    assert live.merged_activity()["cameras"]["ccor1"]["current"]["stage"] == "stage A"
+
+
 def test_server_routes(tmp_path, monkeypatch):
     monkeypatch.setattr(live.paths, "DATA", tmp_path)
     (tmp_path / "live" / "ccor1").mkdir(parents=True)

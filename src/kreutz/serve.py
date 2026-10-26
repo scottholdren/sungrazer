@@ -22,8 +22,8 @@ class Handler(SimpleHTTPRequestHandler):
         route = self.path.split("?", 1)[0]
         if route in ("/", "/index.html"):
             return self._send(WEB / "index.html", "text/html; charset=utf-8")
-        if route == "/api/state":
-            body = json.dumps(live.merged_state()).encode()
+        if route in ("/api/state", "/api/activity"):
+            body = json.dumps(live.merged_state() if route == "/api/state" else live.merged_activity()).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
