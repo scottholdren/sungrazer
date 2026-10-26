@@ -59,6 +59,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':
 const fmt = iso => iso ? iso.slice(5, 16).replace('T', ' ') + ' UTC' : '-';
 const ago = iso => { const m = (Date.now() - Date.parse(iso)) / 60000; return m < 90 ? `${Math.round(m)} min ago` : `${(m/60).toFixed(1)} h ago`; };
 const hrs = h => Math.abs(h) < 1 ? `${Math.round(Math.abs(h)*60)} min` : `${Math.abs(h).toFixed(1)} h`;
+const n = (k, word) => `${k} ${word}${k === 1 ? '' : 's'}`;
 
 async function refresh() {
   try {
@@ -101,8 +102,8 @@ function render() {
   const cams = STATE.cameras;
   $('#cams').innerHTML = cams.length ? cams.map(c => {
     const stale = (Date.now() - Date.parse(c.updated)) > 45*60000;
-    const lg = c.longest ? `, longest ${c.longest.hits} window(s) at ${c.longest.x},${c.longest.y}` : '';
-    return `<div class="cam"><b>${esc(c.label)}</b> <span class="dim">·</span> window ${fmt(c.window)} <span class="dim">·</span> updated ${ago(c.updated)} ${stale ? '<span class="stale">(stale: is the watcher running?)</span>' : ''} <span class="dim">·</span> ${c.open_chains} open chain(s)${lg} <span class="dim">· ${c.good_frames} good frames in 48 h, ${c.cold_frames} cold · latency ${c.latency_min} min</span></div>`;
+    const lg = c.longest ? `, longest ${n(c.longest.hits, 'window')} at ${c.longest.x},${c.longest.y}` : '';
+    return `<div class="cam"><b>${esc(c.label)}</b> <span class="dim">·</span> window ${fmt(c.window)} <span class="dim">·</span> updated ${ago(c.updated)} ${stale ? '<span class="stale">(stale: is the watcher running?)</span>' : ''} <span class="dim">·</span> ${n(c.open_chains, 'open chain')}${lg} <span class="dim">· ${n(c.good_frames, 'good frame')} in 48 h, ${c.cold_frames} cold · latency ${c.latency_min} min</span></div>`;
   }).join('') : '<div class="dim">no state yet: the watcher has not finished a cycle</div>';
   $('#chips').innerHTML = ['all', ...cams.map(c => c.label)].map(l => `<span class="chip ${FILTER===l?'on':''}" onclick="FILTER='${l}';render()">${esc(l)}</span>`).join('');
   const show = cams.filter(c => FILTER === 'all' || c.label === FILTER);
@@ -110,27 +111,27 @@ function render() {
   $('#following').innerHTML = tracks.length ? tracks.map(card).join('') : '<div class="dim">nothing followed right now</div>';
   const rej = show.flatMap(c => c.rejected.map(t => ({...t, cam:c})));
   $('#rejsum').textContent = `rejected in the last 24 h: ${show.reduce((n,c)=>n+c.n_rejected,0)} (showing ${rej.length} by significance)`;
-  $('#rejected').innerHTML = rej.map(t => `<div class="rej" onclick="openDetail('${t.cam.camera}','${t.id}')"><span class="b outline">${esc(t.cam.label)}</span> <span class="b red">${esc(t.status.replace('rejected:',''))}</span> ${t.id} · ${t.n_hits} hits · sig ${t.best_sig} · at ${t.x},${t.y} · ${t.speed} px/frame · last ${fmt(t.last_seen)}</div>`).join('');
+  $('#rejected').innerHTML = rej.map(t => `<div class="rej" onclick="openDetail('${t.cam.camera}','${t.id}')"><span class="b outline">${esc(t.cam.label)}</span> <span class="b red">${esc(t.status.replace('rejected:',''))}</span> ${t.id} · ${n(t.n_hits, 'hit')} · sig ${t.best_sig} · at ${t.x},${t.y} · ${t.speed} px/frame · last ${fmt(t.last_seen)}</div>`).join('');
   if (OPEN) { const t = tracks.concat(rej).find(t => t.id === OPEN.id && t.cam.camera === OPEN.cam); if (t) fillDetail(t, false); }
 }
 
 function badges(t) {
   const b = [`<span class="b outline">${esc(t.cam.label)}</span>`];
   const r = t.report;
-  if (r && r.status === 'confirmed') b.push(`<span class="b green">confirmed, ${t.n_hits} frames</span>`);
-  else b.push(`<span class="b amber">candidate, ${t.n_hits} frames measured</span>`);
+  if (r && r.status === 'confirmed') b.push(`<span class="b green">confirmed, ${n(t.n_hits, 'frame')}</span>`);
+  else b.push(`<span class="b amber">candidate, ${n(t.n_hits, 'frame')} measured</span>`);
   if (r) {
     const where = r.camera ? ` on ${esc(r.camera)} (time only)` : '';
     b.push(`<span class="b blue"><a href="${esc(r.url)}" target="_blank" onclick="event.stopPropagation()">reported by ${esc(r.reporter)} ${fmt(r.posted)}${where}</a></span>`);
     b.push(r.lead_h < 0 ? `<span class="b green">found here ${hrs(r.lead_h)} before the report</span>` : `<span class="b">reported ${hrs(r.lead_h)} before we found it</span>`);
   } else b.push(`<span class="b amber">UNREPORTED</span>`);
-  if (t.merged) b.push(`<span class="b outline">${t.merged} pieces merged</span>`);
+  if (t.merged) b.push(`<span class="b outline">merged with ${t.merged} other track${t.merged === 1 ? '' : 's'}</span>`);
   return b.join('');
 }
 
 function card(t) {
   const img = t.thumb ? `<img src="${t.thumb}?v=${t.n_hits}" alt="">` : '<div class="noimg"></div>';
-  const miss = t.missing ? ` <span class="dim">·</span> missing ${t.missing} frame(s)` : '';
+  const miss = t.missing ? ` <span class="dim">·</span> missing ${n(t.missing, 'frame')}` : '';
   return `<div class="card" onclick="openDetail('${t.cam.camera}','${t.id}')">${img}<div><div class="badges">${badges(t)}</div>
     <div class="meta">${t.id} <span class="dim">·</span> first seen ${fmt(t.first_seen)} <span class="dim">·</span> last seen ${fmt(t.last_seen)} <span class="dim">·</span> at ${t.x},${t.y} <span class="dim">·</span> ${t.speed} px/frame <span class="dim">·</span> best ${t.best_sig}σ${miss}</div></div></div>`;
 }
@@ -157,7 +158,7 @@ function fillDetail(t, fresh) {
   if (fresh || !$('#panel').dataset.id || $('#panel').dataset.id !== t.id) {
     $('#panel').dataset.id = t.id;
     $('#panel').innerHTML = `<span class="close" onclick="closeDetail()">✕</span><h3>${t.id}</h3><div class="badges">${badges(t)}</div>
-      <div class="meta">status <b>${esc(t.status)}</b> · at 3/4/5 hits: ${esc(sa)} · velocity (${t.velocity[0]}, ${t.velocity[1]}) px/frame · ${t.n_hits} hits, ${t.missing} missing</div>
+      <div class="meta">status <b>${esc(t.status)}</b> · at 3/4/5 hits: ${esc(sa)} · velocity (${t.velocity[0]}, ${t.velocity[1]}) px/frame · ${n(t.n_hits, 'hit')}, ${t.missing} missing</div>
       <div class="anim"><div><canvas id="cv" width="${tile*2}" height="${tile*4+8}"></canvas>
         <div class="ctl"><button onclick="ANIM.playing=!ANIM.playing">play/pause</button><button onclick="step(-1)">◀</button><button onclick="step(1)">▶</button>
         <input id="scrub" type="range" min="0" max="${Math.max(t.columns.length-1,0)}" value="0" oninput="ANIM.frame=+this.value;ANIM.playing=false;draw()"> <span id="flabel" class="dim"></span></div>

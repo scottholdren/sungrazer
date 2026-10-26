@@ -133,7 +133,7 @@ class Watcher:
         if counts.get("skipped"):
             act.event("fetch skipped: polled less than 15 min ago", kind="warn")
         else:
-            act.event(f"fetched {counts['downloaded']} new frame(s)" + (": " + ", ".join(
+            act.event(f"fetched {_n(counts['downloaded'], 'new frame')}" + (": " + ", ".join(
                 n[9:24] for n in counts["new"]) if counts["new"] else ""), kind="fetch")
         full = now.timestamp() - _last_full_sync() > 86400
         since = date(2025, 1, 1) if full else now.date() - timedelta(days=SYNC_DAYS)
@@ -157,9 +157,9 @@ class Watcher:
         envelopes = {m: E.for_month(con, camera, m) for m in months}
 
         def prog_a(done, total, names):
-            act.now("stage A", f"background, stars and significance: {done}/{total} frame(s)", done, total, names)
+            act.now("stage A", f"background, stars and significance: {done}/{_n(total, 'frame')}", done, total, names)
             if done == 0:
-                act.event(f"stage A: {total} frame(s) to process" + (": " + ", ".join(n[9:24] for n in names[:4])
+                act.event(f"stage A: {_n(total, 'frame')} to process" + (": " + ", ".join(n[9:24] for n in names[:4])
                                                                      + (" ..." if total > 4 else "")), kind="stage")
         act.now("stage A", "checking which frames need processing")
         self._stage_a(paths_, targets, prog_a)
@@ -168,9 +168,9 @@ class Watcher:
 
         def prog_b(done, total, names):
             act.now("stage B", f"shift-and-stack over {sum(len(e.grid) for e in envelopes.values())} velocities: "
-                    f"{done}/{total} window(s)", done, total, names)
+                    f"{done}/{_n(total, 'window')}", done, total, names)
             if done == 0:
-                act.event(f"stage B: {total} window(s) to stack, newest ending {names[-1][9:24]}", kind="stage")
+                act.event(f"stage B: {_n(total, 'window')} to stack, newest ending {names[-1][9:24]}", kind="stage")
         act.now("stage B", "checking which windows need stacking")
         detect.run_stage_b(camera, paths_, metas, windows, envelopes, progress=prog_b)
         timings["stage_b"] = _lap(t0, timings)
@@ -192,7 +192,7 @@ class Watcher:
         state["poll"] = poll_phase(camera)
         _write_json(out / "state.json", state)
         act.event(f"cycle done in {state['cycle_s']} s: {len(state['tracks'])} following, "
-                  f"{state['n_rejected']} rejected, {state['open_chains']} open chains, {n_drawn} sheet(s) drawn; "
+                  f"{state['n_rejected']} rejected, {_n(state['open_chains'], 'open chain')}, {_n(n_drawn, 'sheet')} drawn; "
                   + ", ".join(f"{k} {v}s" for k, v in timings.items()), kind="cycle")
         print(f"[{now:%H:%M:%S}] {camera}: {len(state['tracks'])} following, {len(state['rejected'])} rejected, "
               f"{state['open_chains']} open chains; cycle {state['cycle_s']} s: "
@@ -287,7 +287,7 @@ class Watcher:
         tr.prune(t_start.timestamp())
         _write_bytes(pkl, pickle.dumps({"key": key, "tracker": tr, "fed_until": self.fed_until}))
         open_chains = [t for t in tr.active if len(t.hits) >= 2]
-        print(f"stage C: {fed} new window(s) fed; {len(tr.active)} active, {len(tr.done)} finished", flush=True)
+        print(f"stage C: {_n(fed, 'new window')} fed; {len(tr.active)} active, {len(tr.done)} finished", flush=True)
         shown_since = (datetime.now(timezone.utc) - timedelta(hours=SHOW_H)).timestamp()
         return tr.snapshot(since=shown_since), open_chains, last
 
@@ -541,6 +541,10 @@ def _write_bytes(path: Path, data: bytes) -> None:
 
 def _ts(iso: str) -> float:
     return datetime.fromisoformat(iso).timestamp()
+
+
+def _n(k: int, word: str) -> str:
+    return f"{k} {word}{'' if k == 1 else 's'}"
 
 
 def _now_iso() -> str:
