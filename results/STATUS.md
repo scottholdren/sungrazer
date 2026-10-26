@@ -68,12 +68,13 @@ the remaining 15 min after 08:45 is the three windows a candidate needs.
   the dashboard at any time. The bright comets are unmistakable (Chris's was
   264 sigma); the list is the problem for anything faint.
 
+Tried and rejected: MAX_ELONGATION 2.4 (from 3.0). October live tracks
+288 -> 260 at 3 hits, but CCR1 0077 (July) is rejected as extended at its
+5th hit (recall 7/8 at 5 hits). It stays at 3.0.
+
 ### Next steps
 
-1. Merge satellites and continuations inside the tracker (the dashboard
-   grouping is presentation only) and tighten MAX_ELONGATION toward 2.4;
-   target < 100 live tracks a week in October with recall 5/5.
-2. Review item 1 (allow one miss before candidacy); item 8 (chance floor).
+1. Review item 1 (allow one miss before candidacy); item 8 (chance floor).
 3. Discord alerts for new unreported objects (webhook not yet provided).
 4. Re-score October when NRL posts confirmations.
 
