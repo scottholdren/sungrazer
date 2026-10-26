@@ -173,10 +173,10 @@ function fillDetail(t, fresh) {
     $('#panel').dataset.id = t.id;
     $('#panel').innerHTML = `<span class="close" onclick="closeDetail()">✕</span><h3>${t.id}</h3><div class="badges">${badges(t)}</div>
       <div class="meta">status <b>${esc(t.status)}</b> · at 3/4/5 hits: ${esc(sa)} · velocity (${t.velocity[0]}, ${t.velocity[1]}) px/frame · ${n(t.n_hits, 'hit')}, ${t.missing} missing${pieceOf}</div>${piecesLine}
-      <div class="anim"><div><canvas id="cv" width="${tile*2}" height="${tile*4+8}"></canvas>
+      <div class="anim"><div><canvas id="cv" width="${tile*2}" height="${tile*6+16}"></canvas>
         <div class="ctl"><button onclick="ANIM.playing=!ANIM.playing">play/pause</button><button onclick="step(-1)">◀</button><button onclick="step(1)">▶</button>
         <input id="scrub" type="range" min="0" max="${Math.max(t.columns.length-1,0)}" value="0" oninput="ANIM.frame=+this.value;ANIM.playing=false;draw()"> <span id="flabel" class="dim"></span></div>
-        <div class="dim">top: raw frame, bottom: significance map; ticks mark the predicted position. The card thumbnail is the 8-frame stack along the track's motion: what the detector sees</div></div>
+        <div class="dim">top: raw frame · middle: significance map of that frame · bottom: the detector's view, the last 8 maps stacked along the track's motion (a comet is a steady dot in the ring). Older sheets have two rows.</div></div>
         ${full}
         <div><table><tr><th>frame</th><th>x</th><th>y</th><th>σ</th></tr>${hits}</table></div></div>`;
     const img = new Image(); img.src = t.sheet ? `${t.sheet}?v=${t.n_hits}` : '';
@@ -192,10 +192,13 @@ function draw() {
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, cv.width, cv.height);
   const x0 = gap + j * (tile + gap);
-  ctx.drawImage(ANIM.img, x0, gap, tile, tile, 0, 0, tile*2, tile*2);
-  ctx.drawImage(ANIM.img, x0, 2*gap + tile, tile, tile, 0, tile*2 + 8, tile*2, tile*2);
+  const rows = Math.max(1, Math.round((ANIM.img.height - gap) / (tile + gap)));
   ctx.strokeStyle = '#4fd37a'; ctx.lineWidth = 1.5;
-  for (const cy of [tile, tile*3 + 8]) { ctx.beginPath(); ctx.arc(tile, cy, 24, 0, 2*Math.PI); ctx.stroke(); }
+  for (let r = 0; r < rows; r++) {
+    const y = r * (tile*2 + 8);
+    ctx.drawImage(ANIM.img, x0, gap + r * (tile + gap), tile, tile, 0, y, tile*2, tile*2);
+    ctx.beginPath(); ctx.arc(tile, y + tile, 24, 0, 2*Math.PI); ctx.stroke();
+  }
   const s = $('#scrub'); if (s) s.value = j;
   const l = $('#flabel'); if (l) l.textContent = `${j+1}/${ANIM.cols.length}  ${ANIM.cols[j] || ''}`;
 }
