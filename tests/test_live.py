@@ -1,5 +1,6 @@
 import json
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from urllib.request import urlopen
 
@@ -134,22 +135,25 @@ def test_poll_phase_minimises_wait(monkeypatch):
     assert live.poll_phase("ccor1")["phase_min"] is None
 
 
-def test_next_poll_respects_guard_and_phase(monkeypatch):
-    monkeypatch.setattr(live, "poll_phase", lambda cam: {"phase_min": 2.0})
-    now = datetime.now(timezone.utc)
-    monkeypatch.setattr(live.net, "last_poll", lambda name: now.timestamp() - 14 * 60)
-    wait = live.seconds_to_next_poll("ccor1")
-    t = now + timedelta(seconds=round(wait))
-    assert 60 <= wait <= 16 * 60
-    assert t.minute % 15 == 2 and abs(t.second - 25) <= 2
-    # last poll ran 5 s after its slot: the next slot is 5 s inside the guard, still take it
-    slot = now.replace(minute=(now.minute // 15) * 15, second=25, microsecond=0) + timedelta(minutes=2)
-    if slot <= now:
-        slot += timedelta(minutes=15)
-    monkeypatch.setattr(live.net, "last_poll", lambda name: (slot - timedelta(minutes=15)).timestamp() + 5)
-    wait = live.seconds_to_next_poll("ccor1")
-    t = now + timedelta(seconds=wait)
-    assert abs((t - slot).total_seconds() - 6) <= 2  # the guard's 5 s plus 1
+def test_next_poll_takes_the_slot_after_the_last_poll(monkeypatch):
+    now = time.time()
+    slot_start = (now - 25) // 900 * 900 + 25  # this slot's frame time
+    # last poll was this slot's poll, 5 s late: next = next slot's poll, or the guard if later
+    monkeypatch.setattr(live.net, "last_poll", lambda name: slot_start + 2 * 60 + 5)
+    wait = live.seconds_to_next_poll("ccor1", 2.0)
+    assert abs((now + wait) - (slot_start + 900 + 2 * 60 + 5 + 1)) <= 2
+    # a smaller phase must not skip a slot: the guard wins, the slot stays the next one
+    wait = live.seconds_to_next_poll("ccor1", 1.0)
+    assert abs((now + wait) - (slot_start + 900 + 2 * 60 + 5 + 1)) <= 2
+    # a larger phase: the slot's poll time wins
+    wait = live.seconds_to_next_poll("ccor1", 4.0)
+    assert abs((now + wait) - (slot_start + 900 + 4 * 60 + 1)) <= 2
+    # after downtime (last poll an hour ago) the next poll is the first slot after now
+    monkeypatch.setattr(live.net, "last_poll", lambda name: now - 3600)
+    wait = live.seconds_to_next_poll("ccor1", 2.0)
+    assert 1 <= wait <= 15 * 60 + 1 and ((now + wait - 25) % 900) // 60 == 2
+    # no phase known: just the guard
+    assert live.seconds_to_next_poll("ccor1", None) >= 30
 
 
 def test_tracker_snapshot_leaves_state_alone():

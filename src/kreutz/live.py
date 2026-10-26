@@ -104,10 +104,11 @@ class Watcher:
         self.known: dict[str, dict] | None = None  # track id -> summary from the previous cycle
         self.stage_a: A.StageA | None = None  # resident stage A, primed after the first backlog run
         self.snapshot: list[Track] | None = None  # merged candidates as of the last window fed
+        self.phase = poll_phase(camera)["phase_min"]  # fixed for the life of the process: no slot flapping
 
     def run(self, once: bool = False) -> None:
         if not once and net.last_poll(f"live:{self.camera}") + net.POLL_INTERVAL_S > time.time():
-            wait = seconds_to_next_poll(self.camera)  # a restart within the guard: wait for the slot
+            wait = seconds_to_next_poll(self.camera, self.phase)  # a restart within the guard: wait for the slot
             at = datetime.now(timezone.utc) + timedelta(seconds=wait)
             print(f"restarted inside the poll guard; first poll at {at:%H:%M:%S} UTC", flush=True)
             self.activity.now("idle", f"restarted; first poll at {at:%H:%M:%S} UTC")
@@ -120,7 +121,7 @@ class Watcher:
                 self.activity.event(f"cycle failed: {type(e).__name__}: {e}", kind="error")
             if once:
                 return
-            wait = seconds_to_next_poll(self.camera)
+            wait = seconds_to_next_poll(self.camera, self.phase)
             at = datetime.now(timezone.utc) + timedelta(seconds=wait)
             print(f"next poll in {wait / 60:.1f} min", flush=True)
             self.activity.now("idle", f"next poll at {at:%H:%M:%S} UTC")
@@ -341,22 +342,26 @@ def poll_phase(camera: str) -> dict:
     return {"phase_min": best[0], "expected_wait_min": round(best[1], 1), "basis": f"{len(lag)} files"}
 
 
-def seconds_to_next_poll(camera: str) -> float:
-    """Sleep until the next slot's poll time, never under the 15-minute guard."""
-    now = datetime.now(timezone.utc)
-    phase = poll_phase(camera)["phase_min"]
-    earliest = net.last_poll(f"live:{camera}") + net.POLL_INTERVAL_S
+SLOT_S = 15 * 60
+SLOT_OFFSET_S = 25  # frames start at HH:00:25, :15:25, ...
+
+
+def seconds_to_next_poll(camera: str, phase: float | None) -> float:
+    """Seconds until the poll of the slot after the last poll's slot, `phase` minutes
+    past the frame time, never inside the 15-minute guard. Never skips a slot: if
+    the guard reaches past the slot's poll time we wait for the guard instead."""
+    now = time.time()
+    last = net.last_poll(f"live:{camera}")
+    earliest = last + net.POLL_INTERVAL_S
     if phase is None:
-        return max(earliest - now.timestamp(), 30)
-    # frames start at HH:00:25, :15:25, ...; the poll goes `phase` minutes after that
-    slot = now.replace(minute=(now.minute // 15) * 15, second=25, microsecond=0)
-    for k in range(0, 4):
-        t = slot + timedelta(minutes=15 * k + phase)
-        # a slot a few seconds inside the guard (the last poll ran seconds after its
-        # slot) is still this slot: wait for the guard, not for the next slot
-        if t.timestamp() >= earliest - 60 and t > now:
-            return max(t.timestamp(), earliest) - now.timestamp() + 1
-    return max(earliest - now.timestamp(), 30)
+        return max(earliest - now, 30)
+    slot_of = lambda t: (t - SLOT_OFFSET_S) // SLOT_S  # noqa: E731
+    k = slot_of(last) + 1 if last else slot_of(now)
+    t = k * SLOT_S + SLOT_OFFSET_S + phase * 60
+    while t <= now:  # the slot after the last poll is already gone (we were down): the next one
+        k += 1
+        t = k * SLOT_S + SLOT_OFFSET_S + phase * 60
+    return max(t, earliest) - now + 1
 
 
 def _full_sync_file() -> Path:
