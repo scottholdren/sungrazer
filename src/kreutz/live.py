@@ -38,6 +38,7 @@ SHOW_H = 24  # tracks whose last hit is older than this fall off the dashboard
 FETCH_H = 36  # hours of live feed to fill on each poll (files on disk are skipped)
 SYNC_DAYS = 60  # reports listing depth after the first (full) sync of a run
 MAX_REJECTED = 60  # rejected tracks listed per cycle (no images)
+NEWS_H = 3  # "new object" events only for tracks that began within this many hours
 PREVIEW_DS = 4  # full-frame preview downsample
 LABELS = {"ccor1": "CCOR-1", "ccor2": "CCOR-2"}
 
@@ -214,6 +215,8 @@ class Watcher:
                 if d.get("group", tid) != tid and d["group"] in self.known:
                     self.activity.event(f"track {tid} joins object {d['group']} {where}", kind="info", track=d["group"])
                     continue
+                if time.time() - _ts(d["first_seen"]) > NEWS_H * 3600:
+                    continue  # an old track resurfacing (regrouped, or its head aged out) is not news
                 self.activity.event(f"new object {tid} {where}" + (" — UNREPORTED" if not d["report"] else ""),
                                     kind="track", track=tid)
             elif d["report"] and not old.get("report"):
