@@ -176,7 +176,7 @@ function fillDetail(t, fresh) {
       <div class="anim"><div><canvas id="cv" width="${tile*2}" height="${tile*4+8}"></canvas>
         <div class="ctl"><button onclick="ANIM.playing=!ANIM.playing">play/pause</button><button onclick="step(-1)">◀</button><button onclick="step(1)">▶</button>
         <input id="scrub" type="range" min="0" max="${Math.max(t.columns.length-1,0)}" value="0" oninput="ANIM.frame=+this.value;ANIM.playing=false;draw()"> <span id="flabel" class="dim"></span></div>
-        <div class="dim">top: raw frame, bottom: significance map; ticks mark the predicted position</div></div>
+        <div class="dim">top: raw frame, bottom: significance map; ticks mark the predicted position. The card thumbnail is the 8-frame stack along the track's motion: what the detector sees</div></div>
         ${full}
         <div><table><tr><th>frame</th><th>x</th><th>y</th><th>σ</th></tr>${hits}</table></div></div>`;
     const img = new Image(); img.src = t.sheet ? `${t.sheet}?v=${t.n_hits}` : '';

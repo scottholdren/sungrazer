@@ -601,6 +601,11 @@ def _images(camera: str, state: dict, paths_, metas, out: Path, tiles: dict | No
         track = {"camera": camera, "id": d["id"], "status": d["status"], "velocity": d["velocity"],
                  "hits": [{"frame_time": h["t"], "x": h["x"], "y": h["y"], "sig": h["sig"]} for h in d["hits"]]}
         meta = json.loads(info.read_text()) if info.exists() else {}
+        if meta.get("n_hits") == d["n_hits"] and not thumb.exists():
+            try:
+                _thumbnail(camera, d, thumb)
+            except Exception as e:
+                print(f"thumbnail for {d['id']} failed: {e}", flush=True)
         if meta.get("n_hits") != d["n_hits"]:  # new or grew since it was drawn
             try:
                 cache = tiles.setdefault(d["id"], {}) if tiles is not None else None
@@ -623,18 +628,37 @@ def _images(camera: str, state: dict, paths_, metas, out: Path, tiles: dict | No
     return drawn
 
 
+THUMB_FRAMES = 8  # stacked along the track's velocity, like stage B
+
+
 def _thumbnail(camera: str, d: dict, out: Path) -> None:
-    from .fitsio import read_frame_cached
+    """What the detector saw: the last THUMB_FRAMES significance maps shifted along
+    the track's velocity and summed (divided by sqrt n), cut around the newest hit.
+    A real object piles up into a dot; in a single raw frame a 7-sigma stack
+    detection is invisible."""
     from .frameindex import FrameIndex
 
     last = d["hits"][-1]
+    vx, vy = d["velocity"]
+    t_last = _ts(last["t"])
     idx = FrameIndex(camera, datetime.fromisoformat(last["t"]).date() - timedelta(days=1))
-    i = idx.nearest(datetime.fromisoformat(last["t"]))
-    if i is None:
+    cands = [(p, t.timestamp()) for p, t in zip(idx.paths, idx.times)
+             if t_last - 14 * 900 <= t.timestamp() <= t_last + 60]
+    acc, n = np.zeros((2 * contact.HALF + 1,) * 2, np.float32), 0
+    for p, t in cands[::-1]:
+        m = A.load_meta(camera, p.name)
+        if m is None or not m.ok or not A.sig_path(camera, p.name).exists():
+            continue
+        dt = (t_last - t) / 900.0
+        sig = np.repeat(np.repeat(A.load_sig(camera, p.name), 2, axis=0), 2, axis=1)
+        cut = contact._cut_report(sig, last["x"] - vx * dt, last["y"] - vy * dt, 1)
+        acc += np.nan_to_num(cut, nan=0.0)
+        n += 1
+        if n >= THUMB_FRAMES:
+            break
+    if n == 0:
         return
-    f = read_frame_cached(idx.paths[i])
-    raw = contact._cut_report(f.data, last["x"], last["y"], 1)
-    write_png(out, contact._zoom(contact._stretch(raw, None)))
+    write_png(out, contact._zoom(contact._stretch(acc / np.sqrt(n), (-2, 8))))
 
 
 def _preview(camera: str, state: dict, paths_, metas, out: Path) -> None:
