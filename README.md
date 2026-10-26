@@ -165,6 +165,38 @@ size, `L2RFLIP`/`RECTIFY` set identically); it has not yet been checked against
 confirmed CCOR-2 comets. Hunter positions are good to about a pixel, so 0- vs 1-based can't be told
 apart from this; we chose 0-based.
 
+### Reports not measured on the full-resolution frame
+
+The form's "image size" field can't be trusted on its own. 11 confirmed CCOR-1
+reports (Jiangao Ruan, Zhijian Xu, Robert Pickard; Feb–Aug 2025) declare
+1024×1024 but quote positions up to x = 2032, y = 1745: they were measured on the
+2048×1920 frame and are used as they are. `scripts/verify_report_scale.py`
+confirms it on their frames: at scale 1 the median of 51×51 boxes peaks 1 px
+from the centre at 6× the scatter, and at scale 2 every position falls off a
+1024-wide image.
+
+Bill Collins's reports are the other case. They declare 1024×1024 with a "Lower
+Right" origin, but the numbers grow right and down, as from an upper-left
+origin. His view is turned to solar north up (by −CROTA, 25.5° in Oct 2026) and
+reduced about 2.2×, and the Sun sits at (610, 618) in his image. His two
+claims of Oct 19 and Oct 23 2026 fit two bright tracks to 3.5 px rms with a
+fitted similarity transform: scale 2.208, rotation 25.0°, offset. Fitting either
+comet alone predicts the other to 5–14 px. Neither the rotation (it follows the
+solar P angle) nor his crop is known for other dates.
+
+So the mapping is decided per report by `coords.report_mapping` and stored in
+`reports.mapping`:
+
+| mapping | when | positions |
+|---|---|---|
+| `full` | declared 2048×1920, no size given, or any position > 1023 | this convention (origin mirrored using 2048×1920) |
+| `transform` | reporter and date covered by `coords.REPORT_TRANSFORMS` (Bill Collins, 2026-10-17..24) | fitted transform of the numbers as typed |
+| `unmapped` | a smaller declared size with every position inside it, or a reporter with a transform outside its verified dates | dropped (`x_ul = NULL`) |
+
+Unmapped reports have no positions, so they're out of truth, velocity grids
+and envelopes. The scorecard lists the ones in its window. 45 reports are
+unmapped, none of them confirmed.
+
 ### Orientation guard
 
 The pipeline records how it flipped/rotated each image (`L2RFLIP`, `NROT90`) and
@@ -190,7 +222,9 @@ CCOR-2 has no verified combination yet, so the detector refuses its frames.
   `origin`, `image_size`, `time_referenced`/`parent_id` (for follow-ups),
   `endorsements`, `status`, `frames_text` (raw position block as posted).
 * `frames`: `report_id, seq, frame_time (UTC), x, y` as typed, `x_ul, y_ul` in
-  our convention, and the `raw` line. Unparseable lines are kept with NULLs.
+  our convention, and the `raw` line. Unparseable lines are kept with NULLs, and
+  so are positions whose report is `unmapped` (`reports.mapping`, see above);
+  every sync rebuilds them from the raw text.
 * `confirmations`: rows of the admins' confirmation tables, linked to the
   matching `report_id`.
 
@@ -272,8 +306,19 @@ masked: any connected region > 1.3× background and > 2,000 px, plus 25 px.
 
 One object gives several nearby stack peaks (neighbouring velocities), so a
 peak within 12 px of one already claimed in the same window doesn't start a new
-track, and candidate tracks that share ≥ 2 hit times within 8 px are merged
-into the longest.
+track. Candidate tracks are merged into the longest when they share ≥ 2 hit
+times within 8 px, or when they move at the same velocity (within 2 px/frame)
+and share ≥ 2 hit times within 40 px along the motion and 8 px across it. A
+bright comet's head and tail both make peaks, about 26 px apart along the path:
+in Oct 2026 one comet came out as three tracks. The merged track counts from
+the earliest moment any of its pieces was submittable.
+
+Rejection rules are re-checked after every hit, and some use all hits so far,
+so a comet that was clean at 3 hits can be rejected later (glare-zone, as it
+nears the occulter). Each track therefore records its **status when it reached
+3, 4 and 5 hits** (`status_at`) as well as its final status. Scoring uses the
+status at the threshold; a later rejection is printed but never undoes a
+submission.
 
 ### Rejection rules and why each exists
 
@@ -287,4 +332,23 @@ A candidate track is rejected (kept in the output, marked `rejected:<rule>`) if:
 | `off-envelope` | direction of motion, or signed miss distance of the path from the Sun, outside this month's Kreutz envelope (+15°, +80 px margins) | All Kreutz comets share one orbit, so in a given month they arrive from one side on nearly parallel paths; the side rotates through the year (Mar: from the left moving right; Jul: lower right moving up-left; Oct: right moving left). Things entering from anywhere else are not Kreutz comets: in Oct 2026 that included tracks entering at the left edge moving right. Built from confirmed reports (±1 month) where they exist; NRL has posted no confirmations since Aug 2025, so Oct–Jan use that month's pending hunter claims trimmed to the 10–90th percentiles, marked PROVISIONAL in the output. Cost: comets of other groups (Kracht, Meyer, non-group: 10 of 116 confirmed CCOR-1 reports). |
 | `glare-zone` | median distance from the Sun < 320 px | Variable glare at the occulter rim dominated the false positives (250 of 452 surviving tracks on 2025-07-17). Confirmed comets were never reported inside 392 px, and we want them earlier than that anyway. |
 | `edge` | never more than 25 px from the occulter, arm, field edge or array edge | The background and noise estimates break down at the borders of valid data. Cost: a comet entering the field is flagged ~3 frames later. |
-| `extended` | blob under the hits has median axis ratio > 3, measured in a 50-px box | Streamer edges and other linear structures that survive the DoG filter drift slowly and look like movers. A 26-px box cut rays short, so they measured ~3 and ~10 of the 40 benchmark false positives at 5 hits were one ray (Jul 20–22 2025). Cost: a comet with a bright straight tail would be rejected; CCOR-1 Kreutz comets are mostly point-like. |
+| `extended` | median axis ratio > 3 of the blob under the hits, measured on the **stack at the track's velocity** in a 50-px box, with the blob cut at a quarter of the peak (≥ 2.5σ) | Streamer edges and other linear structures that survive the DoG filter can slide along at comet-like speeds. In a single frame they look no different from a comet (both measured 1–3 on the test weeks). In the stack at the trial velocity a comet piles up into a compact head while a sliding ridge stays long: on both test weeks all 13 true comets measure 1.0–2.2 and the recurring Oct 2026 streamer tracks 2.6–10.8. Cutting at a quarter of the peak leaves a bright comet's tail below the cut. The single-frame version rejected the brightest comet of Oct 19 2026 (265σ, with a tail) as extended. Cost: a faint comet with a tail as bright as its head. |
+
+## Scoring (`kreutz score`)
+
+Truth objects, matching and lead times are described in `src/kreutz/score.py`.
+Two choices matter for reading a scorecard:
+
+* **Status at k.** A track counts at threshold k only if it was submittable when
+  it got its k-th hit (`status_at[k] == "candidate"`), not by its final status.
+  The scorecard lists every track that matches a truth object with its status at
+  3/4/5 hits and at the end, so a rule that fires late is visible.
+* **Real lead.** The frame time of the k-th hit isn't when we could submit. SWPC
+  publishes a frame a median of **14.6 min** after exposure start (90th
+  percentile 22.6 min; 2,358 files, Oct 1–25 2026, from the live directory
+  listing's timestamps). We poll at most every 15 min, so add 7.5 min on
+  average, plus about 30 s to process the new frame. The "real" column adds
+  that total, about 22.6 min. `kreutz fetch --live` logs each file's listing time and
+  our first sight of it in `data/state/published_<camera>.json`, and the
+  scorecard uses whatever that log holds at run time.
+
