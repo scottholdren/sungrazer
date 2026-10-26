@@ -49,7 +49,11 @@ def test_summary_matches_report_and_computes_lead(tmp_path):
     con.execute("INSERT INTO frames VALUES (?,?,?,?,?,?,?,?)",
                 ("report_cf_x", 1, (t0 + timedelta(hours=4)).isoformat(), 600, 700, None, None, "0445 600 700"))
     d = live._track_summary(t, [], 0.0, con)
-    assert d["report"]["camera"] == "C3" and d["report"]["reporter"] == "Chuck Fields" and d["report"]["lead_h"] < 0
+    assert d["report"] is None  # still unreported on CCOR-1 ...
+    assert d["lasco"]["camera"] == "C3" and d["lasco"]["reporter"] == "Chuck Fields"  # ... with a LASCO hint
+    # a C3 claim hours away is not a hint
+    con.execute("UPDATE frames SET frame_time=? WHERE report_id='report_cf_x'", ((t0 + timedelta(hours=9)).isoformat(),))
+    assert live._track_summary(t, [], 0.0, con)["lasco"] is None
 
 
 def test_build_state_splits_live_and_rejected(monkeypatch):

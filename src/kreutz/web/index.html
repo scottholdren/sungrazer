@@ -124,10 +124,11 @@ function badges(t) {
   if (r && r.status === 'confirmed') b.push(`<span class="b green">confirmed, ${n(t.n_hits, 'frame')}</span>`);
   else b.push(`<span class="b amber">candidate, ${n(t.n_hits, 'frame')} measured</span>`);
   if (r) {
-    const where = r.camera ? ` on ${esc(r.camera)} (time only)` : '';
-    b.push(`<span class="b blue"><a href="${esc(r.url)}" target="_blank" onclick="event.stopPropagation()">reported by ${esc(r.reporter)} ${fmt(r.posted)}${where}</a></span>`);
+    b.push(`<span class="b blue"><a href="${esc(r.url)}" target="_blank" onclick="event.stopPropagation()">reported by ${esc(r.reporter)} ${fmt(r.posted)}</a></span>`);
     b.push(r.lead_h < 0 ? `<span class="b green">found here ${hrs(r.lead_h)} before the report</span>` : `<span class="b">reported ${hrs(r.lead_h)} before we found it</span>`);
-  } else b.push(`<span class="b amber">UNREPORTED</span>`);
+  } else b.push(`<span class="b amber">UNREPORTED on ${esc(t.cam.label)}</span>`);
+  const l = t.lasco;
+  if (l) b.push(`<span class="b outline dim"><a href="${esc(l.url)}" target="_blank" onclick="event.stopPropagation()" style="color:inherit">a ${esc(l.camera)} claim by ${esc(l.reporter)} (${fmt(l.posted)}) overlaps in time; position not checked</a></span>`);
   if (t.merged) b.push(`<span class="b outline">merged with ${n(t.merged, 'other track')}</span>`);
   if (t.pieces && t.pieces.length) b.push(`<span class="b outline">+${n(t.pieces.length, 'piece')}</span>`);
   return b.join('');

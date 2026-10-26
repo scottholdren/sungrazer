@@ -480,18 +480,17 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con) -> di
         out["report"] = {"id": rid, "reporter": row["reporter"] if row else rid, "status": rep.status,
                          "posted": rep.first_post.isoformat(timespec="minutes"),
                          "url": f"https://sungrazer.nrl.navy.mil/report/{rid.replace('_', '')}",
-                         "lead_h": round(lead_h, 1), "camera": None}
-    else:
-        out["report"] = lasco_report(con, first["frame_time"], last["frame_time"], found, lat_s)
+                         "lead_h": round(lead_h, 1)}
+    out["lasco"] = lasco_report(con, first["frame_time"], last["frame_time"], found, lat_s)
     return out
 
 
-LASCO_SLACK_H = 6.0  # a LASCO report whose frames fall within this of our track counts as "maybe the same object"
+LASCO_SLACK_H = 1.0  # CCOR-1's field lies inside C3's, so a comet seen in both is seen at the same time
 
 
 def lasco_report(con, first: str, last: str, found: str, lat_s: float) -> dict | None:
-    """The earliest LASCO C2/C3 claim whose frame times overlap ours (we can't compare
-    positions across instruments, so this is a time coincidence, flagged as such)."""
+    """The earliest LASCO C2/C3 claim whose frame times overlap ours. Positions
+    can't be compared across instruments, so this is only a hint, shown as such."""
     lo = (datetime.fromisoformat(first) - timedelta(hours=LASCO_SLACK_H)).isoformat()
     hi = (datetime.fromisoformat(last) + timedelta(hours=LASCO_SLACK_H)).isoformat()
     row = con.execute("""SELECT r.report_id, r.reporter, r.camera, r.status, r.report_timestamp
