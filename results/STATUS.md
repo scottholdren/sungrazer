@@ -3,6 +3,67 @@
 Written by hand after each round of runs. The scorecards next to this file are
 the numbers; this file is what they mean and what to do next.
 
+## 2026-10-26 — code 42062a2, stage A a4, stage B b3: live on the VM, and two lead-time wins
+
+The detector now runs continuously on a Proxmox VM (`kreutz watch` under
+systemd, dashboard `kreutz serve` on http://192.168.4.39:8080/). A cycle
+takes ~30 s: resident stage A (7 s per new frame), persisted tracker, polls
+at 2 min past each 15-min slot (expected wait after SWPC posts a frame
+5.1 min). Reports (CCOR-1 plus LASCO C2/C3 for time coincidence) are synced
+every cycle. The dashboard shows one card per object (tracks within 60 px
+at the same time or continuing a path are grouped), a live activity feed,
+and a detail view that animates each track's frames.
+
+### Two changes to the detector, both scored on both weeks
+
+1. **Tracks may start from windows with cold frames** (`detect.SEED_COLD`).
+   The gate was added for slow post-gap artefacts that the per-month grid can
+   no longer stack (October grid: vx -12.5..-6).
+2. **Windows shrink after a gap**: `window_members` drops its oldest frames
+   until the span fits 14 slots, down to 6 frames, and counts the span in
+   whole slots (seconds of jitter made 3.5 h read as 14.0004 > 14). On Oct 23
+   the first usable window after the 06:15-07:45 off-point moves from 09:45
+   to 08:45.
+
+Oct 17-24 2026 (provisional truth, latency 22.6 min), real lead at 3 hits:
+
+| claim | first post | before | after |
+|---|---|---|---|
+| bc Oct 19 | 10-20 03:38 | -12.5 h | -12.5 h |
+| jr Oct 21 | 10-21 11:51 | +1.8 h (4 hits; off-envelope at 3) | **-2.0 h** |
+| jr Oct 22 | 10-22 13:20 | +0.5 h | +0.5 h |
+| **cw Oct 23 (Chris Wage, 264 sigma)** | 10-23 13:16 | +0.6 h | **-3.9 h** |
+| bc Oct 23 (same comet) | 10-23 19:01 | -5.1 h | -9.6 h |
+
+Live tracks at 3/4/5 hits: 293/144/72 → 411/188/96 (+40% at 3 hits);
+recall 5/5 at every threshold. July 17-24 2025: identical before and after
+(8/8 found, 133/53/27 live tracks; that week has almost no cold windows).
+
+Why Chris's comet still takes until 09:00: it entered the field during the
+off-point (expected x > 2048 at 06:00); frames are good from 08:00 and the
+stack peak is 120-137 sigma in every window from the first usable one, so
+the remaining 15 min after 08:45 is the three windows a candidate needs.
+
+### Live findings (Oct 24-26)
+
+- `20261024T2145_1662_1282`: 57 sigma, 28 hits, Oct 24 21:45 → Oct 25 06:30,
+  into the glare zone at (1342,1160); compact in every tile; **unreported on
+  CCOR-1, C2 and C3**. Vetted by eye only.
+- `20261025T0730_1736_1310`: 58 hits over 14 h at 20 sigma with no misses.
+  Nothing visible in the raw tiles; probably sliding structure. Unvetted.
+- Precision is still ~1%: ~400 live tracks a week in October, 17 objects on
+  the dashboard at any time. The bright comets are unmistakable (Chris's was
+  264 sigma); the list is the problem for anything faint.
+
+### Next steps
+
+1. Merge satellites and continuations inside the tracker (the dashboard
+   grouping is presentation only) and tighten MAX_ELONGATION toward 2.4;
+   target < 100 live tracks a week in October with recall 5/5.
+2. Review item 1 (allow one miss before candidacy); item 8 (chance floor).
+3. Discord alerts for new unreported objects (webhook not yet provided).
+4. Re-score October when NRL posts confirmations.
+
 ## 2026-10-25 — code 29fb154, stage A a4, stage B b3
 
 Changes since 88ee9ef: pieces of one comet are merged (same velocity within
