@@ -75,6 +75,19 @@ def test_build_state_splits_live_and_rejected(monkeypatch):
     assert state["window"] is None
 
 
+def test_tiers_fire_in_real_time_order():
+    con = __import__("kreutz.reports.db", fromlist=["db"]).connect(":memory:")
+    t0 = datetime(2026, 10, 25, 1, 0, 25, tzinfo=timezone.utc)
+    faint = live._track_summary(_track(t0, 8, sig=8.0), [], 0.0, con)
+    assert faint["tier"] is None
+    t = _track(t0, 6, sig=12.0)
+    t["hits"][5]["sig"] = 30.0  # bright only on its 6th hit
+    d = live._track_summary(t, [], 0.0, con)
+    assert d["tier"] == "alert" and d["tier_at"] == t["hits"][5]["frame_time"]
+    w = live._track_summary(_track(t0, 5, sig=12.0), [], 0.0, con)
+    assert w["tier"] == "watch" and w["tier_at"] == w["hits"][4]["t"]
+
+
 def test_window_shrinks_after_a_gap():
     from kreutz import detect
     from kreutz.detect.frames import FrameMeta

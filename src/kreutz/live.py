@@ -39,6 +39,9 @@ FETCH_H = 36  # hours of live feed to fill on each poll (files on disk are skipp
 SYNC_DAYS = 60  # reports listing depth after the first (full) sync of a run
 MAX_REJECTED = 60  # rejected tracks listed per cycle (no images)
 NEWS_H = 3  # "new object" events only for tracks that began within this many hours
+# Alert tiers, from the operating-point tables of 2026-10-26 (results/STATUS.md): (min hits, min best sigma).
+# alert: Oct 17-24 precision 0.60, 3/5 comets, median real lead -3.6 h; watch: July 7/8 comets at ~+0.2 h.
+TIERS = {"alert": (4, 15.0), "watch": (5, 10.0)}
 PREVIEW_DS = 4  # full-frame preview downsample
 LABELS = {"ccor1": "CCOR-1", "ccor2": "CCOR-2"}
 
@@ -223,8 +226,12 @@ class Watcher:
                 r = d["report"]
                 self.activity.event(f"track {tid} matches a report by {r['reporter']} ({r['lead_h']:+.1f} h)",
                                     kind="track", track=tid)
-            elif d["n_hits"] >= 5 and old["n_hits"] < 5:
-                self.activity.event(f"track {tid} reached 5 hits {where}", kind="track", track=tid)
+            elif d["tier"] == "alert" and old.get("tier") != "alert":
+                self.activity.event(f"ALERT {tid} {where}" + (" — UNREPORTED" if not d["report"] else ""),
+                                    kind="alert", track=tid)
+            elif d["tier"] == "watch" and old.get("tier") is None:
+                self.activity.event(f"watch {tid} {where}" + (" — UNREPORTED" if not d["report"] else ""),
+                                    kind="track", track=tid)
         self.known = cur
 
     def _stage_a(self, paths_, targets, progress) -> None:
@@ -393,7 +400,9 @@ def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas
     for t in recent:
         d = _track_summary(t, reports, lat_s, con)
         (following if d["live"] else rejected).append(d)
-    following.sort(key=lambda d: d["last_seen"], reverse=True)
+    rank = {"alert": 0, "watch": 1, None: 2}
+    following.sort(key=lambda d: (rank[d["tier"]], d["last_seen"]), reverse=False)
+    following.sort(key=lambda d: rank[d["tier"]])  # stable: alerts first, then watch, each newest-first
     rejected.sort(key=lambda d: -d["best_sig"])
     group_objects(following)
     good = [metas[i] for i in windows if metas[i] and metas[i].ok]
@@ -473,7 +482,14 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con) -> di
     span_frames = round((_ts(last["frame_time"]) - _ts(first["frame_time"])) / 900) + 1
     rep = next((r for r in reports if score.matches(t, r)), None)
     found = t["reached"].get("3") or first["frame_time"]
+    tier, tier_at = None, None
+    for name, (k, s) in TIERS.items():
+        at = _fires_at(hits, k, s)
+        if at is not None:
+            tier, tier_at = name, at
+            break
     out = {
+        "tier": tier, "tier_at": tier_at,
         "id": track_key(t), "live": live, "status": t["status"], "status_at": t["status_at"],
         "reached": t["reached"], "merged": t["merged"],
         "n_hits": len(hits), "missing": max(span_frames - len(hits), 0),
@@ -495,6 +511,16 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con) -> di
                          "lead_h": round(lead_h, 1)}
     out["lasco"] = lasco_report(con, first["frame_time"], last["frame_time"], found, lat_s)
     return out
+
+
+def _fires_at(hits: list[dict], k: int, s: float) -> str | None:
+    """Frame time at which the track first had k hits with a best significance >= s."""
+    best = 0.0
+    for i, h in enumerate(hits, 1):
+        best = max(best, h["sig"])
+        if i >= k and best >= s:
+            return h["frame_time"]
+    return None
 
 
 LASCO_SLACK_H = 1.0  # CCOR-1's field lies inside C3's, so a comet seen in both is seen at the same time

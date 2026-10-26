@@ -84,10 +84,28 @@ track per week** (3 trials) against 288 real. The ~290 unmatched tracks are
 moving structure, not coincidence; MAX_PEAKS and PEAK_THRESHOLD are not the
 lever, per-track discriminators are.
 
+Per-track features on both weeks' live tracks: at 3 hits nothing separates
+the faint comets (7.5-8.3 sigma, elongation 1.7, straight) from the rest.
+What does is persistence: confirmed comets run 7-84 hits (median ~50),
+unmatched tracks die at a median of 4-5. So the posting rule is "k hits and
+best significance >= s", evaluated as it would have fired in real time:
+
+| rule | Oct 17-24: fires / comets / precision / median real lead | Jul 17-24 |
+|---|---|---|
+| 3 hits | 295 / 4 of 5 / 0.01 / -2.9 h | 46 / 8 of 8 / 0.17 / -0.8 h |
+| **alert: 4 hits, >= 15 sigma** | 5 / 3 of 5 / 0.60 / -3.6 h | 18 / 7 of 8 / 0.39 / +1.8 h |
+| **watch: 5 hits, >= 10 sigma** | 18 / 3 of 5 / 0.17 / -3.4 h | 22 / 7 of 8 / 0.32 / +0.2 h |
+
+The October misses at either tier are the two faint comets (8 and 15 sigma
+peak). The dashboard shows the tiers (`live.TIERS`), sorts alerts first and
+logs ALERT events; Discord posting hooks on those when a webhook exists.
+
 ### Next steps
 
-1. Per-track features that separate the confirmed comets from the rest
-   (straightness, significance trend, speed scatter): measure on both weeks.
+1. Discord: post ALERT (and maybe watch) events when the owner provides a
+   webhook URL.
+2. A second CCOR-1 week with confirmations (Aug 2025) to check the tiers
+   generalise.
 3. Discord alerts for new unreported objects (webhook not yet provided).
 4. Re-score October when NRL posts confirmations.
 

@@ -35,7 +35,7 @@ code { background:#000; padding:2px 6px; border-radius:4px; font-size:12px }
 .now { margin:10px 0; padding:8px 10px; background:var(--card); border:1px solid var(--line); border-radius:8px }
 .now .st { font-weight:700; color:#fff } .now .bar { display:inline-block; width:140px; height:6px; background:#000; border-radius:3px; vertical-align:middle; margin-left:8px; overflow:hidden } .now .bar i { display:block; height:100%; background:#4fd37a }
 .now .names { font-family:ui-monospace, monospace; font-size:12px; color:var(--dim) }
-.ev { font-size:13px; padding:2px 0 } .ev .t { color:var(--dim); font-family:ui-monospace, monospace; margin-right:8px } .ev.track { color:#ffd34d } .ev.error { color:#ff7b7b } .ev.warn { color:#f0b64d } .ev.cycle { color:var(--dim) }
+.ev { font-size:13px; padding:2px 0 } .ev .t { color:var(--dim); font-family:ui-monospace, monospace; margin-right:8px } .ev.track { color:#ffd34d } .ev.alert { color:#ff7b7b; font-weight:700 } .ev.error { color:#ff7b7b } .ev.warn { color:#f0b64d } .ev.cycle { color:var(--dim) }
 #evall { max-height:360px; overflow:auto; border-top:1px solid var(--line); margin-top:6px; padding-top:6px }
 .pulse { display:inline-block; width:8px; height:8px; border-radius:50%; background:#4fd37a; margin-right:6px; animation:pulse 1.2s infinite } @keyframes pulse { 50% { opacity:.2 } } .pulse.idle { background:#8a93a0; animation:none }
 </style>
@@ -108,7 +108,9 @@ function render() {
   $('#chips').innerHTML = ['all', ...cams.map(c => c.label)].map(l => `<span class="chip ${FILTER===l?'on':''}" onclick="FILTER='${l}';render()">${esc(l)}</span>`).join('');
   const show = cams.filter(c => FILTER === 'all' || c.label === FILTER);
   const all = show.flatMap(c => c.tracks.map(t => ({...t, cam:c})));
-  const tracks = all.filter(t => !t.group || t.group === t.id).sort((a,b) => b.last_seen.localeCompare(a.last_seen));
+  const rank = {alert: 0, watch: 1};
+  const tracks = all.filter(t => !t.group || t.group === t.id)
+    .sort((a,b) => ((rank[a.tier] ?? 2) - (rank[b.tier] ?? 2)) || b.last_seen.localeCompare(a.last_seen));
   const np = all.length - tracks.length;
   $('#following').innerHTML = (tracks.length ? tracks.map(card).join('') : '<div class="dim">nothing followed right now</div>')
     + (np ? `<div class="dim">${n(tracks.length, 'object')} from ${n(all.length, 'track')}; pieces of the same object are listed in its detail view</div>` : '');
@@ -120,6 +122,8 @@ function render() {
 
 function badges(t) {
   const b = [`<span class="b outline">${esc(t.cam.label)}</span>`];
+  if (t.tier === 'alert') b.push(`<span class="b red">ALERT since ${fmt(t.tier_at)}</span>`);
+  else if (t.tier === 'watch') b.push(`<span class="b amber">watch since ${fmt(t.tier_at)}</span>`);
   const r = t.report;
   if (r && r.status === 'confirmed') b.push(`<span class="b green">confirmed, ${n(t.n_hits, 'frame')}</span>`);
   else b.push(`<span class="b amber">candidate, ${n(t.n_hits, 'frame')} measured</span>`);
