@@ -99,6 +99,7 @@ class Watcher:
         self.activity = Activity(camera)
         self.known: dict[str, dict] | None = None  # track id -> summary from the previous cycle
         self.stage_a: A.StageA | None = None  # resident stage A, primed after the first backlog run
+        self.snapshot: list[Track] | None = None  # merged candidates as of the last window fed
 
     def run(self, once: bool = False) -> None:
         if not once and net.last_poll(f"live:{self.camera}") + net.POLL_INTERVAL_S > time.time():
@@ -262,7 +263,7 @@ class Watcher:
             except Exception as e:
                 print(f"tracker.pkl unreadable, rebuilding: {e}", flush=True)
         if self.tracker is None or self.tracker_key != key:
-            self.tracker, self.tracker_key, self.fed_until = Tracker(), key, 0.0
+            self.tracker, self.tracker_key, self.fed_until, self.snapshot = Tracker(), key, 0.0, None
         tr, last, fed = self.tracker, None, 0
         for i in windows:
             if metas[i] is None or not metas[i].ok:
@@ -284,12 +285,14 @@ class Watcher:
             tr.update(metas[i].time, peaks, drift, metas[i].sun_xy, envelope=env, seed=seed)
             self.fed_until = metas[i].time
             fed += 1
-        tr.prune(t_start.timestamp())
-        _write_bytes(pkl, pickle.dumps({"key": key, "tracker": tr, "fed_until": self.fed_until}))
         open_chains = [t for t in tr.active if len(t.hits) >= 2]
         print(f"stage C: {_n(fed, 'new window')} fed; {len(tr.active)} active, {len(tr.done)} finished", flush=True)
-        shown_since = (datetime.now(timezone.utc) - timedelta(hours=SHOW_H)).timestamp()
-        return tr.snapshot(since=shown_since), open_chains, last
+        if fed or self.snapshot is None:
+            tr.prune(t_start.timestamp())
+            _write_bytes(pkl, pickle.dumps({"key": key, "tracker": tr, "fed_until": self.fed_until}))
+            shown_since = (datetime.now(timezone.utc) - timedelta(hours=SHOW_H)).timestamp()
+            self.snapshot = tr.snapshot(since=shown_since)  # merging is the cost; nothing changed otherwise
+        return self.snapshot, open_chains, last
 
 
 def watch(camera: str, once: bool = False, span_h: float = SPAN_H, fetch_h: float = FETCH_H) -> None:
