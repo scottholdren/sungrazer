@@ -83,6 +83,15 @@ latency), a collapsed list of recently rejected tracks, and a detail view that
 animates the track's frames. The page polls `/api/state` every minute and
 `/api/activity` every 3 s.
 
+Alert tiers (`live.TIERS`, chosen from real-time operating-point tables in
+`results/STATUS.md`): **alert** = 4 hits and best significance ≥ 15σ
+(Oct 17–24 2026: precision 0.60, 3 of 5 comets, median real lead −3.6 h);
+**watch** = 5 hits and ≥ 10σ. The dashboard sorts alerts first; the activity
+feed logs ALERT events. Discord: put a webhook URL in
+`data/state/discord_webhook.txt` (or `$KREUTZ_DISCORD_WEBHOOK`) and every new
+alert-tier object is posted once, with its contact sheet; set
+`$KREUTZ_DASHBOARD_URL` to append a link. Without a URL nothing is posted.
+
 Deployment: `deploy/` has systemd units (`kreutz-watch@ccor1`,
 `kreutz-serve`) that run as the repo owner with `Restart=always`. To deploy a
 change without sudo: `git pull`, then `kill $(systemctl show -p MainPID

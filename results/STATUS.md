@@ -113,8 +113,9 @@ group. 459 live tracks at 3 hits (0.01); alert tier: 6 fires, 2 comets.
 
 ### Next steps
 
-1. Discord: post ALERT (and maybe watch) events when the owner provides a
-   webhook URL.
+1. Discord posting is built (`notify.py`): drop a webhook URL into
+   `data/state/discord_webhook.txt` on the VM and alert-tier objects are
+   posted once each with their sheet.
 2. A second velocity grid + envelope per comet group in season (Kracht:
    Aug 2025 had 4 confirmed on CCOR-1, 5 confirmed ever, plus the hunters'
    "Kracht II" claims) -- the only way to find those before anyone else.
