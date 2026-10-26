@@ -556,19 +556,25 @@ def _fires_at(hits: list[dict], k: int, s: float) -> str | None:
     return None
 
 
-LASCO_SLACK_H = 1.0  # CCOR-1's field lies inside C3's, so a comet seen in both is seen at the same time
+# C3's field contains CCOR-1's, so a C3 claim overlaps ours in time; C2's field is
+# inside CCOR-1's, so a comet leaves us for C2 and its C2 claim comes hours later.
+LASCO_WINDOWS_H = {"c3": (1.0, 1.0), "c2": (1.0, 12.0)}  # (before our first hit, after our last hit)
 
 
 def lasco_report(con, first: str, last: str, found: str, lat_s: float) -> dict | None:
-    """The earliest LASCO C2/C3 claim whose frame times overlap ours. Positions
-    can't be compared across instruments, so this is only a hint, shown as such."""
-    lo = (datetime.fromisoformat(first) - timedelta(hours=LASCO_SLACK_H)).isoformat()
-    hi = (datetime.fromisoformat(last) + timedelta(hours=LASCO_SLACK_H)).isoformat()
-    row = con.execute("""SELECT r.report_id, r.reporter, r.camera, r.status, r.report_timestamp
-                         FROM reports r JOIN frames f USING (report_id)
-                         WHERE r.camera IN ('c2', 'c3') AND r.sighting_type = 'Potential Comet'
-                           AND r.status != 'retracted' AND f.frame_time BETWEEN ? AND ?
-                         ORDER BY r.report_timestamp LIMIT 1""", (lo, hi)).fetchone()
+    """The earliest LASCO C2/C3 claim whose frame times fit ours. Positions can't be
+    compared across instruments, so this is only a hint, shown as such."""
+    row = None
+    for cam, (before, after) in LASCO_WINDOWS_H.items():
+        lo = (datetime.fromisoformat(first) - timedelta(hours=before)).isoformat()
+        hi = (datetime.fromisoformat(last) + timedelta(hours=after)).isoformat()
+        cand = con.execute("""SELECT r.report_id, r.reporter, r.camera, r.status, r.report_timestamp
+                              FROM reports r JOIN frames f USING (report_id)
+                              WHERE r.camera = ? AND r.sighting_type = 'Potential Comet'
+                                AND r.status != 'retracted' AND f.frame_time BETWEEN ? AND ?
+                              ORDER BY r.report_timestamp LIMIT 1""", (cam, lo, hi)).fetchone()
+        if cand is not None and (row is None or cand["report_timestamp"] < row["report_timestamp"]):
+            row = cand
     if row is None:
         return None
     posted = datetime.fromisoformat(row["report_timestamp"])
