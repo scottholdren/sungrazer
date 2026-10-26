@@ -260,6 +260,7 @@ class StageA:
         self.prev_earth = False
         self.last_name: str | None = None
         self.withdrawable: tuple[str, float, bool] | None = None  # (name, time, meta written) of the last accepted frame
+        self.evicted: tuple[Frame | None, _Diff | None] = (None, None)  # what that frame pushed out of the buffers
         self.withdrawn: list[str] = []
 
     def predict_earth(self, t: float) -> bool:
@@ -299,6 +300,7 @@ class StageA:
                 _write_meta(self.camera, FrameMeta(p.name, t, False, q.problems, None, None, 0, 0, None))
             return
         self.withdrawable = (p.name, t, wanted) if predicted else None
+        self.evicted = (self.raw[0] if len(self.raw) == BG_FRAMES else None, None)
         if len(self.raw) < BG_FRAMES:
             self.raw.append(f)
             if wanted:
@@ -313,21 +315,30 @@ class StageA:
         cur.bg_span = (f.time - self.raw[0].time).total_seconds() / 900.0
         if wanted:
             _finish(self.camera, cur, list(self.diffs), dump=p.name in self.dump, log=self.log)
+        self.evicted = (self.evicted[0], self.diffs[0] if len(self.diffs) == self.diffs.maxlen else None)
         self.diffs.append(cur)
         self.raw.append(f)
 
     def _withdraw(self) -> None:
+        """Undo the last accepted frame: the batch path would never have taken it."""
         name, t, had_meta = self.withdrawable
         self.withdrawable = None
         self.withdrawn.append(name)
+        old_raw, old_diff = self.evicted
         if self.raw and self.raw[-1].path.name == name:
             self.raw.pop()
+            if old_raw is not None:
+                self.raw.appendleft(old_raw)
         if self.diffs and self.diffs[-1].frame.path.name == name:
             self.diffs.pop()
+            if old_diff is not None:
+                self.diffs.appendleft(old_diff)
+        self.evicted = (None, None)
         if had_meta:
             _write_meta(self.camera, FrameMeta(name, t, False,
                                                ["next to an Earth-in-field/eclipse frame (scattered Earthlight)"],
                                                None, None, 0, 0, None))
+            sig_path(self.camera, name).unlink(missing_ok=True)
         self.log(f"  {name}: withdrawn, the next frame has the Earth in view")
 
 
@@ -357,10 +368,15 @@ def process_range(camera: str, frames: list[Path], targets: range, dump_stages: 
 
 
 def prime(camera: str, frames: list[Path], end: int, log=print) -> StageA:
-    """A StageA positioned just after frames[end], ready to feed frames[end + 1]."""
+    """A StageA positioned just after frames[end], ready to feed frames[end + 1].
+    It also learns the last two days' Earth transits, to predict the next one."""
+    from ..fitsio import filename_time
+
     st = StageA(camera, log=log)
     first = max(0, end + 1 - HISTORY_FRAMES)
-    earth = _earth_frames(frames, first, end + 1)
+    scan = max(0, end + 1 - 2 * 96)
+    earth = _earth_frames(frames, scan, end + 1)
+    st.earth_times = [filename_time(frames[j].name).timestamp() for j in sorted(earth) if j <= end]
     for i in range(first, end + 1):
         st.feed(frames[i], wanted=False, next_is_earth=(i + 1) in earth, raw_only=i < end + 1 - 2 * STAR_FRAMES)
     return st
