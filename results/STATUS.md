@@ -59,9 +59,13 @@ the remaining 15 min after 08:45 is the three windows a candidate needs.
 
 ### Live findings (Oct 24-26)
 
-- `20261024T2145_1662_1282`: 57 sigma, 28 hits, Oct 24 21:45 → Oct 25 06:30,
-  into the glare zone at (1342,1160); compact in every tile; **unreported on
-  CCOR-1, C2 and C3**. Vetted by eye only.
+- `20261024T2115_1678_1288` ([note](ccor1/live-finds/20261024T2115_1678_1288.txt),
+  [sheet](ccor1/live-finds/20261024T2115_1678_1288.png)): 57 sigma, 32 hits,
+  Oct 24 21:15 → Oct 25 06:45, into the glare zone; compact in every tile.
+  **Unreported on CCOR-1. It is Chuck Fields' C2 comet** (C2 frames from
+  06:36 Oct 25 as it left us, posted 22:21 Oct 25): our third hit was 21:45
+  Oct 24, about 24 h before his post. First real-time win, found in the
+  watcher's first cycle.
 - `20261025T0730_1736_1310`: 58 hits over 14 h at 20 sigma with no misses.
   Nothing visible in the raw tiles; probably sliding structure. Unvetted.
 - Precision is still ~1%: ~400 live tracks a week in October, 17 objects on
