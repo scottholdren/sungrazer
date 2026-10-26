@@ -157,17 +157,18 @@ def sun_report_xy(frame: Frame) -> list | None:
         return None
 
 
+def is_earth(header) -> bool:
+    """Earth in the field, or an Earth/Moon eclipse: the frame and its neighbours are unusable."""
+    return (header.get("EARFOV_Q") is False or header.get("E_ECLPSE") not in (0, False, None)
+            or header.get("M_ECLPSE") not in (0, False, None))
+
+
 def _earth_frames(frames: list[Path], lo: int, hi: int) -> set[int]:
     """Indices in [lo - guard, hi + guard) whose header says Earth in the field or eclipse."""
     from astropy.io import fits
 
-    out = set()
-    for j in range(max(lo - EARTH_GUARD, 0), min(hi + EARTH_GUARD, len(frames))):
-        h = fits.getheader(frames[j], 1)
-        if h.get("EARFOV_Q") is False or h.get("E_ECLPSE") not in (0, False, None) \
-                or h.get("M_ECLPSE") not in (0, False, None):
-            out.add(j)
-    return out
+    return {j for j in range(max(lo - EARTH_GUARD, 0), min(hi + EARTH_GUARD, len(frames)))
+            if is_earth(fits.getheader(frames[j], 1))}
 
 
 class _Pointing:
@@ -232,6 +233,107 @@ def mask_moon(diff: np.ndarray, data: np.ndarray, background: np.ndarray) -> int
     return int(mask.sum())
 
 
+HISTORY_FRAMES = (BG_FRAMES + STAR_FRAMES) * 2  # frames of history read before a target (*2: room for bad ones)
+EARTH_PREDICT_S = 7 * 60  # live: a frame is "next to Earth" if a transit began within this of 24 h earlier
+
+
+class StageA:
+    """Stage A as a stream: feed frames in time order, one at a time.
+
+    Holds the 16 raw frames and 8 diffs the next frame needs, so a frame costs
+    one background median and one star model; process_range drives it over a
+    file range, the live watcher keeps one and feeds each new frame.
+
+    The Earth guard drops the frame *before* a transit, which needs the next
+    frame. process_range knows it (next_is_earth); live, it is predicted from the
+    transit 24 h earlier, and if a frame still turns out to be the first Earth
+    frame the previous one is withdrawn: its meta is rewritten as unusable and
+    it leaves the buffers, which is what the batch path would have done.
+    """
+
+    def __init__(self, camera: str, dump_stages: set[str] = frozenset(), log=print):
+        self.camera, self.dump, self.log = camera, set(dump_stages), log
+        self.raw: deque[Frame] = deque(maxlen=BG_FRAMES)
+        self.diffs: deque[_Diff] = deque(maxlen=STAR_FRAMES + 1)
+        self.pointing = _Pointing()
+        self.earth_times: list[float] = []
+        self.prev_earth = False
+        self.last_name: str | None = None
+        self.withdrawable: tuple[str, float, bool] | None = None  # (name, time, meta written) of the last accepted frame
+        self.withdrawn: list[str] = []
+
+    def predict_earth(self, t: float) -> bool:
+        return any(abs(t - 86400 - e) <= EARTH_PREDICT_S for e in self.earth_times)
+
+    def feed(self, p: Path, wanted: bool = True, next_is_earth: bool | None = None, raw_only: bool = False) -> None:
+        f = read_frame(p)
+        # Exact zeros are pipeline fill (blobs along the occulter rim and field edge), not sky.
+        f.data[f.data == 0] = np.nan
+        t = f.time.timestamp()
+        q = frame_quality(f.header, f.data)
+        earth = is_earth(f.header)
+        if earth:
+            self.earth_times.append(t)
+            self.earth_times = [e for e in self.earth_times if t - e < 2 * 86400]
+            if self.withdrawable and self.withdrawable[0] == self.last_name:
+                self._withdraw()
+        if next_is_earth is None:
+            next_is_earth = self.predict_earth(t + FRAME_S)
+            predicted = True
+        else:
+            predicted = False
+        self.last_name = p.name
+        if q.ok and (self.prev_earth or next_is_earth):
+            q.ok = False
+            q.problems.append("next to an Earth-in-field/eclipse frame (scattered Earthlight)"
+                              + (" [predicted from the transit 24 h earlier]" if predicted and not self.prev_earth else ""))
+        self.prev_earth = earth
+        if q.ok:
+            jump = self.pointing.check(f.header)
+            if jump is not None:
+                q.ok = False
+                q.problems.append(f"pointing jumped {jump:.0f} arcsec (CRVAL): calibration off-point")
+        if not q.ok:
+            self.withdrawable = None
+            if wanted:
+                _write_meta(self.camera, FrameMeta(p.name, t, False, q.problems, None, None, 0, 0, None))
+            return
+        self.withdrawable = (p.name, t, wanted) if predicted else None
+        if len(self.raw) < BG_FRAMES:
+            self.raw.append(f)
+            if wanted:
+                _write_meta(self.camera, FrameMeta(p.name, t, False, ["not enough history for background"],
+                                                   None, None, 0, 0, None))
+            return
+        if raw_only:
+            self.raw.append(f)  # far enough back that only its raw pixels are needed
+            return
+        bg = nanmedian_stack([r.data for r in self.raw])
+        cur = _Diff(f, bg)
+        cur.bg_span = (f.time - self.raw[0].time).total_seconds() / 900.0
+        if wanted:
+            _finish(self.camera, cur, list(self.diffs), dump=p.name in self.dump, log=self.log)
+        self.diffs.append(cur)
+        self.raw.append(f)
+
+    def _withdraw(self) -> None:
+        name, t, had_meta = self.withdrawable
+        self.withdrawable = None
+        self.withdrawn.append(name)
+        if self.raw and self.raw[-1].path.name == name:
+            self.raw.pop()
+        if self.diffs and self.diffs[-1].frame.path.name == name:
+            self.diffs.pop()
+        if had_meta:
+            _write_meta(self.camera, FrameMeta(name, t, False,
+                                               ["next to an Earth-in-field/eclipse frame (scattered Earthlight)"],
+                                               None, None, 0, 0, None))
+        self.log(f"  {name}: withdrawn, the next frame has the Earth in view")
+
+
+FRAME_S = 900.0
+
+
 def process_range(camera: str, frames: list[Path], targets: range, dump_stages: set[str] = frozenset(),
                   log=print) -> None:
     """Compute stage-A products for frames[t] for t in targets.
@@ -240,11 +342,9 @@ def process_range(camera: str, frames: list[Path], targets: range, dump_stages: 
     target is read from it as needed. Frames that fail quality checks are left out
     of every background and star model.
     """
-    raw: deque[Frame] = deque(maxlen=BG_FRAMES)
-    diffs: deque[_Diff] = deque(maxlen=STAR_FRAMES + 1)
-    first = max(0, targets.start - (BG_FRAMES + STAR_FRAMES) * 2)  # *2: room for skipped bad frames
-    pointing = _Pointing()
+    first = max(0, targets.start - HISTORY_FRAMES)
     earth = _earth_frames(frames, first, targets.stop)
+    st = StageA(camera, dump_stages, log)
     for i in range(first, targets.stop):
         p = frames[i]
         wanted = i in targets
@@ -253,39 +353,17 @@ def process_range(camera: str, frames: list[Path], targets: range, dump_stages: 
             # only if a later target is not cached either.
             if all(meta_path(camera, frames[j].name).exists() for j in range(i, targets.stop)):
                 return
-        f = read_frame(p)
-        # Exact zeros are pipeline fill (blobs along the occulter rim and field edge), not sky.
-        f.data[f.data == 0] = np.nan
-        q = frame_quality(f.header, f.data)
-        if q.ok and any(j in earth for j in range(i - EARTH_GUARD, i + EARTH_GUARD + 1)):
-            q.ok = False
-            q.problems.append("next to an Earth-in-field/eclipse frame (scattered Earthlight)")
-        if q.ok:
-            jump = pointing.check(f.header)
-            if jump is not None:
-                q.ok = False
-                q.problems.append(f"pointing jumped {jump:.0f} arcsec (CRVAL): calibration off-point")
-        if not q.ok:
-            if wanted:
-                _write_meta(camera, FrameMeta(p.name, f.time.timestamp(), False, q.problems,
-                                              None, None, 0, 0, None))
-            continue
-        if len(raw) < BG_FRAMES:
-            raw.append(f)
-            if wanted:
-                _write_meta(camera, FrameMeta(p.name, f.time.timestamp(), False,
-                                              ["not enough history for background"], None, None, 0, 0, None))
-            continue
-        if i < targets.start - 2 * STAR_FRAMES:
-            raw.append(f)  # far enough back that only its raw pixels are needed
-            continue
-        bg = nanmedian_stack([r.data for r in raw])
-        cur = _Diff(f, bg)
-        cur.bg_span = (f.time - raw[0].time).total_seconds() / 900.0
-        if wanted:
-            _finish(camera, cur, list(diffs), dump=p.name in dump_stages, log=log)
-        diffs.append(cur)
-        raw.append(f)
+        st.feed(p, wanted=wanted, next_is_earth=(i + 1) in earth, raw_only=i < targets.start - 2 * STAR_FRAMES)
+
+
+def prime(camera: str, frames: list[Path], end: int, log=print) -> StageA:
+    """A StageA positioned just after frames[end], ready to feed frames[end + 1]."""
+    st = StageA(camera, log=log)
+    first = max(0, end + 1 - HISTORY_FRAMES)
+    earth = _earth_frames(frames, first, end + 1)
+    for i in range(first, end + 1):
+        st.feed(frames[i], wanted=False, next_is_earth=(i + 1) in earth, raw_only=i < end + 1 - 2 * STAR_FRAMES)
+    return st
 
 
 def _finish(camera: str, cur: _Diff, prev: list[_Diff], dump: bool, log) -> None:

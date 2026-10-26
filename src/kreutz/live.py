@@ -99,6 +99,7 @@ class Watcher:
         self.full_sync_done = False
         self.activity = Activity(camera)
         self.known: dict[str, dict] | None = None  # track id -> summary from the previous cycle
+        self.stage_a: A.StageA | None = None  # resident stage A, primed after the first backlog run
 
     def run(self, once: bool = False) -> None:
         while True:
@@ -155,7 +156,7 @@ class Watcher:
                 act.event(f"stage A: {total} frame(s) to process" + (": " + ", ".join(n[9:24] for n in names[:4])
                                                                      + (" ..." if total > 4 else "")), kind="stage")
         act.now("stage A", "checking which frames need processing")
-        detect.run_stage_a(camera, paths_, targets, progress=prog_a)
+        self._stage_a(paths_, targets, prog_a)
         timings["stage_a"] = _lap(t0, timings)
         metas = [A.load_meta(camera, p.name) for p in paths_]
 
@@ -213,6 +214,33 @@ class Watcher:
             elif d["n_hits"] >= 5 and old["n_hits"] < 5:
                 self.activity.event(f"track {tid} reached 5 hits {where}", kind="track", track=tid)
         self.known = cur
+
+    def _stage_a(self, paths_, targets, progress) -> None:
+        """Feed new frames to the resident StageA when they directly follow what it
+        has seen; otherwise (first cycle, restart, a frame that arrived out of
+        order) run the batch stage over the backlog and re-prime from the cache."""
+        todo = [i for i in targets if not A.meta_path(self.camera, paths_[i].name).exists()]
+        if not todo:
+            return
+        names = [paths_[i].name for i in todo]
+        st = self.stage_a
+        contiguous = todo == list(range(todo[0], targets[-1] + 1)) and todo[0] > 0
+        if st is not None and contiguous and st.last_name == paths_[todo[0] - 1].name:
+            progress(0, len(todo), names)
+            for k, i in enumerate(todo, 1):
+                st.feed(paths_[i], wanted=True)
+                progress(k, len(todo), names)
+            if st.withdrawn:
+                self.activity.event(f"withdrew {', '.join(n[9:24] for n in st.withdrawn)}: next frame had the Earth in view",
+                                    kind="warn")
+                st.withdrawn = []
+            return
+        detect.run_stage_a(self.camera, paths_, targets, progress=progress)
+        self.activity.now("stage A", f"priming the resident stage from the last {A.HISTORY_FRAMES} frames")
+        t0 = time.time()
+        self.stage_a = A.prime(self.camera, paths_, targets[-1], log=lambda *_: None)
+        self.activity.event(f"stage A primed in {time.time() - t0:.0f} s; new frames are processed in-process from now on",
+                            kind="stage")
 
     def _track(self, paths_, metas, windows, envelopes, t_start: datetime):
         """Stage C. The tracker persists between cycles and across restarts (tracker.pkl),
