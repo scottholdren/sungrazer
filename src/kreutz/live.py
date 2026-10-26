@@ -218,7 +218,7 @@ class Watcher:
                 if d.get("group", tid) != tid and d["group"] in self.known:
                     self.activity.event(f"track {tid} joins object {d['group']} {where}", kind="info", track=d["group"])
                     continue
-                if time.time() - _ts(d["first_seen"]) > NEWS_H * 3600:
+                if not _recent(d["first_seen"]):
                     continue  # an old track resurfacing (regrouped, or its head aged out) is not news
                 self.activity.event(f"new object {tid} {where}" + (" — UNREPORTED" if not d["report"] else ""),
                                     kind="track", track=tid)
@@ -226,10 +226,10 @@ class Watcher:
                 r = d["report"]
                 self.activity.event(f"track {tid} matches a report by {r['reporter']} ({r['lead_h']:+.1f} h)",
                                     kind="track", track=tid)
-            elif d["tier"] == "alert" and old.get("tier") != "alert":
+            elif d["tier"] == "alert" and old.get("tier") != "alert" and _recent(d["tier_at"]):
                 self.activity.event(f"ALERT {tid} {where}" + (" — UNREPORTED" if not d["report"] else ""),
                                     kind="alert", track=tid)
-            elif d["tier"] == "watch" and old.get("tier") is None:
+            elif d["tier"] == "watch" and old.get("tier") is None and _recent(d["tier_at"]):
                 self.activity.event(f"watch {tid} {where}" + (" — UNREPORTED" if not d["report"] else ""),
                                     kind="track", track=tid)
         self.known = cur
@@ -511,6 +511,10 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con) -> di
                          "lead_h": round(lead_h, 1)}
     out["lasco"] = lasco_report(con, first["frame_time"], last["frame_time"], found, lat_s)
     return out
+
+
+def _recent(iso: str | None) -> bool:
+    return iso is not None and time.time() - _ts(iso) <= NEWS_H * 3600
 
 
 def _fires_at(hits: list[dict], k: int, s: float) -> str | None:
