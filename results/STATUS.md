@@ -77,9 +77,17 @@ candidacy. October live tracks 288 -> 380 at 3 hits (+32%) for 15 min on
 one comet per week (jr Oct 22, CCR1 0073); CCR1 0075, the faint one it was
 meant to help, is unchanged.
 
+Review item 8, the chance floor: the tracker run on the same windows with
+the peaks of each window drawn from a random other window of the week
+(per-window peak statistics kept, real continuity broken) makes **1 live
+track per week** (3 trials) against 288 real. The ~290 unmatched tracks are
+moving structure, not coincidence; MAX_PEAKS and PEAK_THRESHOLD are not the
+lever, per-track discriminators are.
+
 ### Next steps
 
-1. Review item 8 (chance floor).
+1. Per-track features that separate the confirmed comets from the rest
+   (straightness, significance trend, speed scatter): measure on both weeks.
 3. Discord alerts for new unreported objects (webhook not yet provided).
 4. Re-score October when NRL posts confirmations.
 
