@@ -1,0 +1,97 @@
+# kreutz score --camera ccor1 --start 2026-10-23 --end 2026-10-23
+# code f031755, stage A a4, stage B b3, run 2026-10-26 04:47 UTC
+envelope month 10: 61 PROVISIONAL from hunter claims Kreutz tracks (months [10]); entry PA -45..-11; allowed direction 138..-178 deg, miss -225..91 px; grid vx -12.5..-6.0, vy -6.5..0.0 = 196 velocities
+stage A: 106 frames in 3 chunks
+  48/106 frames, 5.2 min
+  96/106 frames, 6.7 min
+  106/106 frames, 7.2 min
+stage B: 76 windows x 196 velocities
+  50/76 windows, 2.5 min
+  76/76 windows, 3.5 min
+stage C: 16 windows with cold frames started no new tracks
+93 good frames, 1 without star model, 14 cold; 928 candidate tracks (54 not rejected) -> /home/sholdren/stargrazer/sungrazer/data/derived/ccor1/a4/tracks_2026-10-23_2026-10-23.json
+
+=== ccor1 2026-10-23..2026-10-23: 2 truth objects (PROVISIONAL: no confirmation list covers this window; using hunter claims)
+    mapped with a fitted reporter transform (coords.REPORT_TRANSFORMS): report_bc_20261023150123
+    928 candidate tracks, 62 submittable at 3, 4 or 5 hits; final status of all: 54 live, outbound: 627, off-envelope: 171, glare-zone: 53, extended: 23
+    latency 22.6 min = publication 14.6 + poll wait 7.5 + processing 0.5. SWPC publication lag (ccor1, 2360 files 10-02..10-26): median 14.6 min, 90th percentile 22.6 min after exposure start; no files first seen while watching yet
+
+object                     status    first human post  found  @3 hits: time / lead / real          @4 hits: time / lead / real          @5 hits: time / lead / real          best sig
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+report_cw_20261023091620   pending   10-23 13:16        yes    10-23 13:30 / +0.2 h / +0.6 h        10-23 13:45 / +0.5 h / +0.9 h        10-23 14:00 / +0.7 h / +1.1 h        264.1
+report_bc_20261023150123   pending   10-23 19:01        yes    10-23 13:30 / -5.5 h / -5.1 h        10-23 13:45 / -5.3 h / -4.9 h        10-23 14:00 / -5.0 h / -4.6 h        264.1
+(lead = our frame time - first human post; real = lead + latency above; negative = we would have been first)
+
+status of every track matching a truth object, when it reached 3 / 4 / 5 hits, and at the end:
+  report_cw_20261023091620   track   3465 (44 hits, 3 merged): candidate / candidate / candidate; final candidate
+  report_bc_20261023150123   track   3465 (44 hits, 3 merged): candidate / candidate / candidate; final candidate
+  report_bc_20261023150123   track   4108 (3 hits, 0 merged): candidate / - / -; final candidate
+  report_bc_20261023150123   track   4849 (3 hits, 0 merged): rejected:off-envelope / - / -; final rejected:off-envelope
+
+threshold  tracks match truth precision   recall
+  3 hits       60           2      0.03    2/2  
+  4 hits       28           1      0.04    2/2  
+  5 hits       13           1      0.08    2/2  
+claims by status (found/total): pending 2/2. Recall here is not trustworthy until NRL posts confirmations for these dates: then `kreutz reports sync` and re-score.
+
+unmatched tracks (false positives unless a human missed it): 60
+  track   9285: 3 hits, best sig  60.6, first 10-23T20:45 at (1604,1240), v=(-12.0,-3.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_9285.png
+  track   6955: 3 hits, best sig  59.2, first 10-23T17:30 at (1706,1252), v=(-7.0,-2.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_6955.png
+  track   7674: 5 hits, best sig  54.7, first 10-23T18:30 at (1678,1240), v=(-8.6,-3.3)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_7674.png
+  track  10429: 3 hits, best sig  50.2, first 10-23T22:15 at (1548,1192), v=(-12.0,-3.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_10429.png
+  track   5983: 3 hits, best sig  38.5, first 10-23T16:15 at (1764,1266), v=(-9.0,-2.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_5983.png
+  track   9113: 3 hits, best sig  37.3, first 10-23T20:30 at (1590,1216), v=(-12.0,-6.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_9113.png
+  track   9659: 3 hits, best sig  36.5, first 10-23T21:15 at (1594,1234), v=(-9.0,-3.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_9659.png
+  track   7322: 3 hits, best sig  36.4, first 10-23T18:00 at (1708,1276), v=(-7.0,-3.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_7322.png
+  track   8930: 8 hits, best sig  34.4, first 10-23T20:15 at (1612,1246), v=(-11.6,-4.0)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_8930.png
+  track   8568: 3 hits, best sig  33.7, first 10-23T19:45 at (1616,1222), v=(-12.0,-6.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_8568.png
+  track  10434: 4 hits, best sig  33.5, first 10-23T22:15 at (1534,1220), v=(-9.8,-3.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_10434.png
+  track  11214: 3 hits, best sig  33.2, first 10-23T23:15 at (1492,1208), v=(-9.0,-3.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_11214.png
+  track   6558: 3 hits, best sig  33.0, first 10-23T17:00 at (1738,1260), v=(-6.0,-3.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_6558.png
+  track   3483: 5 hits, best sig  26.3, first 10-23T13:00 at (1854,1330), v=(-10.4,-1.4)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_3483.png
+  track   3498: 3 hits, best sig  23.8, first 10-23T13:00 at (1848,1304), v=(-10.0,-4.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_3498.png
+  track   5663: 6 hits, best sig   9.4, first 10-23T15:45 at (1418,1388), v=(-8.3,-6.5)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_5663.png
+  track   5844: 4 hits, best sig   9.3, first 10-23T16:00 at (1440,1048), v=(-10.8,-1.4)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_5844.png
+  track   3964: 7 hits, best sig   8.9, first 10-23T13:30 at (1416,1368), v=(-8.4,-5.5)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_3964.png
+  track   6160: 7 hits, best sig   8.9, first 10-23T16:15 at (1496,1476), v=(-7.7,-5.1)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_6160.png
+  track   1079: 7 hits, best sig   8.7, first 10-23T01:00 at (1390,1282), v=(-7.5,-5.4)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_1079.png
+  track   1607: 5 hits, best sig   8.6, first 10-23T01:45 at (1406,1008), v=(-12.3,-0.7)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_1607.png
+  track   5111: 4 hits, best sig   8.3, first 10-23T15:00 at (1404,1378), v=(-11.0,-6.8)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_5111.png
+  track   3558: 5 hits, best sig   8.3, first 10-23T13:00 at (1420,1222), v=(-6.6,-6.6)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_3558.png
+  track   3562: 3 hits, best sig   8.2, first 10-23T13:00 at (1350,1176), v=(-7.0,-5.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_3562.png
+  track   1089: 5 hits, best sig   8.2, first 10-23T01:00 at (1728,1544), v=(-7.2,-5.8)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_1089.png
+  track   8682: 4 hits, best sig   8.2, first 10-23T19:45 at (1372,1366), v=(-8.0,-3.4)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_8682.png
+  track    217: 4 hits, best sig   8.1, first 10-23T00:00 at (1358,1168), v=(-7.2,-6.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_217.png
+  track   4894: 4 hits, best sig   8.1, first 10-23T14:45 at (1480,1048), v=(-11.0,-0.8)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_4894.png
+  track   6836: 3 hits, best sig   8.0, first 10-23T17:15 at (1424,1416), v=(-4.0,-3.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_6836.png
+  track  10480: 6 hits, best sig   8.0, first 10-23T22:15 at (1316,1284), v=(-7.2,-6.9)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_10480.png
+  track   1225: 6 hits, best sig   7.9, first 10-23T01:15 at (1408,1218), v=(-7.4,-6.0)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_1225.png
+  track   5688: 4 hits, best sig   7.9, first 10-23T15:45 at (1442,1416), v=(-12.0,-6.2)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_5688.png
+  track   5832: 3 hits, best sig   7.8, first 10-23T16:00 at (1810,1258), v=(-9.0,-1.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_5832.png
+  track   1013: 6 hits, best sig   7.8, first 10-23T01:00 at (1332,1238), v=(-11.2,-6.2)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_1013.png
+  track   1666: 6 hits, best sig   7.8, first 10-23T01:45 at (1442,1246), v=(-7.5,-6.5)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_1666.png
+  track   2445: 4 hits, best sig   7.7, first 10-23T02:45 at (1394,1294), v=(-9.4,-5.8)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_2445.png
+  track   4360: 4 hits, best sig   7.7, first 10-23T14:00 at (1562,1082), v=(-10.0,-1.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_4360.png
+  track   2697: 3 hits, best sig   7.7, first 10-23T03:00 at (1912,1476), v=(-10.0,-5.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_2697.png
+  track   4517: 5 hits, best sig   7.6, first 10-23T14:15 at (1454,1414), v=(-6.0,-3.0)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_4517.png
+  track   5495: 4 hits, best sig   7.6, first 10-23T15:30 at (1456,1242), v=(-6.6,-5.5)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_5495.png
+  track   3600: 3 hits, best sig   7.5, first 10-23T13:00 at (1566,1106), v=(-7.0,-2.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_3600.png
+  track   1262: 3 hits, best sig   7.4, first 10-23T01:15 at (1628,1420), v=(-8.0,-6.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_1262.png
+  track   4376: 3 hits, best sig   7.4, first 10-23T14:00 at (1452,1046), v=(-9.0,-3.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_4376.png
+  track   2380: 4 hits, best sig   7.4, first 10-23T02:30 at (1386,1134), v=(-7.8,-4.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_2380.png
+  track  10068: 3 hits, best sig   7.4, first 10-23T21:30 at (1618,1362), v=(-10.0,-5.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_10068.png
+  track    933: 6 hits, best sig   7.4, first 10-23T00:45 at (1352,1256), v=(-7.4,-4.2)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_933.png
+  track   5848: 3 hits, best sig   7.4, first 10-23T16:00 at (1990,1430), v=(-6.0,-3.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_5848.png
+  track  10165: 3 hits, best sig   7.3, first 10-23T21:45 at (1496,940), v=(-12.0,-1.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_10165.png
+  track   8520: 3 hits, best sig   7.3, first 10-23T19:30 at (1372,1032), v=(-12.0,-4.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_8520.png
+  track   8268: 4 hits, best sig   7.3, first 10-23T19:15 at (1350,1312), v=(-9.2,-7.8)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_8268.png
+  track   4052: 4 hits, best sig   7.2, first 10-23T13:30 at (1456,1412), v=(-10.6,-6.6)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_4052.png
+  track   1272: 3 hits, best sig   7.2, first 10-23T01:15 at (1390,1088), v=(-9.0,-2.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_1272.png
+  track   4370: 3 hits, best sig   7.2, first 10-23T14:00 at (1410,1054), v=(-12.0,-2.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_4370.png
+  track   4019: 3 hits, best sig   7.1, first 10-23T13:30 at (1376,1044), v=(-9.0,-1.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_4019.png
+  track    758: 3 hits, best sig   7.1, first 10-23T00:30 at (1420,1094), v=(-9.0,-0.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_758.png
+  track    140: 3 hits, best sig   7.1, first 10-23T00:00 at (1492,1014), v=(-8.0,-2.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_140.png
+  track   5442: 5 hits, best sig   7.0, first 10-23T15:15 at (1414,1056), v=(-12.0,-2.4)  -> results/ccor1/2026-10-23_2026-10-23/sheets/fp_5442.png
+  track    153: 3 hits, best sig   7.0, first 10-23T00:00 at (1416,1090), v=(-11.0,-4.0)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_153.png
+  track   6689: 4 hits, best sig   7.0, first 10-23T17:00 at (1598,1092), v=(-7.4,-0.6)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_6689.png
+  track   4034: 4 hits, best sig   6.9, first 10-23T13:30 at (1362,1042), v=(-12.0,-1.2)  -> data/derived/ccor1/a4/sheets_2026-10-23_2026-10-23/fp_4034.png
