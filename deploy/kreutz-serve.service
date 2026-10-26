@@ -1,0 +1,14 @@
+[Unit]
+Description=kreutz live dashboard
+After=network-online.target
+
+[Service]
+User=sholdren
+WorkingDirectory=/home/sholdren/stargrazer/sungrazer
+ExecStart=/home/sholdren/stargrazer/sungrazer/.venv/bin/python -m kreutz serve --port 8080
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

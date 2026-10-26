@@ -1,0 +1,16 @@
+[Unit]
+Description=kreutz live watcher (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=sholdren
+WorkingDirectory=/home/sholdren/stargrazer/sungrazer
+ExecStart=/home/sholdren/stargrazer/sungrazer/.venv/bin/python -m kreutz watch --camera %i
+Restart=always
+RestartSec=60
+Nice=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

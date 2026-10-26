@@ -54,6 +54,18 @@ def cmd_score(args) -> None:
     score.score(args.camera, args.start, args.end, workers=args.workers, sheets=not args.no_sheets)
 
 
+def cmd_watch(args) -> None:
+    from . import live
+
+    live.watch(args.camera, once=args.once, span_h=args.span, fetch_h=args.fetch_hours)
+
+
+def cmd_serve(args) -> None:
+    from . import serve
+
+    serve.serve(host=args.host, port=args.port)
+
+
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(prog="kreutz", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -101,6 +113,18 @@ def main(argv=None) -> None:
     s.add_argument("--workers", type=int)
     s.add_argument("--no-sheets", action="store_true", help="skip contact-sheet PNGs")
     s.set_defaults(func=cmd_score)
+
+    w = sub.add_parser("watch", help="run the detector on the live feed, writing data/live/<camera>/state.json")
+    w.add_argument("--camera", default="ccor1", choices=["ccor1", "ccor2"])
+    w.add_argument("--once", action="store_true", help="one cycle, then exit")
+    w.add_argument("--span", type=float, default=48, help="hours of windows to track each cycle (default 48)")
+    w.add_argument("--fetch-hours", type=float, default=36, help="hours of the live feed to fill (default 36)")
+    w.set_defaults(func=cmd_watch)
+
+    v = sub.add_parser("serve", help="serve the live dashboard")
+    v.add_argument("--host", default="0.0.0.0")
+    v.add_argument("--port", type=int, default=8080)
+    v.set_defaults(func=cmd_serve)
 
     args = p.parse_args(argv)
     args.func(args)

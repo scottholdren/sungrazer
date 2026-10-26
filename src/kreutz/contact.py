@@ -28,7 +28,8 @@ SCALE = 3
 MAX_COLS = 20
 
 
-def contact_sheet(track: dict, out: Path) -> Path:
+def contact_sheet(track: dict, out: Path) -> tuple[Path, list[str]]:
+    """Write the sheet; return its path and the frame name of each column."""
     camera = track["camera"]
     hits = track["hits"]
     t = np.array([datetime.fromisoformat(h["frame_time"]).timestamp() for h in hits])
@@ -67,7 +68,7 @@ def contact_sheet(track: dict, out: Path) -> Path:
         f"track {track['id']} status {track['status']} velocity {track['velocity']}\n"
         + "\n".join(f"{h['frame_time']}  x={h['x']:.1f} y={h['y']:.1f}  sig={h['sig']:.1f}" for h in hits)
         + "\ncolumns: " + ", ".join(p.name[9:24] for p in paths) + "\n")
-    return out
+    return out, [p.name for p in paths]
 
 
 def _ts(p: Path) -> float:

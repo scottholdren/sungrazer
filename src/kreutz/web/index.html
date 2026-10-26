@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kreutz live</title>
+<style>
+:root { --bg:#14171c; --card:#1c2027; --line:#2b313b; --fg:#d7dce3; --dim:#8a93a0; --green:#2e7d4f; --blue:#2b5fa8; --amber:#8a6d1f; --red:#8a2f2f; --chip:#2a303a; }
+* { box-sizing:border-box }
+body { margin:0; padding:12px 16px; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif }
+h1 { font-size:20px; margin:0 0 8px }
+h2 { font-size:12px; letter-spacing:.08em; color:var(--dim); margin:18px 0 8px }
+.cam { margin:2px 0 } .cam b { color:#fff } .dim { color:var(--dim) } .stale { color:#f0b64d; font-weight:600 }
+.chips { margin:10px 0 } .chip { display:inline-block; padding:2px 10px; margin-right:6px; border:1px solid var(--line); border-radius:12px; cursor:pointer; color:var(--fg); background:transparent }
+.chip.on { background:#e8ecf2; color:#111; border-color:#e8ecf2 }
+.card { display:flex; gap:12px; padding:10px; margin:8px 0; background:var(--card); border:1px solid var(--line); border-radius:8px; cursor:pointer }
+.card:hover { border-color:#4a5566 }
+.card img { width:160px; height:160px; image-rendering:pixelated; background:#000; border-radius:4px; flex:none }
+.card .noimg { width:160px; height:160px; background:#000; border-radius:4px; flex:none }
+.badges span, .b { display:inline-block; padding:1px 9px; margin:0 6px 4px 0; border-radius:10px; font-size:12px; font-weight:600; background:var(--chip); color:#dde }
+.b.green { background:var(--green); color:#fff } .b.blue { background:var(--blue); color:#fff } .b.amber { background:var(--amber); color:#fff } .b.red { background:var(--red); color:#fff } .b.outline { background:transparent; border:1px solid var(--line) }
+.badges a { color:#fff } .meta { color:var(--fg) } .meta .dim { margin:0 4px }
+details summary { cursor:pointer; color:var(--dim) }
+.rej { padding:4px 0; border-bottom:1px solid var(--line); font-size:13px }
+#detail { position:fixed; inset:0; background:rgba(0,0,0,.75); display:none; overflow:auto; padding:20px }
+#detail.open { display:block }
+.panel { max-width:1100px; margin:0 auto; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px }
+.panel h3 { margin:0 0 8px; font-size:16px } .close { float:right; cursor:pointer; color:var(--dim); font-size:20px }
+.anim { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start }
+canvas { background:#000; border-radius:4px; image-rendering:pixelated }
+.ctl { margin:8px 0 } .ctl button { margin-right:6px } .ctl input[type=range] { width:260px; vertical-align:middle }
+table { border-collapse:collapse; font-size:12px; font-family:ui-monospace, monospace } td,th { padding:2px 8px; border-bottom:1px solid var(--line); text-align:right } th { color:var(--dim) }
+.full { position:relative; display:inline-block } .full img { display:block; width:512px; height:480px } .full svg { position:absolute; inset:0 }
+code { background:#000; padding:2px 6px; border-radius:4px; font-size:12px }
+</style>
+</head>
+<body>
+<h1>kreutz live</h1>
+<div id="cams"></div>
+<div class="dim">tracks under three hits are open chains and aren't shown; rejected tracks are listed at the bottom</div>
+<div class="chips" id="chips"></div>
+<h2>FOLLOWING</h2>
+<div id="following"></div>
+<details id="rejdet"><summary id="rejsum">rejected</summary><div id="rejected"></div></details>
+<div id="detail"><div class="panel" id="panel"></div></div>
+<script>
+let STATE = null, FILTER = 'all', OPEN = null, ANIM = {timer:null, frame:0, playing:true};
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = iso => iso ? iso.slice(5, 16).replace('T', ' ') + ' UTC' : '-';
+const ago = iso => { const m = (Date.now() - Date.parse(iso)) / 60000; return m < 90 ? `${Math.round(m)} min ago` : `${(m/60).toFixed(1)} h ago`; };
+const hrs = h => Math.abs(h) < 1 ? `${Math.round(Math.abs(h)*60)} min` : `${Math.abs(h).toFixed(1)} h`;
+
+async function refresh() {
+  try {
+    const r = await fetch('/api/state', {cache:'no-store'});
+    STATE = await r.json();
+    render();
+  } catch (e) { console.error(e); }
+}
+
+function render() {
+  if (!STATE) return;
+  const cams = STATE.cameras;
+  $('#cams').innerHTML = cams.length ? cams.map(c => {
+    const stale = (Date.now() - Date.parse(c.updated)) > 45*60000;
+    const lg = c.longest ? `, longest ${c.longest.hits} window(s) at ${c.longest.x},${c.longest.y}` : '';
+    return `<div class="cam"><b>${esc(c.label)}</b> <span class="dim">·</span> window ${fmt(c.window)} <span class="dim">·</span> updated ${ago(c.updated)} ${stale ? '<span class="stale">(stale: is the watcher running?)</span>' : ''} <span class="dim">·</span> ${c.open_chains} open chain(s)${lg} <span class="dim">· ${c.good_frames} good frames in 48 h, ${c.cold_frames} cold · latency ${c.latency_min} min</span></div>`;
+  }).join('') : '<div class="dim">no state yet: the watcher has not finished a cycle</div>';
+  $('#chips').innerHTML = ['all', ...cams.map(c => c.label)].map(l => `<span class="chip ${FILTER===l?'on':''}" onclick="FILTER='${l}';render()">${esc(l)}</span>`).join('');
+  const show = cams.filter(c => FILTER === 'all' || c.label === FILTER);
+  const tracks = show.flatMap(c => c.tracks.map(t => ({...t, cam:c}))).sort((a,b) => b.last_seen.localeCompare(a.last_seen));
+  $('#following').innerHTML = tracks.length ? tracks.map(card).join('') : '<div class="dim">nothing followed right now</div>';
+  const rej = show.flatMap(c => c.rejected.map(t => ({...t, cam:c})));
+  $('#rejsum').textContent = `rejected in the last 24 h: ${show.reduce((n,c)=>n+c.n_rejected,0)} (showing ${rej.length} by significance)`;
+  $('#rejected').innerHTML = rej.map(t => `<div class="rej" onclick="openDetail('${t.cam.camera}','${t.id}')"><span class="b outline">${esc(t.cam.label)}</span> <span class="b red">${esc(t.status.replace('rejected:',''))}</span> ${t.id} · ${t.n_hits} hits · sig ${t.best_sig} · at ${t.x},${t.y} · ${t.speed} px/frame · last ${fmt(t.last_seen)}</div>`).join('');
+  if (OPEN) { const t = tracks.concat(rej).find(t => t.id === OPEN.id && t.cam.camera === OPEN.cam); if (t) fillDetail(t, false); }
+}
+
+function badges(t) {
+  const b = [`<span class="b outline">${esc(t.cam.label)}</span>`];
+  const r = t.report;
+  if (r && r.status === 'confirmed') b.push(`<span class="b green">confirmed, ${t.n_hits} frames</span>`);
+  else b.push(`<span class="b amber">candidate, ${t.n_hits} frames measured</span>`);
+  if (r) {
+    b.push(`<span class="b blue"><a href="${esc(r.url)}" target="_blank" onclick="event.stopPropagation()">reported by ${esc(r.reporter)} ${fmt(r.posted)}</a></span>`);
+    b.push(r.lead_h < 0 ? `<span class="b green">found here ${hrs(r.lead_h)} before the report</span>` : `<span class="b">reported ${hrs(r.lead_h)} before we found it</span>`);
+  } else b.push(`<span class="b amber">UNREPORTED</span>`);
+  if (t.merged) b.push(`<span class="b outline">${t.merged} pieces merged</span>`);
+  return b.join('');
+}
+
+function card(t) {
+  const img = t.thumb ? `<img src="${t.thumb}?v=${t.n_hits}" alt="">` : '<div class="noimg"></div>';
+  const miss = t.missing ? ` <span class="dim">·</span> missing ${t.missing} frame(s)` : '';
+  return `<div class="card" onclick="openDetail('${t.cam.camera}','${t.id}')">${img}<div><div class="badges">${badges(t)}</div>
+    <div class="meta">${t.id} <span class="dim">·</span> first seen ${fmt(t.first_seen)} <span class="dim">·</span> last seen ${fmt(t.last_seen)} <span class="dim">·</span> at ${t.x},${t.y} <span class="dim">·</span> ${t.speed} px/frame <span class="dim">·</span> best ${t.best_sig}σ${miss}</div></div></div>`;
+}
+
+function openDetail(cam, id) {
+  const c = STATE.cameras.find(c => c.camera === cam);
+  const t = c.tracks.concat(c.rejected).find(t => t.id === id);
+  if (!t) return;
+  OPEN = {cam, id}; ANIM.frame = 0; ANIM.playing = true;
+  fillDetail({...t, cam:c}, true);
+  $('#detail').classList.add('open');
+}
+function closeDetail() { OPEN = null; clearInterval(ANIM.timer); $('#detail').classList.remove('open'); }
+
+function fillDetail(t, fresh) {
+  const c = t.cam, S = c.sheet, tile = (2*S.half+1)*S.scale, gap = S.gap;
+  const sa = ['3','4','5'].map(k => `${k}: ${t.status_at[k] || '-'}`).join(' · ');
+  const hits = t.hits.map(h => `<tr><td>${fmt(h.t)}</td><td>${h.x}</td><td>${h.y}</td><td>${h.sig}</td></tr>`).join('');
+  const latest = c.latest;
+  const ds = latest ? latest.ds : 4;
+  const path = t.hits.map((h,i) => `${i?'L':'M'}${(h.x/ds).toFixed(1)} ${(h.y/ds).toFixed(1)}`).join(' ');
+  const last = t.hits[t.hits.length-1];
+  const full = latest ? `<div class="full"><img src="${c.camera}/latest.png?f=${latest.frame}" alt=""><svg viewBox="0 0 ${latest.width} ${latest.height}"><path d="${path}" stroke="#4fd37a" stroke-width="1.2" fill="none"/><circle cx="${last.x/ds}" cy="${last.y/ds}" r="5" stroke="#ffd34d" fill="none"/>${latest.sun_xy?`<circle cx="${latest.sun_xy[0]/ds}" cy="${latest.sun_xy[1]/ds}" r="3" fill="#f00"/>`:''}</svg><div class="dim">latest frame ${esc(latest.frame.slice(9,24))}, track path in green</div></div>` : '';
+  if (fresh || !$('#panel').dataset.id || $('#panel').dataset.id !== t.id) {
+    $('#panel').dataset.id = t.id;
+    $('#panel').innerHTML = `<span class="close" onclick="closeDetail()">✕</span><h3>${t.id}</h3><div class="badges">${badges(t)}</div>
+      <div class="meta">status <b>${esc(t.status)}</b> · at 3/4/5 hits: ${esc(sa)} · velocity (${t.velocity[0]}, ${t.velocity[1]}) px/frame · ${t.n_hits} hits, ${t.missing} missing</div>
+      <div class="anim"><div><canvas id="cv" width="${tile*2}" height="${tile*4+8}"></canvas>
+        <div class="ctl"><button onclick="ANIM.playing=!ANIM.playing">play/pause</button><button onclick="step(-1)">◀</button><button onclick="step(1)">▶</button>
+        <input id="scrub" type="range" min="0" max="${Math.max(t.columns.length-1,0)}" value="0" oninput="ANIM.frame=+this.value;ANIM.playing=false;draw()"> <span id="flabel" class="dim"></span></div>
+        <div class="dim">top: raw frame, bottom: significance map; ticks mark the predicted position</div></div>
+        ${full}
+        <div><table><tr><th>frame</th><th>x</th><th>y</th><th>σ</th></tr>${hits}</table></div></div>`;
+    const img = new Image(); img.src = t.sheet ? `${t.sheet}?v=${t.n_hits}` : '';
+    img.onload = () => { ANIM.img = img; ANIM.cols = t.columns; ANIM.tile = tile; ANIM.gap = gap; draw(); };
+    clearInterval(ANIM.timer);
+    ANIM.timer = setInterval(() => { if (ANIM.playing && ANIM.cols && ANIM.cols.length) { ANIM.frame = (ANIM.frame + 1) % ANIM.cols.length; draw(); } }, 350);
+  }
+}
+function step(d) { ANIM.playing = false; if (ANIM.cols) { ANIM.frame = (ANIM.frame + d + ANIM.cols.length) % ANIM.cols.length; draw(); } }
+function draw() {
+  const cv = $('#cv'); if (!cv || !ANIM.img) return;
+  const ctx = cv.getContext('2d'), tile = ANIM.tile, gap = ANIM.gap, j = ANIM.frame;
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const x0 = gap + j * (tile + gap);
+  ctx.drawImage(ANIM.img, x0, gap, tile, tile, 0, 0, tile*2, tile*2);
+  ctx.drawImage(ANIM.img, x0, 2*gap + tile, tile, tile, 0, tile*2 + 8, tile*2, tile*2);
+  const s = $('#scrub'); if (s) s.value = j;
+  const l = $('#flabel'); if (l) l.textContent = `${j+1}/${ANIM.cols.length}  ${ANIM.cols[j] || ''}`;
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
+$('#detail').addEventListener('click', e => { if (e.target.id === 'detail') closeDetail(); });
+refresh();
+setInterval(refresh, 60000);
+setInterval(() => { if (STATE && !OPEN) render(); }, 30000);
+</script>
+</body>
+</html>
