@@ -44,6 +44,19 @@ off-point (expected x > 2048 at 06:00); frames are good from 08:00 and the
 stack peak is 120-137 sigma in every window from the first usable one, so
 the remaining 15 min after 08:45 is the three windows a candidate needs.
 
+3. **The tracker merges satellites and continuations** (track.py c2): a
+   shorter track within 60 px of a longer one at two common times is a
+   piece of it; a track starting within 3 frames after another ends, on its
+   predicted path at its velocity, continues it. Scored after 1 and 2:
+
+   | | Oct 17-24 live at 3/4/5 hits | July 3/4/5 | July precision @3 / @5 |
+   |---|---|---|---|
+   | before | 411 / 188 / 96 | 133 / 53 / 27 | 0.06 / 0.30 |
+   | after | **288 / 149 / 78** | **43 / 20 / 18** | **0.19 / 0.44** |
+
+   Leads and recall unchanged; the SOHO 5217 swarm in July goes from 107
+   tracks to 13. Precision excluding those dates: 8/30 at 3 hits.
+
 ### Live findings (Oct 24-26)
 
 - `20261024T2145_1662_1282`: 57 sigma, 28 hits, Oct 24 21:45 → Oct 25 06:30,
