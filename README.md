@@ -46,7 +46,27 @@ python -m kreutz detect --camera ccor1 --start 2025-07-17 --end 2025-07-24 \
 
 # Grade it against the answer key; writes contact sheets for every unmatched track.
 python -m kreutz score --camera ccor1 --start 2025-07-17 --end 2025-07-24
+
+# Live: poll the feed every 15 min, track the last 48 h, write data/live/<camera>/state.json (+ images).
+python -m kreutz watch --camera ccor1 [--once]
+
+# Dashboard for whatever the watcher wrote, on http://<host>:8080/
+python -m kreutz serve [--port 8080]
 ```
+
+## Live watcher and dashboard
+
+`kreutz watch` is the detector on the real-time feed: each cycle fetches new
+frames and reports, runs the cached stages on what's new, re-runs tracking
+over the last 48 h and writes `data/live/<camera>/state.json`, a contact
+sheet and thumbnail per followed track, and a downscaled preview of the
+latest frame. Track ids are `<first frame>_<x>_<y>` so they are stable
+across cycles. `kreutz serve` is a standard-library HTTP server for the
+single-page dashboard in `src/kreutz/web/`: a status line per camera, the
+tracks being followed (with any matching hunter report and the lead time
+including our latency), a collapsed list of recently rejected tracks, and a
+detail view that animates the track's frames. The page polls `/api/state`
+every minute. `deploy/` has systemd units for both.
 
 ## Results (`results/`, committed)
 

@@ -35,7 +35,8 @@ HISTORY = timedelta(hours=10)  # 16 background + 8 star frames + slack for gaps
 
 
 def _workers(n: int | None, cap: int) -> int:
-    return max(1, min(n or (os.cpu_count() or 2) - 2, cap))
+    # one core left for the fetcher/server; stage A needs ~0.8 GB per worker
+    return max(1, min(n or (os.cpu_count() or 2) - 1, cap))
 
 
 def frame_list(camera: str, start: date, end: date) -> list[Path]:
@@ -53,7 +54,10 @@ def run_stage_a(camera: str, paths: list[Path], targets: list[int], workers=None
     todo = [i for i in targets if not A.meta_path(camera, paths[i].name).exists() or paths[i].name in dump]
     if not todo:
         return
-    chunk = 48
+    nw = _workers(workers, 6)
+    # Each chunk re-reads its history (24 frames), so chunks should be long; but
+    # split evenly across the workers so none sits idle at the end.
+    chunk = max(8, min(48, -(-len(todo) // nw)))
     # contiguous chunks of the todo list
     chunks, cur = [], [todo[0]]
     for i in todo[1:]:
@@ -65,7 +69,7 @@ def run_stage_a(camera: str, paths: list[Path], targets: list[int], workers=None
     chunks.append(cur)
     t0, done = _time.time(), 0
     print(f"stage A: {len(todo)} frames in {len(chunks)} chunks", flush=True)
-    with ProcessPoolExecutor(_workers(workers, 6)) as ex:
+    with ProcessPoolExecutor(nw) as ex:
         for n in ex.map(_stage_a_chunk, [(camera, paths, c[0], c[-1] + 1, list(dump)) for c in chunks]):
             done += n
             print(f"  {done}/{len(todo)} frames, {(_time.time() - t0) / 60:.1f} min", flush=True)
