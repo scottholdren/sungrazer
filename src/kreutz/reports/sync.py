@@ -30,11 +30,16 @@ def sync(cams: list[str], since: date = date(2025, 1, 1), force: bool = False) -
     con = db.connect()
 
     for cam in cams:
-        n = crawl_listing(con, _cam(cam), since)
-        print(f"{cam}: {n} reports in listing since {since}")
+        # LASCO claims are only used for time coincidence with recent tracks: never deeper than LASCO_DAYS
+        s = max(since, date.today() - timedelta(days=LASCO_DAYS)) if cam in LASCO else since
+        n = crawl_listing(con, _cam(cam), s)
+        print(f"{cam}: {n} reports in listing since {s}")
         con.commit()
 
-    todo = [r["report_id"] for r in con.execute("SELECT report_id FROM reports WHERE page_fetched = 0")]
+    # Report pages add the origin and image size, which only matter for cameras whose
+    # pixels we map; LASCO rows already carry the frame times from the listing.
+    todo = [r["report_id"] for r in con.execute(
+        "SELECT report_id FROM reports WHERE page_fetched = 0 AND camera NOT IN ('c2', 'c3')")]
     print(f"fetching {len(todo)} report pages not yet cached")
     for i, rid in enumerate(todo, 1):
         page = report_page(rid)
@@ -60,6 +65,7 @@ def sync(cams: list[str], since: date = date(2025, 1, 1), force: bool = False) -
 
 
 LASCO = {"c2": "C2", "c3": "C3"}  # synced for time coincidence only; their pixels aren't mapped
+LASCO_DAYS = 60
 
 
 def _cam(cam_id: str) -> str:
