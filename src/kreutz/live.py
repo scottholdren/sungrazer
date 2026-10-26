@@ -211,9 +211,11 @@ class Watcher:
             old = self.known.get(tid)
             where = f"at {d['x']},{d['y']}, {d['speed']} px/frame, {d['n_hits']} hits, {d['best_sig']}σ"
             if old is None:
-                act_kind = "track"
-                self.activity.event(f"new track {tid} {where}" + (" — UNREPORTED" if not d["report"] else ""),
-                                    kind=act_kind, track=tid)
+                if d.get("group", tid) != tid and d["group"] in self.known:
+                    self.activity.event(f"track {tid} joins object {d['group']} {where}", kind="info", track=d["group"])
+                    continue
+                self.activity.event(f"new object {tid} {where}" + (" — UNREPORTED" if not d["report"] else ""),
+                                    kind="track", track=tid)
             elif d["report"] and not old.get("report"):
                 r = d["report"]
                 self.activity.event(f"track {tid} matches a report by {r['reporter']} ({r['lead_h']:+.1f} h)",
@@ -381,6 +383,7 @@ def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas
         (following if d["live"] else rejected).append(d)
     following.sort(key=lambda d: d["last_seen"], reverse=True)
     rejected.sort(key=lambda d: -d["best_sig"])
+    group_objects(following)
     good = [metas[i] for i in windows if metas[i] and metas[i].ok]
     longest = max(open_chains, key=lambda t: len(t.hits), default=None)
     return {
@@ -395,6 +398,54 @@ def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas
         "tracks": following, "rejected": rejected[:MAX_REJECTED], "n_rejected": len(rejected),
         "sheet": {"half": contact.HALF, "scale": contact.SCALE, "gap": 4},
     }
+
+
+OBJECT_PX = 60.0  # tracks this close at the same time (or on each other's path) are one object
+CONTINUE_FRAMES = 3  # a track starting within this many frames after another ends, on its path, continues it
+
+
+def _same_object(a: dict, b: dict) -> bool:
+    pos = {h["t"]: (h["x"], h["y"]) for h in a["hits"]}
+    for h in b["hits"]:
+        p = pos.get(h["t"])
+        if p is not None and np.hypot(h["x"] - p[0], h["y"] - p[1]) <= OBJECT_PX:
+            return True
+    for first, second in ((a, b), (b, a)):
+        gap = (_ts(second["first_seen"]) - _ts(first["last_seen"])) / 900.0
+        if 0 < gap <= CONTINUE_FRAMES + 0.01:
+            vx, vy = first["velocity"]
+            px, py = first["x"] + vx * gap, first["y"] + vy * gap
+            h0 = second["hits"][0]
+            if np.hypot(h0["x"] - px, h0["y"] - py) <= OBJECT_PX:
+                return True
+    return False
+
+
+def group_objects(tracks: list[dict]) -> None:
+    """Label each track with the object it belongs to: `group` is the id of the
+    longest track in the cluster, and that track lists the others as `pieces`.
+    Presentation only: the tracker's own merge is narrower on purpose."""
+    parent = list(range(len(tracks)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(len(tracks)):
+        for j in range(i + 1, len(tracks)):
+            if find(i) != find(j) and _same_object(tracks[i], tracks[j]):
+                parent[find(j)] = find(i)
+    clusters: dict[int, list[dict]] = {}
+    for i, t in enumerate(tracks):
+        clusters.setdefault(find(i), []).append(t)
+    for members in clusters.values():
+        head = max(members, key=lambda t: (t["n_hits"], t["best_sig"]))
+        for t in members:
+            t["group"] = head["id"]
+            t["pieces"] = []
+        head["pieces"] = [t["id"] for t in members if t is not head]
 
 
 def _reports(con, camera: str, now: datetime) -> list[score.Truth]:

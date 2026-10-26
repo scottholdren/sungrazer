@@ -71,6 +71,20 @@ def test_build_state_splits_live_and_rejected(monkeypatch):
     assert state["window"] is None
 
 
+def test_group_objects_joins_satellites_and_continuations():
+    t0 = datetime(2026, 10, 25, 1, 0, 25, tzinfo=timezone.utc)
+    con = __import__("kreutz.reports.db", fromlist=["db"]).connect(":memory:")
+    big = live._track_summary(_track(t0, 10, x0=1600, y0=1260, sig=57.0), [], 0.0, con)
+    sat = live._track_summary(_track(t0 + timedelta(minutes=45), 3, x0=1600 - 24 + 30, y0=1260 - 9 + 12, sig=9.0), [], 0.0, con)
+    cont = live._track_summary(_track(t0 + timedelta(minutes=15 * 12), 4, x0=1600 - 8 * 12 + 3, y0=1260 - 3 * 12 - 2, sig=8.0), [], 0.0, con)
+    far = live._track_summary(_track(t0, 5, x0=1200, y0=900, sig=8.0), [], 0.0, con)
+    tracks = [sat, big, cont, far]
+    live.group_objects(tracks)
+    assert big["group"] == big["id"] and sorted(big["pieces"]) == sorted([sat["id"], cont["id"]])
+    assert sat["group"] == big["id"] and cont["group"] == big["id"] and sat["pieces"] == []
+    assert far["group"] == far["id"] and far["pieces"] == []
+
+
 def test_poll_phase_minimises_wait(monkeypatch):
     # files land 14..16 min after exposure start, a few stragglers at 22
     lags = [14.0, 14.5, 15.0, 15.5, 16.0] * 20 + [22.0] * 5
