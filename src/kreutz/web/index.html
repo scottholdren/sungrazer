@@ -16,6 +16,7 @@ h2 { font-size:12px; letter-spacing:.08em; color:var(--dim); margin:18px 0 8px }
 .card { display:flex; gap:12px; padding:10px; margin:8px 0; background:var(--card); border:1px solid var(--line); border-radius:8px; cursor:pointer }
 .card:hover { border-color:#4a5566 }
 .card img { width:160px; height:160px; image-rendering:pixelated; background:#000; border-radius:4px; flex:none }
+.thumb { position:relative; width:160px; height:160px; flex:none } .thumb svg { position:absolute; inset:0; pointer-events:none }
 .card .noimg { width:160px; height:160px; background:#000; border-radius:4px; flex:none }
 .badges span, .b { display:inline-block; padding:1px 9px; margin:0 6px 4px 0; border-radius:10px; font-size:12px; font-weight:600; background:var(--chip); color:#dde }
 .b.green { background:var(--green); color:#fff } .b.blue { background:var(--blue); color:#fff } .b.amber { background:var(--amber); color:#fff } .b.red { background:var(--red); color:#fff } .b.outline { background:transparent; border:1px solid var(--line) }
@@ -139,7 +140,8 @@ function badges(t) {
 }
 
 function card(t) {
-  const img = t.thumb ? `<img src="${t.thumb}?v=${t.n_hits}" alt="">` : '<div class="noimg"></div>';
+  const ring = '<svg viewBox="0 0 160 160"><circle cx="80" cy="80" r="13" fill="none" stroke="#4fd37a" stroke-width="1.5"/></svg>';
+  const img = t.thumb ? `<div class="thumb"><img src="${t.thumb}?v=${t.n_hits}" alt="">${ring}</div>` : '<div class="noimg"></div>';
   const miss = t.missing ? ` <span class="dim">·</span> missing ${n(t.missing, 'frame')}` : '';
   return `<div class="card" onclick="openDetail('${t.cam.camera}','${t.id}')">${img}<div><div class="badges">${badges(t)}</div>
     <div class="meta">${t.id} <span class="dim">·</span> first seen ${fmt(t.first_seen)} <span class="dim">·</span> last seen ${fmt(t.last_seen)} <span class="dim">·</span> at ${t.x},${t.y} <span class="dim">·</span> ${t.speed} px/frame <span class="dim">·</span> best ${t.best_sig}σ${miss}</div></div></div>`;
@@ -192,6 +194,8 @@ function draw() {
   const x0 = gap + j * (tile + gap);
   ctx.drawImage(ANIM.img, x0, gap, tile, tile, 0, 0, tile*2, tile*2);
   ctx.drawImage(ANIM.img, x0, 2*gap + tile, tile, tile, 0, tile*2 + 8, tile*2, tile*2);
+  ctx.strokeStyle = '#4fd37a'; ctx.lineWidth = 1.5;
+  for (const cy of [tile, tile*3 + 8]) { ctx.beginPath(); ctx.arc(tile, cy, 24, 0, 2*Math.PI); ctx.stroke(); }
   const s = $('#scrub'); if (s) s.value = j;
   const l = $('#flabel'); if (l) l.textContent = `${j+1}/${ANIM.cols.length}  ${ANIM.cols[j] || ''}`;
 }
