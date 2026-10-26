@@ -47,7 +47,7 @@ def test_summary_matches_report_and_computes_lead(tmp_path):
                 "VALUES (?,?,?,?,?,?)", ("report_cf_x", "Chuck Fields", "c3", "Potential Comet", "reported",
                                          (t0 + timedelta(hours=5)).isoformat()))
     con.execute("INSERT INTO frames VALUES (?,?,?,?,?,?,?,?)",
-                ("report_cf_x", 1, (t0 + timedelta(hours=4)).isoformat(), 600, 700, None, None, "0445 600 700"))
+                ("report_cf_x", 1, (t0 + timedelta(hours=1)).isoformat(), 600, 700, None, None, "0145 600 700"))
     d = live._track_summary(t, [], 0.0, con)
     assert d["report"] is None  # still unreported on CCOR-1 ...
     assert d["lasco"]["camera"] == "C3" and d["lasco"]["reporter"] == "Chuck Fields"  # ... with a LASCO hint
