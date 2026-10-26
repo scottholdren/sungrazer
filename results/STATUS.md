@@ -100,12 +100,24 @@ The October misses at either tier are the two faint comets (8 and 15 sigma
 peak). The dashboard shows the tiers (`live.TIERS`), sorts alerts first and
 logs ALERT events; Discord posting hooks on those when a webhook exists.
 
+### Aug 18-31 2025 ([scorecard](ccor1/2025-08-18_2025-08-31/scorecard.txt)): Kreutz 5/5, other groups 0/5
+
+10 confirmed comets. The five Kreutz ones are all found (real leads at 3
+hits -2.1, -1.0, +0.1, -1.3, -0.4 h). The five misses are 4 Kracht and 1
+Meyer: three move up-right (vx +3..+5), outside the August grid (vx
+-12.5..-2.5) so they are never stacked; CCR1 0099 (Meyer, 11.6 px/frame)
+has peaks on the hunter's path but is rejected off-envelope (direction
+221 deg vs the Kreutz band 114-194); CCR1 0094 moves 1.5 px/frame. All
+four Kracht finds were Jiangao Ruan's. The scorecard now prints recall per
+group. 459 live tracks at 3 hits (0.01); alert tier: 6 fires, 2 comets.
+
 ### Next steps
 
 1. Discord: post ALERT (and maybe watch) events when the owner provides a
    webhook URL.
-2. A second CCOR-1 week with confirmations (Aug 2025) to check the tiers
-   generalise.
+2. A second velocity grid + envelope per comet group in season (Kracht:
+   Aug 2025 had 4 confirmed on CCOR-1, 5 confirmed ever, plus the hunters'
+   "Kracht II" claims) -- the only way to find those before anyone else.
 3. Discord alerts for new unreported objects (webhook not yet provided).
 4. Re-score October when NRL posts confirmations.
 

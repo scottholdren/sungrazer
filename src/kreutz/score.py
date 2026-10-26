@@ -75,6 +75,7 @@ class Truth:
     xs: np.ndarray
     ys: np.ndarray
     status: str
+    group: str | None = None  # comet group from the confirmation list (Kreutz, Kracht, Meyer, NonGrp)
     fit: tuple = field(init=False)
 
     def __post_init__(self):
@@ -134,7 +135,7 @@ def truths(con, camera: str, start: date, end: date) -> tuple[list[Truth], bool]
     """Truth objects whose hunter positions start in [start, end]. Returns (truths, provisional)."""
     lo, hi = start.isoformat(), (end + timedelta(days=1)).isoformat()
     out = []
-    for c in con.execute("""SELECT c.series, c.number, c.report_id FROM confirmations c
+    for c in con.execute("""SELECT c.series, c.number, c.report_id, c.comet_group FROM confirmations c
                             JOIN reports r USING (report_id)
                             WHERE r.camera = ? AND r.image_date >= ? AND r.image_date < ?
                             ORDER BY c.number""", (camera, lo, hi)):
@@ -146,7 +147,7 @@ def truths(con, camera: str, start: date, end: date) -> tuple[list[Truth], bool]
             continue
         posts = [datetime.fromisoformat(r[0]) for r in con.execute(
             f"SELECT report_timestamp FROM reports WHERE report_id IN ({','.join('?' * len(group))})", group)]
-        out.append(Truth(f"{c['series']} {c['number']}", group, min(posts), t, x, y, "confirmed"))
+        out.append(Truth(f"{c['series']} {c['number']}", group, min(posts), t, x, y, "confirmed", c["comet_group"]))
     if out:
         return out, False
     # No confirmation list covers this window: provisional truth from hunter claims.
@@ -314,7 +315,7 @@ def _score(camera, start, end, workers, sheets, results, seed_cold=detect.SEED_C
     print(f"    {lat_text}")
     print()
     counted = [tr for tr in truth if tr.status != "rejected"]
-    hdr = f"{'object':<26} {'status':<9} {'first human post':<17} {'found':<6} " + " ".join(
+    hdr = f"{'object':<26} {'group':<7} {'status':<9} {'first human post':<17} {'found':<6} " + " ".join(
         f"{f'@{k} hits: time / lead / real':<36}" for k in THRESHOLDS) + " best sig"
     print(hdr)
     print("-" * len(hdr))
@@ -335,8 +336,8 @@ def _score(camera, start, end, workers, sheets, results, seed_cold=detect.SEED_C
                 cells.append("-")
         best = max((h["sig"] for t in m for h in t["hits"]), default=float("nan"))
         rows.append((tr, m, allm))
-        print(f"{tr.label:<26} {tr.status:<9} {tr.first_post:%m-%d %H:%M}        {'yes' if m else 'NO':<6} "
-              + " ".join(f"{c:<36}" for c in cells) + f" {best:5.1f}")
+        print(f"{tr.label:<26} {(tr.group or '-'):<7} {tr.status:<9} {tr.first_post:%m-%d %H:%M}        "
+              f"{'yes' if m else 'NO':<6} " + " ".join(f"{c:<36}" for c in cells) + f" {best:5.1f}")
     print("(lead = our frame time - first human post; real = lead + latency above; negative = we would have been first)")
 
     print()
@@ -359,6 +360,16 @@ def _score(camera, start, end, workers, sheets, results, seed_cold=detect.SEED_C
         prec = len(tp) / len(at_k) if at_k else float("nan")
         summary[k] = {"tracks": len(at_k), "tp": len(tp), "precision": prec, "recall": rec / max(len(counted), 1)}
         print(f"{k:>3} hits   {len(at_k):>6} {len(tp):>11} {prec:>9.2f} {rec:>4}/{len(counted):<3}")
+    groups = sorted({tr.group for tr in counted if tr.group})
+    if len(groups) > 1:
+        # the detector's grid and envelope are built from Kreutz reports: other groups are missed by design
+        parts = []
+        for g in groups:
+            of = [tr for tr in counted if tr.group == g]
+            got = sum(1 for tr, m, _ in rows if tr.group == g and m)
+            parts.append(f"{g} {got}/{len(of)}")
+        print("recall by comet group (any threshold): " + ", ".join(parts)
+              + " -- the velocity grid and envelope are Kreutz-only")
     if provisional:
         by = {}
         for tr, m, _ in rows:

@@ -1,61 +1,6 @@
 # kreutz score --camera ccor1 --start 2025-08-18 --end 2025-08-31 --seed-cold
-# code 456eab0, stage A a4, stage B b3, run 2026-10-26 07:17 UTC
+# code def7b60-dirty, stage A a4, stage B b3, run 2026-10-26 08:01 UTC
 envelope month 08: 10 confirmed Kreutz tracks (months [8]); entry PA -28..-10; allowed direction 129..179 deg, miss -198..298 px; grid vx -12.5..-2.5, vy -6.5..-0.5 = 273 velocities
-stage A: 1328 frames in 28 chunks
-  48/1328 frames, 3.9 min
-  96/1328 frames, 4.2 min
-  144/1328 frames, 4.2 min
-  192/1328 frames, 4.2 min
-  240/1328 frames, 4.2 min
-  288/1328 frames, 4.2 min
-  336/1328 frames, 7.6 min
-  384/1328 frames, 8.0 min
-  432/1328 frames, 8.1 min
-  480/1328 frames, 8.2 min
-  528/1328 frames, 8.2 min
-  576/1328 frames, 8.3 min
-  624/1328 frames, 11.1 min
-  672/1328 frames, 12.0 min
-  720/1328 frames, 12.0 min
-  768/1328 frames, 12.2 min
-  816/1328 frames, 12.2 min
-  864/1328 frames, 12.5 min
-  912/1328 frames, 14.6 min
-  960/1328 frames, 15.6 min
-  1008/1328 frames, 15.6 min
-  1056/1328 frames, 16.2 min
-  1104/1328 frames, 16.3 min
-  1152/1328 frames, 16.6 min
-  1200/1328 frames, 18.0 min
-  1248/1328 frames, 19.5 min
-  1296/1328 frames, 19.5 min
-  1328/1328 frames, 19.5 min
-stage B: 1221 windows x 273 velocities
-  50/1221 windows, 1.0 min
-  100/1221 windows, 1.9 min
-  150/1221 windows, 2.8 min
-  200/1221 windows, 3.5 min
-  250/1221 windows, 4.3 min
-  300/1221 windows, 5.0 min
-  350/1221 windows, 5.8 min
-  400/1221 windows, 6.6 min
-  450/1221 windows, 7.5 min
-  500/1221 windows, 8.4 min
-  550/1221 windows, 9.1 min
-  600/1221 windows, 9.9 min
-  650/1221 windows, 10.7 min
-  700/1221 windows, 11.6 min
-  750/1221 windows, 12.1 min
-  800/1221 windows, 12.8 min
-  850/1221 windows, 13.6 min
-  900/1221 windows, 14.3 min
-  950/1221 windows, 15.2 min
-  1000/1221 windows, 15.9 min
-  1050/1221 windows, 16.8 min
-  1100/1221 windows, 17.5 min
-  1150/1221 windows, 18.3 min
-  1200/1221 windows, 18.8 min
-  1221/1221 windows, 18.8 min
 stage C: 149 windows with cold frames could start tracks (seed_cold)
 1241 good frames, 4 without star model, 78 cold; 7731 candidate tracks (373 not rejected) -> /home/sholdren/stargrazer/sungrazer/data/derived/ccor1/a4/tracks_2025-08-18_2025-08-31.json
 
@@ -63,18 +8,18 @@ stage C: 149 windows with cold frames could start tracks (seed_cold)
     7731 candidate tracks, 474 submittable at 3, 4 or 5 hits; final status of all: 373 live, outbound: 5117, off-envelope: 1636, glare-zone: 323, stationary: 111, extended: 157, star-drift: 14
     latency 22.6 min = publication 14.6 + poll wait 7.5 + processing 0.5. SWPC publication lag (ccor1, 2366 files 10-02..10-26): median 14.6 min, 90th percentile 22.6 min after exposure start; first seen by our 15-min polls: median 17.1 min (6 files)
 
-object                     status    first human post  found  @3 hits: time / lead / real          @4 hits: time / lead / real          @5 hits: time / lead / real          best sig
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-CCR1 0092                  confirmed 08-18 23:11        yes    08-18 20:45 / -2.4 h / -2.1 h        08-18 21:00 / -2.2 h / -1.8 h        08-18 21:15 / -1.9 h / -1.6 h         33.4
-CCR1 0093                  confirmed 08-20 09:40        yes    08-20 08:15 / -1.4 h / -1.0 h        08-20 08:30 / -1.2 h / -0.8 h        08-20 08:45 / -0.9 h / -0.5 h          9.4
-CCR1 0094                  confirmed 08-21 19:33        NO     -                                    -                                    -                                      nan
-CCR1 0095                  confirmed 08-22 08:22        NO     -                                    -                                    -                                      nan
-CCR1 0096                  confirmed 08-24 01:19        yes    08-24 01:00 / -0.3 h / +0.1 h        08-24 01:15 / -0.1 h / +0.3 h        08-24 01:30 / +0.2 h / +0.6 h         38.1
-CCR1 0097                  confirmed 08-25 21:41        yes    08-25 20:00 / -1.7 h / -1.3 h        08-25 20:30 / -1.2 h / -0.8 h        08-25 21:00 / -0.7 h / -0.3 h          9.2
-CCR1 0098                  confirmed 08-26 06:50        NO     -                                    -                                    -                                      nan
-CCR1 0099                  confirmed 08-28 23:13        NO     -                                    -                                    -                                      nan
-CCR1 0100                  confirmed 08-29 23:14        yes    08-29 22:30 / -0.7 h / -0.4 h        08-29 22:45 / -0.5 h / -0.1 h        08-29 23:00 / -0.2 h / +0.1 h         10.8
-CCR1 0101                  confirmed 08-30 12:07        NO     -                                    -                                    -                                      nan
+object                     group   status    first human post  found  @3 hits: time / lead / real          @4 hits: time / lead / real          @5 hits: time / lead / real          best sig
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+CCR1 0092                  Kreutz  confirmed 08-18 23:11        yes    08-18 20:45 / -2.4 h / -2.1 h        08-18 21:00 / -2.2 h / -1.8 h        08-18 21:15 / -1.9 h / -1.6 h         33.4
+CCR1 0093                  Kreutz  confirmed 08-20 09:40        yes    08-20 08:15 / -1.4 h / -1.0 h        08-20 08:30 / -1.2 h / -0.8 h        08-20 08:45 / -0.9 h / -0.5 h          9.4
+CCR1 0094                  Kracht  confirmed 08-21 19:33        NO     -                                    -                                    -                                      nan
+CCR1 0095                  Kracht  confirmed 08-22 08:22        NO     -                                    -                                    -                                      nan
+CCR1 0096                  Kreutz  confirmed 08-24 01:19        yes    08-24 01:00 / -0.3 h / +0.1 h        08-24 01:15 / -0.1 h / +0.3 h        08-24 01:30 / +0.2 h / +0.6 h         38.1
+CCR1 0097                  Kreutz  confirmed 08-25 21:41        yes    08-25 20:00 / -1.7 h / -1.3 h        08-25 20:30 / -1.2 h / -0.8 h        08-25 21:00 / -0.7 h / -0.3 h          9.2
+CCR1 0098                  Kracht  confirmed 08-26 06:50        NO     -                                    -                                    -                                      nan
+CCR1 0099                  Meyer   confirmed 08-28 23:13        NO     -                                    -                                    -                                      nan
+CCR1 0100                  Kreutz  confirmed 08-29 23:14        yes    08-29 22:30 / -0.7 h / -0.4 h        08-29 22:45 / -0.5 h / -0.1 h        08-29 23:00 / -0.2 h / +0.1 h         10.8
+CCR1 0101                  Kracht  confirmed 08-30 12:07        NO     -                                    -                                    -                                      nan
 (lead = our frame time - first human post; real = lead + latency above; negative = we would have been first)
 
 status of every track matching a truth object, when it reached 3 / 4 / 5 hits, and at the end:
@@ -93,6 +38,7 @@ threshold  tracks match truth precision   recall
   3 hits      459           5      0.01    5/10 
   4 hits      180           5      0.03    5/10 
   5 hits       90           5      0.06    5/10 
+recall by comet group (any threshold): Kracht 0/4, Kreutz 5/5, Meyer 0/1 -- the velocity grid and envelope are Kreutz-only
 
 unmatched tracks (false positives unless a human missed it): 469
   track 114705: 34 hits, best sig  69.7, first 08-24T07:15 at (1784,1078), v=(-11.0,-2.8)
