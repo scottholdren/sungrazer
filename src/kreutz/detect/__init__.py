@@ -154,7 +154,10 @@ def run_stage_b(camera, paths, metas, windows, envelopes, workers=None, progress
                 progress(k, len(jobs), names)
 
 
-def run_stage_c(camera, paths, metas, windows, envelopes) -> list[Track]:
+SEED_COLD = False  # start tracks from windows containing cold frames (see frames.py: warm-up after a gap)
+
+
+def run_stage_c(camera, paths, metas, windows, envelopes, seed_cold: bool = SEED_COLD) -> list[Track]:
     tr = Tracker()
     cold = 0
     for i in windows:
@@ -168,14 +171,16 @@ def run_stage_c(camera, paths, metas, windows, envelopes) -> list[Track]:
         peaks = [B.Peak(**d) for d in json.loads(p.read_text())]
         drifts = [metas[j].drift for j in mem if metas[j].drift]
         drift = list(np.mean(drifts, axis=0)) if drifts else None
-        seed = all(A.is_warm(metas[j]) for j in mem)
-        cold += not seed
-        tr.update(metas[i].time, peaks, drift, metas[i].sun_xy, envelope=env, seed=seed)
-    print(f"stage C: {cold} windows with cold frames started no new tracks")
+        warm = all(A.is_warm(metas[j]) for j in mem)
+        cold += not warm
+        tr.update(metas[i].time, peaks, drift, metas[i].sun_xy, envelope=env, seed=warm or seed_cold)
+    print(f"stage C: {cold} windows with cold frames " + ("could start tracks (seed_cold)" if seed_cold
+                                                         else "started no new tracks"))
     return tr.finish()
 
 
-def run(camera: str, start: date, end: date, workers=None, dump: tuple[str, ...] = ()) -> list[Track]:
+def run(camera: str, start: date, end: date, workers=None, dump: tuple[str, ...] = (),
+        seed_cold: bool = SEED_COLD) -> list[Track]:
     con = db.connect()
     paths = frame_list(camera, start, end)
     t_start = datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)
@@ -189,7 +194,7 @@ def run(camera: str, start: date, end: date, workers=None, dump: tuple[str, ...]
     run_stage_a(camera, paths, targets, workers, dump)
     metas = [A.load_meta(camera, p.name) for p in paths]
     run_stage_b(camera, paths, metas, windows, envelopes, workers)
-    tracks = run_stage_c(camera, paths, metas, windows, envelopes)
+    tracks = run_stage_c(camera, paths, metas, windows, envelopes, seed_cold=seed_cold)
     out = A.derived_dir(camera) / f"tracks_{start}_{end}.json"
     out.write_text(json.dumps([track_dict(t, camera) for t in tracks], indent=1))
     good = [m for m in metas if m and m.ok]

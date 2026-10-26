@@ -225,7 +225,8 @@ def results_dir(camera: str, start: date, end: date):
     return RESULTS / camera / f"{start}_{end}"
 
 
-def score(camera: str, start: date, end: date, workers=None, sheets: bool = True) -> dict:
+def score(camera: str, start: date, end: date, workers=None, sheets: bool = True,
+          seed_cold: bool = detect.SEED_COLD) -> dict:
     """Grade, print the scorecard, and save it under results/<camera>/<start>_<end>/:
     scorecard.txt (everything printed), tracks.json (tracks surviving the
     rejection rules) and sheets/ (every true positive and every unmatched track
@@ -233,10 +234,10 @@ def score(camera: str, start: date, end: date, workers=None, sheets: bool = True
     out = results_dir(camera, start, end)
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "scorecard.txt", "w") as f, _tee(f):
-        print(f"# kreutz score --camera {camera} --start {start} --end {end}")
+        print(f"# kreutz score --camera {camera} --start {start} --end {end}" + (" --seed-cold" if seed_cold else ""))
         print(f"# code {_git_rev()}, stage A {A.VERSION}, stage B {detect.B.VERSION}, "
               f"run {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC")
-        return _score(camera, start, end, workers, sheets, out)
+        return _score(camera, start, end, workers, sheets, out, seed_cold)
 
 
 def _git_rev() -> str:
@@ -282,8 +283,8 @@ class _tee:
         self.f.flush()
 
 
-def _score(camera, start, end, workers, sheets, results) -> dict:
-    tracks = detect.run(camera, start, end, workers=workers)
+def _score(camera, start, end, workers, sheets, results, seed_cold=detect.SEED_COLD) -> dict:
+    tracks = detect.run(camera, start, end, workers=workers, seed_cold=seed_cold)
     tracks = [detect.track_dict(t, camera) for t in tracks]
     con = db.connect()
     truth, provisional = truths(con, camera, start, end)
