@@ -46,14 +46,16 @@ def cmd_detect(args) -> None:
     from . import detect
 
     detect.run(args.camera, args.start, args.end, workers=args.workers, dump=tuple(args.dump or ()),
-               seed_cold=args.seed_cold)
+               seed_cold=detect.SEED_COLD if args.seed_cold is None else args.seed_cold)
 
 
 def cmd_score(args) -> None:
     from . import score
 
+    from . import detect
+
     score.score(args.camera, args.start, args.end, workers=args.workers, sheets=not args.no_sheets,
-                seed_cold=args.seed_cold)
+                seed_cold=detect.SEED_COLD if args.seed_cold is None else args.seed_cold)
 
 
 def cmd_watch(args) -> None:
@@ -106,7 +108,8 @@ def main(argv=None) -> None:
     d.add_argument("--workers", type=int)
     d.add_argument("--dump", nargs="+", metavar="FRAME",
                    help="frame filenames whose intermediate stages to write as .npy/.png")
-    d.add_argument("--seed-cold", action="store_true", help="let windows with cold frames start new tracks")
+    d.add_argument("--seed-cold", action=argparse.BooleanOptionalAction, default=None,
+                   help="let windows with cold frames start new tracks (default: detect.SEED_COLD)")
     d.set_defaults(func=cmd_detect)
 
     s = sub.add_parser("score", help="grade detector tracks against the Sungrazer answer key")
@@ -115,7 +118,8 @@ def main(argv=None) -> None:
     s.add_argument("--end", type=_date, required=True)
     s.add_argument("--workers", type=int)
     s.add_argument("--no-sheets", action="store_true", help="skip contact-sheet PNGs")
-    s.add_argument("--seed-cold", action="store_true", help="let windows with cold frames start new tracks")
+    s.add_argument("--seed-cold", action=argparse.BooleanOptionalAction, default=None,
+                   help="let windows with cold frames start new tracks (default: detect.SEED_COLD)")
     s.set_defaults(func=cmd_score)
 
     w = sub.add_parser("watch", help="run the detector on the live feed, writing data/live/<camera>/state.json")

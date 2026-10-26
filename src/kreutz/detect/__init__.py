@@ -154,7 +154,11 @@ def run_stage_b(camera, paths, metas, windows, envelopes, workers=None, progress
                 progress(k, len(jobs), names)
 
 
-SEED_COLD = False  # start tracks from windows containing cold frames (see frames.py: warm-up after a gap)
+# Start tracks from windows containing cold frames (frames.py: warm-up after a gap). The gate
+# was added for slow artefacts after the daily gaps; the per-month grid no longer stacks such
+# velocities, and on Oct 17-24 2026 seeding cold windows found Chris Wage's Oct 23 comet 3.25 h
+# earlier (real lead -2.9 h instead of +0.4 h) for 19% more live tracks.
+SEED_COLD = True
 
 
 def run_stage_c(camera, paths, metas, windows, envelopes, seed_cold: bool = SEED_COLD) -> list[Track]:

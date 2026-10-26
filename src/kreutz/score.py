@@ -234,7 +234,8 @@ def score(camera: str, start: date, end: date, workers=None, sheets: bool = True
     out = results_dir(camera, start, end)
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "scorecard.txt", "w") as f, _tee(f):
-        print(f"# kreutz score --camera {camera} --start {start} --end {end}" + (" --seed-cold" if seed_cold else ""))
+        print(f"# kreutz score --camera {camera} --start {start} --end {end} "
+              + ("--seed-cold" if seed_cold else "--no-seed-cold"))
         print(f"# code {_git_rev()}, stage A {A.VERSION}, stage B {detect.B.VERSION}, "
               f"run {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC")
         return _score(camera, start, end, workers, sheets, out, seed_cold)

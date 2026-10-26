@@ -255,7 +255,8 @@ class Watcher:
         """Stage C. The tracker persists between cycles and across restarts (tracker.pkl),
         so normally only the newest window is fed; any change to the rules, the
         velocity grid or the span rebuilds it from scratch."""
-        key = (C.VERSION, B.VERSION, tuple(sorted((m, e.grid.key()) for m, e in envelopes.items())), self.span_h)
+        key = (C.VERSION, B.VERSION, tuple(sorted((m, e.grid.key()) for m, e in envelopes.items())), self.span_h,
+               detect.SEED_COLD)
         pkl = live_dir(self.camera) / "tracker.pkl"
         if self.tracker is None and pkl.exists():
             try:
@@ -283,7 +284,7 @@ class Watcher:
             peaks = [B.Peak(**d) for d in json.loads(p.read_text())]
             drifts = [metas[j].drift for j in mem if metas[j].drift]
             drift = list(np.mean(drifts, axis=0)) if drifts else None
-            seed = all(A.is_warm(metas[j]) for j in mem)
+            seed = detect.SEED_COLD or all(A.is_warm(metas[j]) for j in mem)
             tr.update(metas[i].time, peaks, drift, metas[i].sun_xy, envelope=env, seed=seed)
             self.fed_until = metas[i].time
             fed += 1
