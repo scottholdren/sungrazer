@@ -81,7 +81,11 @@ def run_stage_a(camera: str, paths: list[Path], targets: list[int], workers=None
 
 
 def window_members(metas: list[A.FrameMeta | None], i: int) -> list[int] | None:
-    """Indices of the N good frames ending at i, or None if the window is unusable."""
+    """Indices of the N good frames ending at i, or None if the window is unusable.
+
+    After a gap (Earth transit, off-point) the window shrinks: the oldest frames are
+    dropped until the rest fit MAX_SPAN_FRAMES, down to MIN_FRAMES. Spans are
+    counted in whole slots (frame times carry seconds of jitter)."""
     if metas[i] is None or not metas[i].ok:
         return None
     members = [i]
@@ -91,8 +95,13 @@ def window_members(metas: list[A.FrameMeta | None], i: int) -> list[int] | None:
             members.append(j)
         j -= 1
     members.reverse()
-    span = (metas[members[-1]].time - metas[members[0]].time) / FRAME_SECONDS
-    if len(members) < B.MIN_FRAMES or span > B.MAX_SPAN_FRAMES:
+
+    def span():
+        return round((metas[members[-1]].time - metas[members[0]].time) / FRAME_SECONDS)
+
+    while len(members) > B.MIN_FRAMES and span() > B.MAX_SPAN_FRAMES:
+        members.pop(0)
+    if len(members) < B.MIN_FRAMES or span() > B.MAX_SPAN_FRAMES:
         return None
     return members
 

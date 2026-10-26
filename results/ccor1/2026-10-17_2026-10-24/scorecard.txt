@@ -1,5 +1,5 @@
 # kreutz score --camera ccor1 --start 2026-10-17 --end 2026-10-24 --seed-cold
-# code 3d34166, stage A a4, stage B b3, run 2026-10-26 05:31 UTC
+# code 6b80d9e, stage A a4, stage B b3, run 2026-10-26 06:24 UTC
 envelope month 10: 61 PROVISIONAL from hunter claims Kreutz tracks (months [10]); entry PA -45..-11; allowed direction 138..-178 deg, miss -225..91 px; grid vx -12.5..-6.0, vy -6.5..0.0 = 196 velocities
 stage C: 115 windows with cold frames could start tracks (seed_cold)
 685 good frames, 3 without star model, 90 cold; 9421 candidate tracks (355 not rejected) -> /home/sholdren/stargrazer/sungrazer/data/derived/ccor1/a4/tracks_2026-10-17_2026-10-24.json
@@ -7,15 +7,15 @@ stage C: 115 windows with cold frames could start tracks (seed_cold)
 === ccor1 2026-10-17..2026-10-24: 5 truth objects (PROVISIONAL: no confirmation list covers this window; using hunter claims)
     mapped with a fitted reporter transform (coords.REPORT_TRANSFORMS): report_bc_20261019233808, report_bc_20261023150123
     9421 candidate tracks, 403 submittable at 3, 4 or 5 hits; final status of all: 355 live, glare-zone: 490, outbound: 6459, off-envelope: 1938, extended: 179
-    latency 8.0 min = publication 0.0 + poll wait 7.5 + processing 0.5. no publication log yet (run `kreutz fetch --live`); publication lag taken as 0
+    latency 22.6 min = publication 14.6 + poll wait 7.5 + processing 0.5. SWPC publication lag (ccor1, 2366 files 10-02..10-26): median 14.6 min, 90th percentile 22.6 min after exposure start; first seen by our 15-min polls: median 17.1 min (6 files)
 
 object                     status    first human post  found  @3 hits: time / lead / real          @4 hits: time / lead / real          @5 hits: time / lead / real          best sig
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-report_bc_20261019233808   pending   10-20 03:38        yes    10-19 14:45 / -12.9 h / -12.7 h      10-19 15:00 / -12.6 h / -12.5 h      10-19 15:15 / -12.4 h / -12.2 h      264.6
-report_jr_20261021075102   pending   10-21 11:51        yes    10-21 09:30 / -2.3 h / -2.2 h        10-21 09:45 / -2.1 h / -2.0 h        10-21 10:00 / -1.8 h / -1.7 h         15.3
-report_jr_20261022092046   pending   10-22 13:20        yes    10-22 13:30 / +0.2 h / +0.3 h        10-22 13:45 / +0.4 h / +0.5 h        10-22 14:00 / +0.7 h / +0.8 h          8.3
-report_cw_20261023091620   pending   10-23 13:16        yes    10-23 10:15 / -3.0 h / -2.9 h        10-23 10:30 / -2.8 h / -2.6 h        10-23 10:45 / -2.5 h / -2.4 h        264.6
-report_bc_20261023150123   pending   10-23 19:01        yes    10-23 10:15 / -8.8 h / -8.6 h        10-23 10:30 / -8.5 h / -8.4 h        10-23 10:45 / -8.3 h / -8.1 h        264.6
+report_bc_20261019233808   pending   10-20 03:38        yes    10-19 14:45 / -12.9 h / -12.5 h      10-19 15:00 / -12.6 h / -12.3 h      10-19 15:15 / -12.4 h / -12.0 h      264.6
+report_jr_20261021075102   pending   10-21 11:51        yes    10-21 09:30 / -2.3 h / -2.0 h        10-21 09:45 / -2.1 h / -1.7 h        10-21 10:00 / -1.8 h / -1.5 h         15.3
+report_jr_20261022092046   pending   10-22 13:20        yes    10-22 13:30 / +0.2 h / +0.5 h        10-22 13:45 / +0.4 h / +0.8 h        10-22 14:00 / +0.7 h / +1.0 h          8.3
+report_cw_20261023091620   pending   10-23 13:16        yes    10-23 10:15 / -3.0 h / -2.6 h        10-23 10:30 / -2.8 h / -2.4 h        10-23 10:45 / -2.5 h / -2.1 h        264.6
+report_bc_20261023150123   pending   10-23 19:01        yes    10-23 10:15 / -8.8 h / -8.4 h        10-23 10:30 / -8.5 h / -8.1 h        10-23 10:45 / -8.3 h / -7.9 h        264.6
 (lead = our frame time - first human post; real = lead + latency above; negative = we would have been first)
 
 status of every track matching a truth object, when it reached 3 / 4 / 5 hits, and at the end:

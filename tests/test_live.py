@@ -75,6 +75,27 @@ def test_build_state_splits_live_and_rejected(monkeypatch):
     assert state["window"] is None
 
 
+def test_window_shrinks_after_a_gap():
+    from kreutz import detect
+    from kreutz.detect.frames import FrameMeta
+
+    def meta(slot, ok=True):
+        # frame times carry ~0.3 s of jitter, like the real files
+        return FrameMeta(f"f{slot}", 1_700_000_000.0 + 900 * slot + 0.3 * (slot % 3), ok, [], None, None, 8, 0, None)
+
+    # good frames in slots 0-5, a gap (6-15 bad), good again from 16
+    metas = [meta(s, ok=not 6 <= s <= 15) for s in range(26)]
+    # ending at 16: only 16 and 2..5 fit in 14 slots = 5 frames -> unusable
+    assert detect.window_members(metas, 16) is None
+    assert detect.window_members(metas, 18) is None
+    # ending at 20: 20..16 (5) plus 5 would span 15 slots -> still unusable
+    assert detect.window_members(metas, 20) is None
+    # ending at 21: 8 frames 21..16,5,4 span 17 -> drop 4, then 5 -> 16..21: six frames, usable
+    assert detect.window_members(metas, 21) == list(range(16, 22))
+    # ending at 23: a full 8-frame window with no gap in it; jitter must not matter
+    assert detect.window_members(metas, 23) == list(range(16, 24))
+
+
 def test_group_objects_joins_satellites_and_continuations():
     t0 = datetime(2026, 10, 25, 1, 0, 25, tzinfo=timezone.utc)
     con = __import__("kreutz.reports.db", fromlist=["db"]).connect(":memory:")
