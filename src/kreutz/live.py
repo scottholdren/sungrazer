@@ -302,6 +302,10 @@ class Watcher:
 
 
 def watch(camera: str, once: bool = False, span_h: float = SPAN_H, fetch_h: float = FETCH_H) -> None:
+    import faulthandler
+    import signal
+
+    faulthandler.register(signal.SIGUSR1, all_threads=True)  # `kill -USR1 <pid>` dumps every stack to stderr
     Watcher(camera, span_h, fetch_h).run(once=once)
 
 
