@@ -56,17 +56,38 @@ python -m kreutz serve [--port 8080]
 
 ## Live watcher and dashboard
 
-`kreutz watch` is the detector on the real-time feed: each cycle fetches new
-frames and reports, runs the cached stages on what's new, re-runs tracking
-over the last 48 h and writes `data/live/<camera>/state.json`, a contact
-sheet and thumbnail per followed track, and a downscaled preview of the
-latest frame. Track ids are `<first frame>_<x>_<y>` so they are stable
-across cycles. `kreutz serve` is a standard-library HTTP server for the
-single-page dashboard in `src/kreutz/web/`: a status line per camera, the
-tracks being followed (with any matching hunter report and the lead time
-including our latency), a collapsed list of recently rejected tracks, and a
-detail view that animates the track's frames. The page polls `/api/state`
-every minute. `deploy/` has systemd units for both.
+`kreutz watch` is the detector on the real-time feed. Each cycle fetches new
+frames and reports, runs stage A on the new frame in-process (a resident
+`frames.StageA` keeps the 16 background and 8 star frames, so a frame costs
+one median and one star model), stacks its window, feeds it to a tracker that
+persists between cycles (`tracker.pkl`, rebuilt from the cached peaks when a
+rule, stack or grid version changes), matches tracks against hunter reports
+and writes `data/live/<camera>/state.json`, a contact sheet and thumbnail per
+followed track, a downscaled preview of the latest frame, and
+`activity.json` (what it is doing now, and the last 300 events). Track ids
+are `<first frame>_<x>_<y>` so they are stable across cycles. Polls happen
+at the minute within each 15-minute slot that minimises the wait after SWPC
+posts a frame, chosen from the publication log (Oct 2026: 2 min past the
+slot, expected wait 5.1 min); the 15-minute guard still rules.
+
+Reports: CCOR reports are matched by position; LASCO C2/C3 claims are synced
+60 days deep and matched by time only (a claim whose frames fall within 6 h of
+a track is shown as "reported on C3 (time only)"), so UNREPORTED means
+unreported on any Sungrazer camera. The listing is walked in full once a day.
+
+`kreutz serve` is a standard-library HTTP server for the single-page
+dashboard in `src/kreutz/web/`: a status line per camera, the current stage
+with progress and the last five events (full log expandable), the tracks
+being followed (with any matching report and the lead time including our
+latency), a collapsed list of recently rejected tracks, and a detail view that
+animates the track's frames. The page polls `/api/state` every minute and
+`/api/activity` every 3 s.
+
+Deployment: `deploy/` has systemd units (`kreutz-watch@ccor1`,
+`kreutz-serve`) that run as the repo owner with `Restart=always`. To deploy a
+change without sudo: `git pull`, then `kill $(systemctl show -p MainPID
+--value kreutz-watch@ccor1)` while the watcher is idle; it comes back in 60 s
+and waits for the next poll slot. Logs: `journalctl -u kreutz-watch@ccor1`.
 
 ## Results (`results/`, committed)
 
