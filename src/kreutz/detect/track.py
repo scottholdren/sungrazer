@@ -39,7 +39,7 @@ import numpy as np
 from .stack import Peak
 from .velocity import FRAME_SECONDS
 
-VERSION = "c1"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
+VERSION = "c2"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
 MATCH_RADIUS = 6.0  # px, full resolution (half-res stacking + 0.5 px/frame velocity steps)
 MATCH_DV = 2.0  # px/frame
 MAX_MISSES = 2
@@ -49,6 +49,8 @@ MIN_SPEED = 1.0
 DEDUP_RADIUS = 12.0  # px: other peaks this close to a claimed one are the same object
 MERGE_RADIUS = 8.0  # px: candidate tracks sharing >= 2 hit times this close are merged
 MERGE_ALONG = 40.0  # px along the motion, for tracks with the same velocity (head and tail pieces)
+SATELLITE_RADIUS = 60.0  # px: a shorter track this close to a longer one at >= 2 common times is a satellite of it
+CONTINUE_FRAMES = 3  # a track starting within this many frames after another ends, on its path, continues it
 GLARE_RADIUS = 320.0  # px; confirmed CCOR-1 comets were never reported closer than 392
 EDGE_MIN = 25.0  # px
 MAX_ELONGATION = 3.0
@@ -206,13 +208,27 @@ class Tracker:
 
 def _same_object(a: Track, b: Track) -> bool:
     """Two tracks follow one object: >= 2 common hit times with the hits close
-    (MERGE_RADIUS), or, at the same velocity, offset along the motion (MERGE_ALONG)."""
+    (MERGE_RADIUS), or, at the same velocity, offset along the motion (MERGE_ALONG);
+    or b is a satellite of a (>= 2 common times within SATELLITE_RADIUS: a bright
+    comet's head, tail and neighbouring-velocity peaks); or b continues a: it
+    starts within CONTINUE_FRAMES after a ends, on a's predicted path, at a's
+    velocity. `a` is the longer track."""
     pos = {round(h.t): (h.x, h.y) for h in a.hits}
     common = [(np.subtract(pos[round(h.t)], (h.x, h.y))) for h in b.hits if round(h.t) in pos]
     if sum(np.hypot(*d) < MERGE_RADIUS for d in common) >= 2:
         return True
+    if sum(np.hypot(*d) <= SATELLITE_RADIUS for d in common) >= 2:
+        return True
     va, vb = np.array(a.velocity()), np.array(b.velocity())
-    if np.hypot(*(va - vb)) > MATCH_DV or not common:
+    if np.hypot(*(va - vb)) > MATCH_DV:
+        return False
+    if not common:
+        for first, second in ((a, b), (b, a)):
+            gap = (second.hits[0].t - first.last.t) / FRAME_SECONDS
+            if 0 < gap <= CONTINUE_FRAMES + 0.01:
+                px, py = first.predict(second.hits[0].t)
+                if np.hypot(second.hits[0].x - px, second.hits[0].y - py) <= SATELLITE_RADIUS:
+                    return True
         return False
     u = (va + vb) / (np.linalg.norm(va + vb) + 1e-9)
     near = [abs(d @ u) <= MERGE_ALONG and abs(d[0] * u[1] - d[1] * u[0]) <= MERGE_RADIUS for d in common]
@@ -220,8 +236,13 @@ def _same_object(a: Track, b: Track) -> bool:
 
 
 def _absorb(keep: Track, other: Track) -> None:
-    """The merged track was submittable at k hits as soon as any piece was."""
+    """The merged track was submittable at k hits as soon as any piece was. A
+    continuation extends the keeper's hits so later pieces can chain on."""
     keep.merged = getattr(keep, "merged", 0) + 1 + getattr(other, "merged", 0)
+    if other.hits[0].t > keep.last.t:
+        keep.hits.extend(other.hits)
+    elif other.last.t < keep.hits[0].t:
+        keep.hits[:0] = other.hits
     for k, t in other.reached.items():
         mine_ok = keep.status_at.get(k) == "candidate"
         theirs_ok = other.status_at.get(k) == "candidate"
@@ -233,9 +254,11 @@ def merge_duplicates(tracks: list[Track]) -> list[Track]:
     """Fold candidate tracks that follow the same object into the longest one.
     Merging needs >= 2 common hit times, so only tracks overlapping in time are compared."""
     keep: list[Track] = []
+    slack = CONTINUE_FRAMES * FRAME_SECONDS + 1
     for t in sorted(tracks, key=lambda t: -len(t.hits)):
         t0, t1 = t.hits[0].t, t.last.t
-        dup = next((k for k in keep if k.hits[0].t <= t1 and k.last.t >= t0 and _same_object(k, t)), None)
+        dup = next((k for k in keep if k.hits[0].t <= t1 + slack and k.last.t >= t0 - slack and _same_object(k, t)),
+                   None)
         if dup is None:
             t.merged = getattr(t, "merged", 0)
             keep.append(t)

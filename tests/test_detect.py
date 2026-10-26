@@ -220,9 +220,21 @@ def test_head_and_tail_pieces_of_one_comet_are_merged():
     a, b, c = C.Track(1), C.Track(2), C.Track(3)
     a.hits = [_peak(k, 1600 - 5 * k, 1500 - 4 * k, -5, -4) for k in range(6)]
     b.hits = [_peak(k, 1625 - 5 * k, 1520 - 4 * k, -5, -4) for k in range(1, 5)]  # 32 px behind, along the motion
-    c.hits = [_peak(k, 1600 - 5 * k + 20, 1500 - 4 * k - 25, -5, -4) for k in range(1, 5)]  # 32 px off to the side
+    c.hits = [_peak(k, 1600 - 5 * k + 20, 1500 - 4 * k - 25, -5, -4) for k in range(1, 5)]  # 32 px off: a satellite
+    d = C.Track(4)
+    d.hits = [_peak(k, 1600 - 5 * k + 60, 1500 - 4 * k - 60, -5, -4) for k in range(1, 5)]  # 85 px off: another object
+    out = C.merge_duplicates([a, b, c, d])
+    assert sorted(t.id for t in out) == [1, 4] and out[0].merged == 2
+
+
+def test_a_track_that_continues_another_on_its_path_is_merged():
+    a, b, c = C.Track(1), C.Track(2), C.Track(3)
+    a.hits = [_peak(k, 1600 - 5 * k, 1500 - 4 * k, -5, -4) for k in range(6)]  # ends at k=5
+    b.hits = [_peak(k, 1600 - 5 * k + 3, 1500 - 4 * k - 2, -5, -4) for k in range(8, 12)]  # resumes 3 frames later
+    c.hits = [_peak(k, 1600 - 5 * k + 120, 1500 - 4 * k, -5, -4) for k in range(8, 12)]  # same gap, off the path
     out = C.merge_duplicates([a, b, c])
     assert sorted(t.id for t in out) == [1, 3]
+    assert len(out[0].hits) == 10 and out[0].last.t == 11 * 900.0  # the keeper now carries the continuation
 
 
 def test_later_rejection_does_not_rewrite_status_at_submission():
