@@ -102,6 +102,12 @@ class Watcher:
         self.stage_a: A.StageA | None = None  # resident stage A, primed after the first backlog run
 
     def run(self, once: bool = False) -> None:
+        if not once and net.last_poll(f"live:{self.camera}") + net.POLL_INTERVAL_S > time.time():
+            wait = seconds_to_next_poll(self.camera)  # a restart within the guard: wait for the slot
+            at = datetime.now(timezone.utc) + timedelta(seconds=wait)
+            print(f"restarted inside the poll guard; first poll at {at:%H:%M:%S} UTC", flush=True)
+            self.activity.now("idle", f"restarted; first poll at {at:%H:%M:%S} UTC")
+            time.sleep(wait)
         while True:
             try:
                 self.cycle()
