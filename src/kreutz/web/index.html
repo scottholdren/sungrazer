@@ -112,11 +112,14 @@ function render() {
   const rank = {alert: 0, watch: 1};
   const tracks = all.filter(t => !t.group || t.group === t.id)
     .sort((a,b) => ((rank[a.tier] ?? 2) - (rank[b.tier] ?? 2)) || b.last_seen.localeCompare(a.last_seen));
-  const tiered = tracks.filter(t => t.tier), rest = tracks.filter(t => !t.tier);
+  const tiered = tracks.filter(t => t.tier);
+  // confidence for the rest: persistence first (the only feature that separates comets at this stage), then brightness
+  const rest = tracks.filter(t => !t.tier).sort((a,b) => (b.n_hits - a.n_hits) || (b.best_sig - a.best_sig));
   const np = all.length - tracks.length;
+  const wasOpen = $('#others') ? $('#others').open : false;
   $('#following').innerHTML = (tiered.length ? tiered.map(card).join('')
       : '<div class="dim">no object has reached the alert (4 hits, 15σ) or watch (5 hits, 10σ) tier</div>')
-    + (rest.length ? `<details${tiered.length ? '' : ''}><summary class="dim">other candidates: ${n(rest.length, 'object')} with 3+ hits but below both tiers — at this stage about 1 in 100 is a comet</summary>${rest.map(card).join('')}</details>` : '')
+    + (rest.length ? `<details id="others"${wasOpen ? ' open' : ''}><summary class="dim">other candidates: ${n(rest.length, 'object')} with 3+ hits but below both tiers, most persistent first — at this stage about 1 in 100 is a comet</summary>${rest.map(card).join('')}</details>` : '')
     + (np ? `<div class="dim">${n(tracks.length, 'object')} from ${n(all.length, 'track')}; pieces of the same object are listed in its detail view</div>` : '');
   const rej = show.flatMap(c => c.rejected.map(t => ({...t, cam:c})));
   $('#rejsum').textContent = `rejected in the last 24 h: ${show.reduce((n,c)=>n+c.n_rejected,0)} (showing ${rej.length} by significance)`;
