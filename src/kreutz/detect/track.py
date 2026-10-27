@@ -250,6 +250,42 @@ def _absorb(keep: Track, other: Track) -> None:
             keep.reached[k], keep.status_at[k] = t, other.status_at.get(k)
 
 
+RECUR_PX = 30.0  # a track starting this close to where a track started on an earlier day ...
+RECUR_S = 30 * 60  # ... within this of the same time of day ...
+RECUR_DV = 2.0  # ... at this velocity, is a recurring artefact (streamer edge, arm glare)
+RECUR_DAYS = 7
+
+
+def flag_recurring(tracks: list[Track]) -> int:
+    """Reject tracks that repeat an earlier day's track in place, time of day and
+    velocity. Known from the first hit, so the status at every threshold is the
+    rejection. Returns how many were flagged."""
+    starts = sorted(tracks, key=lambda t: t.hits[0].t)
+    n = 0
+    for i, t in enumerate(starts):
+        t0, h0 = t.hits[0].t, t.hits[0]
+        vx, vy = t.velocity()
+        for u in starts[:i]:
+            dt = t0 - u.hits[0].t
+            if dt < 43200 or dt > RECUR_DAYS * 86400:
+                continue
+            tod = (dt + 43200) % 86400 - 43200  # offset from a whole number of days
+            if abs(tod) > RECUR_S:
+                continue
+            g0 = u.hits[0]
+            if np.hypot(h0.x - g0.x, h0.y - g0.y) > RECUR_PX:
+                continue
+            ux, uy = u.velocity()
+            if np.hypot(vx - ux, vy - uy) > RECUR_DV:
+                continue
+            t.rejected = "recurring"
+            for k in t.status_at:
+                t.status_at[k] = "rejected:recurring"
+            n += 1
+            break
+    return n
+
+
 def merge_duplicates(tracks: list[Track]) -> list[Track]:
     """Fold candidate tracks that follow the same object into the longest one.
     Merging needs >= 2 common hit times, so only tracks overlapping in time are compared."""

@@ -28,6 +28,7 @@ from ..reports import db
 from . import frames as A
 from . import stack as B
 from . import envelope as E
+from . import track as C
 from .track import Track, Tracker
 from .velocity import FRAME_SECONDS, VelocityGrid
 
@@ -168,6 +169,7 @@ def run_stage_b(camera, paths, metas, windows, envelopes, workers=None, progress
 # velocities, and on Oct 17-24 2026 seeding cold windows found Chris Wage's Oct 23 comet 3.25 h
 # earlier (real lead -2.9 h instead of +0.4 h) for 19% more live tracks.
 SEED_COLD = True
+FLAG_RECURRING = False  # experiment: reject tracks repeating an earlier day's start (track.flag_recurring)
 
 
 def run_stage_c(camera, paths, metas, windows, envelopes, seed_cold: bool = SEED_COLD) -> list[Track]:
@@ -189,7 +191,10 @@ def run_stage_c(camera, paths, metas, windows, envelopes, seed_cold: bool = SEED
         tr.update(metas[i].time, peaks, drift, metas[i].sun_xy, envelope=env, seed=warm or seed_cold)
     print(f"stage C: {cold} windows with cold frames " + ("could start tracks (seed_cold)" if seed_cold
                                                          else "started no new tracks"))
-    return tr.finish()
+    tracks = tr.finish()
+    if FLAG_RECURRING:
+        print(f"stage C: {C.flag_recurring(tracks)} tracks flagged as recurring (same place, time of day, velocity as an earlier day)")
+    return tracks
 
 
 def run(camera: str, start: date, end: date, workers=None, dump: tuple[str, ...] = (),

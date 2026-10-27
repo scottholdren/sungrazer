@@ -76,6 +76,13 @@ Tried and rejected: MAX_ELONGATION 2.4 (from 3.0). October live tracks
 288 -> 260 at 3 hits, but CCR1 0077 (July) is rejected as extended at its
 5th hit (recall 7/8 at 5 hits). It stays at 3.0.
 
+Tried and rejected: a recurring-track rule (reject a track that starts
+within 30 px, 30 min of the same time of day and 2 px/frame of a track on an
+earlier day; `track.flag_recurring`, off by default). It flags hundreds of
+tracks per week, but almost all were already rejected by other rules: live
+tracks at 3 hits fall only 288 -> 280 (Oct), 43 -> 41 (Jul), 459 -> 447 (Aug),
+every comet kept. The daily repeaters are not what survives the rules.
+
 Tried and rejected: review item 1, one missed window allowed before
 candidacy. October live tracks 288 -> 380 at 3 hits (+32%) for 15 min on
 one comet per week (jr Oct 22, CCR1 0073); CCR1 0075, the faint one it was
