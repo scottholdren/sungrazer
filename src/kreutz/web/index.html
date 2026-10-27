@@ -57,7 +57,9 @@ code { background:#000; padding:2px 6px; border-radius:4px; font-size:12px }
 let STATE = null, FILTER = 'all', OPEN = null, ANIM = {timer:null, frame:0, playing:true};
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const fmt = iso => iso ? iso.slice(5, 16).replace('T', ' ') + ' UTC' : '-';
+const TZ = 'America/New_York';
+const _f = new Intl.DateTimeFormat('en-US', {timeZone: TZ, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false});
+const fmt = iso => { if (!iso) return '-'; const p = Object.fromEntries(_f.formatToParts(new Date(iso)).map(x => [x.type, x.value])); return `${p.month}-${p.day} ${p.hour}:${p.minute} ET`; };
 const ago = iso => { const m = (Date.now() - Date.parse(iso)) / 60000; return m < 90 ? `${Math.round(m)} min ago` : `${(m/60).toFixed(1)} h ago`; };
 const hrs = h => Math.abs(h) < 1 ? `${Math.round(Math.abs(h)*60)} min` : `${Math.abs(h).toFixed(1)} h`;
 const n = (k, word) => `${k} ${word}${k === 1 ? '' : 's'}`;
@@ -72,7 +74,8 @@ async function refresh() {
 
 let ACT = null, ACT_AT = 0;
 const label = cam => (STATE && STATE.cameras.find(c => c.camera === cam) || {}).label || cam.toUpperCase();
-const clock = iso => iso.slice(11, 19);
+const _c = new Intl.DateTimeFormat('en-US', {timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false});
+const clock = iso => _c.format(new Date(iso));
 async function refreshActivity() {
   try {
     const r = await fetch('/api/activity', {cache:'no-store'});
