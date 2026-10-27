@@ -22,6 +22,10 @@ class Handler(SimpleHTTPRequestHandler):
         route = self.path.split("?", 1)[0]
         if route in ("/", "/index.html"):
             return self._send(WEB / "index.html", "text/html; charset=utf-8")
+        if route == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
+            return
         if route.startswith("/examples/") and route.endswith(".png") and "/.." not in route:
             p = WEB / "examples" / Path(route).name
             if p.exists():

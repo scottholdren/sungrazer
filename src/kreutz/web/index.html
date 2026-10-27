@@ -77,6 +77,8 @@ const fmt = iso => { if (!iso) return '-'; const p = Object.fromEntries(_f.forma
 const ago = iso => { const m = (Date.now() - Date.parse(iso)) / 60000; return m < 90 ? `${Math.round(m)} min ago` : `${(m/60).toFixed(1)} h ago`; };
 const hrs = h => Math.abs(h) < 1 ? `${Math.round(Math.abs(h)*60)} min` : `${Math.abs(h).toFixed(1)} h`;
 const n = (k, word) => `${k} ${word}${k === 1 ? '' : 's'}`;
+const lab = t => t.label ? t.label.label : null;
+const lrank = t => lab(t) === 'comet' ? 0 : lab(t) === 'noise' ? 2 : 1;  // labelled comets first, labelled noise last
 
 async function refresh() {
   try {
@@ -129,8 +131,6 @@ function render() {
   const rank = {alert: 0, watch: 1};
   const tracks = all.filter(t => !t.group || t.group === t.id)
     .sort((a,b) => ((rank[a.tier] ?? 2) - (rank[b.tier] ?? 2)) || b.last_seen.localeCompare(a.last_seen));
-  const lab = t => t.label ? t.label.label : null;
-  const lrank = t => lab(t) === 'comet' ? 0 : lab(t) === 'noise' ? 2 : 1;  // labelled comets first, labelled noise last
   const tiered = tracks.filter(t => t.tier).sort((a,b) => lrank(a) - lrank(b));
   // confidence for the rest: persistence first (the only feature that separates comets at this stage), then brightness
   const rest = tracks.filter(t => !t.tier).sort((a,b) => (lrank(a) - lrank(b)) || (b.n_hits - a.n_hits) || (b.best_sig - a.best_sig));
