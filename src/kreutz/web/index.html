@@ -170,8 +170,7 @@ function card(t) {
   const img = t.thumb ? `<div class="thumb"><img src="${t.thumb}?v=${t.n_hits}" alt="">${ring}</div>` : '<div class="noimg"></div>';
   const miss = t.missing ? ` <span class="dim">·</span> missing ${n(t.missing, 'frame')}` : '';
   return `<div class="card ${lab(t) === 'noise' ? 'dimcard' : ''}" onclick="openDetail('${t.cam.camera}','${t.id}')">${img}<div><div class="badges">${badges(t)}</div>
-    <div class="meta">${t.id} <span class="dim">·</span> first seen ${fmt(t.first_seen)} <span class="dim">·</span> last seen ${fmt(t.last_seen)} <span class="dim">·</span> at ${t.x},${t.y} <span class="dim">·</span> ${t.speed} px/frame <span class="dim">·</span> best ${t.best_sig}σ${miss}</div>
-    <div class="labels">${labelButtons(t)}</div></div></div>`;
+    <div class="meta">${t.id} <span class="dim">·</span> first seen ${fmt(t.first_seen)} <span class="dim">·</span> last seen ${fmt(t.last_seen)} <span class="dim">·</span> at ${t.x},${t.y} <span class="dim">·</span> ${t.speed} px/frame <span class="dim">·</span> best ${t.best_sig}σ${miss}</div></div></div>`;
 }
 function labelButtons(t) {
   const cur = lab(t);
@@ -186,6 +185,7 @@ async function setLabel(cam, id, label) {
     const t = c.tracks.find(t => t.id === id);
     if (t) t.label = rec.label;
     render();
+    if (OPEN && OPEN.id === id) { const lb = $('#panel .labels'); if (lb) lb.innerHTML = labelButtons({...t, cam: c}); const bd = $('#panel .badges'); if (bd) bd.innerHTML = badges({...t, cam: c}); }
   } catch (e) { alert('label failed: ' + e.message); }
 }
 
@@ -214,6 +214,7 @@ function fillDetail(t, fresh) {
   if (fresh || !$('#panel').dataset.id || $('#panel').dataset.id !== t.id) {
     $('#panel').dataset.id = t.id;
     $('#panel').innerHTML = `<span class="close" onclick="closeDetail()">✕</span><h3>${t.id}</h3><div class="badges">${badges(t)}</div>
+      <div class="labels">${labelButtons(t)}</div>
       <div class="meta">status <b>${esc(t.status)}</b> · at 3/4/5 hits: ${esc(sa)} · velocity (${t.velocity[0]}, ${t.velocity[1]}) px/frame · ${n(t.n_hits, 'hit')}, ${t.missing} missing${pieceOf}</div>${piecesLine}
       <div class="anim"><div><canvas id="cv" width="${tile*2}" height="${tile*6+16}"></canvas>
         <div class="ctl"><button onclick="ANIM.playing=!ANIM.playing">play/pause</button><button onclick="step(-1)">◀</button><button onclick="step(1)">▶</button>
