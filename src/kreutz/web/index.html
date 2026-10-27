@@ -299,7 +299,7 @@ function drawMovie() {
   }
   $('#mvscrub').value = j;
   $('#mvblackv').textContent = `${MV.black}σ`;
-  $('#mvlabel').textContent = `${j+1}/${m.frames.length}  ${f.name}  ${fmt(f.t)}${f.hit ? '  ● hit' : ''}`;
+  $('#mvlabel').textContent = `${j+1}/${m.frames.length}  ${f.name}  ${fmt(f.t)}${f.hit ? '  ● hit' : ''}  · in the ring ${f.peak}σ, brightest 0.1% of the patch ${f.tail}σ`;
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
 $('#detail').addEventListener('click', e => { if (e.target.id === 'detail') closeDetail(); });

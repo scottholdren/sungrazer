@@ -99,11 +99,16 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK) -> dict:
             n += 1
             if n >= stack:
                 break
-        img = np.clip(acc / np.sqrt(max(n, 1)) / RANGE_SIGMA, 0, 1)
+        stk = acc / np.sqrt(max(n, 1))
+        img = np.clip(stk / RANGE_SIGMA, 0, 1)
         r, c = divmod(k, ncol)
         sheet[r * tile:(r + 1) * tile, c * tile:(c + 1) * tile] = np.repeat(np.repeat((img * 255).astype(np.uint8), ZOOM, 0), ZOOM, 1)
         px, py = np.polyval(fx, ts / FRAME_SECONDS), np.polyval(fy, ts / FRAME_SECONDS)
-        frames.append({"name": p.name[9:24], "t": datetime.fromtimestamp(ts).astimezone().isoformat(timespec="minutes"),
+        ri, ci = int(round((py - cy) / 2 + half)), int(round((px - cx) / 2 + half))
+        ring = stk[max(ri - 3, 0):ri + 4, max(ci - 3, 0):ci + 4]
+        frames.append({"peak": round(float(ring.max()), 1) if ring.size else None,  # sigma at the ring
+                       "tail": round(float(np.percentile(stk, 99.9)), 1),          # the patch's own bright tail
+"name": p.name[9:24], "t": datetime.fromtimestamp(ts).astimezone().isoformat(timespec="minutes"),
                        "x": round(((px - cx) / 2 + half) * ZOOM + ZOOM / 2, 1),
                        "y": round(((py - cy) / 2 + half) * ZOOM + ZOOM / 2, 1),
                        "hit": int(round(ts / 60)) in hit_times, "stacked": n})
