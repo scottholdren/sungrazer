@@ -17,6 +17,8 @@ h2 { font-size:12px; letter-spacing:.08em; color:var(--dim); margin:18px 0 8px }
 .card:hover { border-color:#4a5566 }
 .card img { width:160px; height:160px; image-rendering:pixelated; background:#000; border-radius:4px; flex:none }
 .thumb { position:relative; width:160px; height:160px; flex:none } .thumb svg { position:absolute; inset:0; pointer-events:none }
+.labels { margin-top:6px } .labels button { margin-right:6px; padding:2px 10px; border-radius:10px; border:1px solid var(--line); background:transparent; color:var(--fg); cursor:pointer; font-size:12px }
+.labels button.on { background:#e8ecf2; color:#111; border-color:#e8ecf2 } .card.dimcard { opacity:.55 }
 .card .noimg { width:160px; height:160px; background:#000; border-radius:4px; flex:none }
 .badges span, .b { display:inline-block; padding:1px 9px; margin:0 6px 4px 0; border-radius:10px; font-size:12px; font-weight:600; background:var(--chip); color:#dde }
 .b.green { background:var(--green); color:#fff } .b.blue { background:var(--blue); color:#fff } .b.amber { background:var(--amber); color:#fff } .b.red { background:var(--red); color:#fff } .b.outline { background:transparent; border:1px solid var(--line) }
@@ -127,9 +129,11 @@ function render() {
   const rank = {alert: 0, watch: 1};
   const tracks = all.filter(t => !t.group || t.group === t.id)
     .sort((a,b) => ((rank[a.tier] ?? 2) - (rank[b.tier] ?? 2)) || b.last_seen.localeCompare(a.last_seen));
-  const tiered = tracks.filter(t => t.tier);
+  const lab = t => t.label ? t.label.label : null;
+  const lrank = t => lab(t) === 'comet' ? 0 : lab(t) === 'noise' ? 2 : 1;  // labelled comets first, labelled noise last
+  const tiered = tracks.filter(t => t.tier).sort((a,b) => lrank(a) - lrank(b));
   // confidence for the rest: persistence first (the only feature that separates comets at this stage), then brightness
-  const rest = tracks.filter(t => !t.tier).sort((a,b) => (b.n_hits - a.n_hits) || (b.best_sig - a.best_sig));
+  const rest = tracks.filter(t => !t.tier).sort((a,b) => (lrank(a) - lrank(b)) || (b.n_hits - a.n_hits) || (b.best_sig - a.best_sig));
   const np = all.length - tracks.length;
   const wasOpen = $('#others') ? $('#others').open : false;
   $('#following').innerHTML = (tiered.length ? tiered.map(card).join('')
@@ -155,6 +159,7 @@ function badges(t) {
   } else b.push(`<span class="b amber">UNREPORTED on ${esc(t.cam.label)}</span>`);
   const l = t.lasco;
   if (l) b.push(`<span class="b outline dim"><a href="${esc(l.url)}" target="_blank" onclick="event.stopPropagation()" style="color:inherit">a ${esc(l.camera)} claim by ${esc(l.reporter)} (${fmt(l.posted)}) overlaps in time; position not checked</a></span>`);
+  if (t.label) b.push(`<span class="b ${t.label.label === 'comet' ? 'green' : t.label.label === 'noise' ? 'outline dim' : 'outline'}">you: ${esc(t.label.label)}${t.label.contradicted ? ' — contradicted: ' + esc(t.label.contradicted.why) : ''}</span>`);
   if (t.merged) b.push(`<span class="b outline">merged with ${n(t.merged, 'other track')}</span>`);
   if (t.pieces && t.pieces.length) b.push(`<span class="b outline">+${n(t.pieces.length, 'piece')}</span>`);
   return b.join('');
@@ -164,8 +169,24 @@ function card(t) {
   const ring = '<svg viewBox="0 0 160 160"><circle cx="80" cy="80" r="13" fill="none" stroke="#4fd37a" stroke-width="1.5"/></svg>';
   const img = t.thumb ? `<div class="thumb"><img src="${t.thumb}?v=${t.n_hits}" alt="">${ring}</div>` : '<div class="noimg"></div>';
   const miss = t.missing ? ` <span class="dim">·</span> missing ${n(t.missing, 'frame')}` : '';
-  return `<div class="card" onclick="openDetail('${t.cam.camera}','${t.id}')">${img}<div><div class="badges">${badges(t)}</div>
-    <div class="meta">${t.id} <span class="dim">·</span> first seen ${fmt(t.first_seen)} <span class="dim">·</span> last seen ${fmt(t.last_seen)} <span class="dim">·</span> at ${t.x},${t.y} <span class="dim">·</span> ${t.speed} px/frame <span class="dim">·</span> best ${t.best_sig}σ${miss}</div></div></div>`;
+  return `<div class="card ${lab(t) === 'noise' ? 'dimcard' : ''}" onclick="openDetail('${t.cam.camera}','${t.id}')">${img}<div><div class="badges">${badges(t)}</div>
+    <div class="meta">${t.id} <span class="dim">·</span> first seen ${fmt(t.first_seen)} <span class="dim">·</span> last seen ${fmt(t.last_seen)} <span class="dim">·</span> at ${t.x},${t.y} <span class="dim">·</span> ${t.speed} px/frame <span class="dim">·</span> best ${t.best_sig}σ${miss}</div>
+    <div class="labels">${labelButtons(t)}</div></div></div>`;
+}
+function labelButtons(t) {
+  const cur = lab(t);
+  return ['comet', 'noise', 'unsure'].map(l => `<button class="${cur === l ? 'on' : ''}" onclick="event.stopPropagation();setLabel('${t.cam.camera}','${t.id}','${cur === l ? 'clear' : l}')">${l}</button>`).join('');
+}
+async function setLabel(cam, id, label) {
+  try {
+    const r = await fetch('/api/label', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({camera: cam, id, label})});
+    if (!r.ok) throw new Error(await r.text());
+    const rec = await r.json();
+    const c = STATE.cameras.find(c => c.camera === cam);
+    const t = c.tracks.find(t => t.id === id);
+    if (t) t.label = rec.label;
+    render();
+  } catch (e) { alert('label failed: ' + e.message); }
 }
 
 function openDetail(cam, id) {

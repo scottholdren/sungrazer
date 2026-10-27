@@ -37,6 +37,24 @@ class Handler(SimpleHTTPRequestHandler):
             return
         return super().do_GET()
 
+    def do_POST(self):
+        route = self.path.split("?", 1)[0]
+        if route != "/api/label":
+            self.send_error(404)
+            return
+        try:
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
+            rec = live.record_label(body["camera"], body["id"], body["label"])
+        except (KeyError, ValueError, json.JSONDecodeError) as e:
+            self.send_error(400, str(e))
+            return
+        out = json.dumps(rec).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(out)))
+        self.end_headers()
+        self.wfile.write(out)
+
     def end_headers(self):
         if self.path.endswith(".json"):
             self.send_header("Cache-Control", "no-store")

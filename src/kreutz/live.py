@@ -231,6 +231,16 @@ class Watcher:
     def _announce(self, state: dict) -> None:
         """Events for tracks that appeared, grew into something, or matched a report since last cycle."""
         cur = {d["id"]: d for d in state["tracks"]}
+        labels = load_labels(self.camera)
+        for tid, d in cur.items():
+            rec = labels.get(tid)
+            if rec and rec["label"] == "noise" and not rec.get("contradicted"):
+                why = ("reached the alert tier" if d["tier"] == "alert"
+                       else f"matches a report by {d['report']['reporter']}" if d["report"] else None)
+                if why:
+                    contradict_label(self.camera, tid, why)
+                    self.activity.event(f"{tid} was labelled noise but {why} — label contradicted, still tracked",
+                                        kind="warn", track=tid)
         if self.known is None:
             p = live_dir(self.camera) / "state.json"
             prev = json.loads(p.read_text())["tracks"] if p.exists() else []
@@ -725,7 +735,7 @@ def _iso(ts: float) -> str:
 
 
 def merged_state() -> dict:
-    """Every camera's state.json, for /api/state."""
+    """Every camera's state.json, for /api/state, with the owner's labels attached."""
     cams = []
     for cam in cameras.CAMERAS:
         p = live_dir(cam) / "state.json"
@@ -733,5 +743,58 @@ def merged_state() -> dict:
             s = json.loads(p.read_text())
             lp = live_dir(cam) / "latest.json"
             s["latest"] = json.loads(lp.read_text()) if lp.exists() else None
+            labels = load_labels(cam)
+            for t in s["tracks"]:
+                t["label"] = labels.get(t["id"])
             cams.append(s)
     return {"now": datetime.now(timezone.utc).isoformat(timespec="seconds"), "cameras": cams}
+
+
+# --- labels: the owner's eye, kept for training; the tracker never reads them -----
+
+LABEL_VALUES = ("comet", "noise", "unsure", "clear")
+
+
+def labels_dir(camera: str) -> Path:
+    return live_dir(camera) / "labels"
+
+
+def load_labels(camera: str) -> dict[str, dict]:
+    """id -> latest label record ({label, at, contradicted?})."""
+    p = labels_dir(camera) / "labels.json"
+    return json.loads(p.read_text()) if p.exists() else {}
+
+
+def record_label(camera: str, track_id: str, label: str) -> dict:
+    """Append the label with a frozen copy of the track and its stacked cutout."""
+    if camera not in cameras.CAMERAS or label not in LABEL_VALUES:
+        raise ValueError("unknown camera or label")
+    d = labels_dir(camera)
+    d.mkdir(parents=True, exist_ok=True)
+    state_p = live_dir(camera) / "state.json"
+    tracks = json.loads(state_p.read_text())["tracks"] if state_p.exists() else []
+    track = next((t for t in tracks if t["id"] == track_id), None)
+    rec = {"id": track_id, "label": label, "at": _now_iso(), "track": track}
+    with open(d / "labels.jsonl", "a") as f:
+        f.write(json.dumps(rec) + "\n")
+    thumb = live_dir(camera) / "tracks" / f"{track_id}_thumb.png"
+    if thumb.exists():
+        (d / f"{track_id}_stack.png").write_bytes(thumb.read_bytes())
+    labels = load_labels(camera)
+    if label == "clear":
+        labels.pop(track_id, None)
+    else:
+        labels[track_id] = {"label": label, "at": rec["at"]}
+    _write_json(d / "labels.json", labels)
+    return {"id": track_id, "label": None if label == "clear" else labels[track_id]}
+
+
+def contradict_label(camera: str, track_id: str, why: str) -> None:
+    """A noise label the system now disagrees with: keep it, mark it, log it."""
+    labels = load_labels(camera)
+    rec = labels.get(track_id)
+    if rec and rec["label"] == "noise" and not rec.get("contradicted"):
+        rec["contradicted"] = {"why": why, "at": _now_iso()}
+        _write_json(labels_dir(camera) / "labels.json", labels)
+        with open(labels_dir(camera) / "labels.jsonl", "a") as f:
+            f.write(json.dumps({"id": track_id, "label": "noise", "contradicted": rec["contradicted"]}) + "\n")

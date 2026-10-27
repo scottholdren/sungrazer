@@ -219,10 +219,12 @@ def test_activity_log_rolls_and_tracks_current(tmp_path, monkeypatch):
     assert live.merged_activity()["cameras"]["ccor1"]["current"]["stage"] == "stage A"
 
 
-def test_server_routes(tmp_path, monkeypatch):
+def test_server_routes_and_labels(tmp_path, monkeypatch):
+    from urllib.request import Request
+
     monkeypatch.setattr(live.paths, "DATA", tmp_path)
     (tmp_path / "live" / "ccor1").mkdir(parents=True)
-    (tmp_path / "live" / "ccor1" / "state.json").write_text(json.dumps({"camera": "ccor1", "tracks": []}))
+    (tmp_path / "live" / "ccor1" / "state.json").write_text(json.dumps({"camera": "ccor1", "tracks": [{"id": "t1", "n_hits": 3}]}))
     srv = serve.make_server("127.0.0.1", 0, tmp_path / "live")
     th = threading.Thread(target=srv.serve_forever, daemon=True)
     th.start()
@@ -231,8 +233,22 @@ def test_server_routes(tmp_path, monkeypatch):
         html = urlopen(f"http://127.0.0.1:{port}/").read().decode()
         assert "kreutz live" in html
         api = json.loads(urlopen(f"http://127.0.0.1:{port}/api/state").read())
-        assert api["cameras"][0]["camera"] == "ccor1"
+        assert api["cameras"][0]["camera"] == "ccor1" and api["cameras"][0]["tracks"][0]["label"] is None
         raw = json.loads(urlopen(f"http://127.0.0.1:{port}/ccor1/state.json").read())
         assert raw["camera"] == "ccor1"
+        req = Request(f"http://127.0.0.1:{port}/api/label", data=json.dumps({"camera": "ccor1", "id": "t1", "label": "noise"}).encode(),
+                      headers={"Content-Type": "application/json"}, method="POST")
+        rec = json.loads(urlopen(req).read())
+        assert rec["label"]["label"] == "noise"
+        api = json.loads(urlopen(f"http://127.0.0.1:{port}/api/state").read())
+        assert api["cameras"][0]["tracks"][0]["label"]["label"] == "noise"
+        lines = (tmp_path / "live" / "ccor1" / "labels" / "labels.jsonl").read_text().splitlines()
+        assert len(lines) == 1 and json.loads(lines[0])["track"]["n_hits"] == 3  # frozen copy of the track
+        # the system later disagrees: the label stays but is marked contradicted
+        live.contradict_label("ccor1", "t1", "reached the alert tier")
+        assert live.load_labels("ccor1")["t1"]["contradicted"]["why"] == "reached the alert tier"
+        req = Request(f"http://127.0.0.1:{port}/api/label", data=json.dumps({"camera": "ccor1", "id": "t1", "label": "clear"}).encode(),
+                      headers={"Content-Type": "application/json"}, method="POST")
+        assert json.loads(urlopen(req).read())["label"] is None
     finally:
         srv.shutdown()
