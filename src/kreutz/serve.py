@@ -22,6 +22,10 @@ class Handler(SimpleHTTPRequestHandler):
         route = self.path.split("?", 1)[0]
         if route in ("/", "/index.html"):
             return self._send(WEB / "index.html", "text/html; charset=utf-8")
+        if route.startswith("/examples/") and route.endswith(".png") and "/.." not in route:
+            p = WEB / "examples" / Path(route).name
+            if p.exists():
+                return self._send(p, "image/png")
         if route in ("/api/state", "/api/activity"):
             body = json.dumps(live.merged_state() if route == "/api/state" else live.merged_activity()).encode()
             self.send_response(200)
