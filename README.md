@@ -92,6 +92,13 @@ feed logs ALERT events. Discord: put a webhook URL in
 alert-tier object is posted once, with its contact sheet; set
 `$KREUTZ_DASHBOARD_URL` to append a link. Without a URL nothing is posted.
 
+Labels: each card has comet / noise / unsure buttons. A click is appended to
+`data/live/<camera>/labels/labels.jsonl` with a frozen copy of the track and
+its stacked cutout (`<id>_stack.png`), for training a rejecter later. Labels
+change only display order and alerts; the tracker keeps following everything
+by its own rules, and a noise label on an object that later reaches the alert
+tier or matches a hunter's report is marked *contradicted* and announced.
+
 Deployment: `deploy/` has systemd units (`kreutz-watch@ccor1`,
 `kreutz-serve`) that run as the repo owner with `Restart=always`. To deploy a
 change without sudo: `git pull`, then `kill $(systemctl show -p MainPID
