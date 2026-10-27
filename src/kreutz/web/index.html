@@ -231,7 +231,12 @@ function fillDetail(t, fresh) {
             <input id="mvscrub" type="range" min="0" max="0" value="0" oninput="MV.frame=+this.value;MV.playing=false;drawMovie()"> <span id="mvlabel" class="dim"></span></div>
           <div class="ctl"><label>black point <input id="mvblack" type="range" min="0" max="6" step="0.25" value="2" oninput="MV.black=+this.value;drawMovie()"> <span id="mvblackv" class="dim">2σ</span></label>
             <label>speed <input id="mvspeed" type="range" min="1" max="8" step="1" value="3" oninput="MV.fps=+this.value;mvTimer()"></label>
-            <label><input type="checkbox" id="mvring" checked onchange="MV.ring=this.checked;drawMovie()"> ring on the fitted path (solid = a measured hit)</label></div></div></div>`;
+            <label><input type="checkbox" id="mvring" checked onchange="MV.ring=this.checked;drawMovie()"> ring on the fitted path (solid = a measured hit)</label></div></div></div>
+      <div class="movie" id="export"><button onclick="exportTrack('${c.camera}','${t.id}')">export for a hunter</button>
+        <span class="dim">writes a note in the Sungrazer form's layout (positions, convention, caveats, the movie's numbers) plus the sheet, movie and cutout as files you can send.</span>
+        <div id="exbox" style="display:none"><div id="exfiles" class="meta"></div>
+          <div class="ctl"><button onclick="navigator.clipboard.writeText($('#extext').value)">copy the note</button></div>
+          <textarea id="extext" readonly spellcheck="false" style="width:100%;max-width:900px;height:320px;background:#0b0e13;color:#dfe5ec;border:1px solid #2a3140;border-radius:4px;padding:8px;font:12px/1.4 ui-monospace,monospace"></textarea></div></div>`;
     const img = new Image(); img.src = t.sheet ? `${t.sheet}?v=${t.n_hits}` : '';
     img.onload = () => { ANIM.img = img; ANIM.cols = t.columns; ANIM.tile = tile; ANIM.gap = gap; draw(); };
     clearInterval(ANIM.timer);
@@ -254,6 +259,19 @@ function draw() {
   }
   const s = $('#scrub'); if (s) s.value = j;
   const l = $('#flabel'); if (l) l.textContent = `${j+1}/${ANIM.cols.length}  ${ANIM.cols[j] || ''}`;
+}
+async function exportTrack(camera, id) {
+  const btn = $('#export button');
+  btn.disabled = true; btn.textContent = 'writing…';
+  try {
+    const r = await fetch('/api/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ camera, id }) });
+    if (!r.ok) throw new Error(await r.text());
+    const rec = await r.json();
+    $('#exfiles').innerHTML = 'files: ' + rec.files.map(f => `<a href="${esc(f.url)}" target="_blank" download style="color:#fff">${esc(f.name)}</a>`).join(' · ');
+    $('#extext').value = rec.text;
+    $('#exbox').style.display = '';
+    btn.textContent = 'export again'; btn.disabled = false;
+  } catch (e) { btn.textContent = 'failed: ' + e.message; btn.disabled = false; }
 }
 const MV = { img: null, meta: null, frame: 0, playing: true, timer: null, black: 2, fps: 3, ring: true, key: null };
 async function loadMovie(camera, id) {

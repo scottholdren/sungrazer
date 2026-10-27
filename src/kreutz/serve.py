@@ -5,6 +5,7 @@
   /api/activity what each watcher is doing now
   /api/movie   ?camera=&id= builds (once per growth) the hi-res movie of a track
   /api/label   POST {camera, id, label}
+  /api/export  POST {camera, id}: writes the hunter's package under <camera>/exports/
   /<camera>/.. files the watcher wrote under data/live/ (images, state.json)
 """
 
@@ -17,7 +18,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs
 
-from . import live, movie, paths
+from . import export, live, movie, paths
 
 WEB = Path(__file__).parent / "web"
 MOVIE_LOCK = threading.Lock()
@@ -51,12 +52,20 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route = self.path.split("?", 1)[0]
-        if route != "/api/label":
+        if route not in ("/api/label", "/api/export"):
             self.send_error(404)
             return
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
-            rec = live.record_label(body["camera"], body["id"], body["label"])
+            if route == "/api/label":
+                rec = live.record_label(body["camera"], body["id"], body["label"])
+            else:
+                cam, d = self._track(body["camera"], body["id"])
+                if d is None:
+                    self.send_error(404, "no such track")
+                    return
+                with MOVIE_LOCK:
+                    rec = export.export_track(body["camera"], d, cam.get("latest"), Path(self.directory))
         except (KeyError, ValueError, json.JSONDecodeError) as e:
             self.send_error(400, str(e))
             return
@@ -67,6 +76,14 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(out)
 
+    @staticmethod
+    def _track(camera: str, tid: str):
+        """(camera state, track summary) from the merged state, or (None, None)."""
+        for s in live.merged_state()["cameras"]:
+            if s["camera"] == camera:
+                return s, next((t for t in s["tracks"] if t["id"] == tid), None)
+        return None, None
+
     def _movie(self, q: dict):
         """Build (once per track growth) and describe the hi-res movie of one track."""
         camera, tid = q.get("camera", [""])[0], q.get("id", [""])[0]
@@ -74,8 +91,7 @@ class Handler(SimpleHTTPRequestHandler):
         if stack not in (3, movie.STACK):
             self.send_error(400, "stack must be 3 or 8")
             return
-        d = next((t for s in live.merged_state()["cameras"] if s["camera"] == camera
-                  for t in s["tracks"] if t["id"] == tid), None)
+        _, d = self._track(camera, tid)
         if d is None:
             self.send_error(404, "no such track")
             return

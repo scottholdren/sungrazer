@@ -304,6 +304,34 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
     movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies")
     assert not list((tmp_path / "live" / "ccor1" / "movies").glob("t1_4_*"))  # stale ones are dropped
 
+    # the hunter's package: a note in the form's layout plus the images, served by the dashboard
+    from kreutz import export, serve
+    from urllib.request import Request
+
+    live_root = tmp_path / "live"
+    d.update({"status": "candidate", "tier": None, "tier_at": None, "report": None, "label": None,
+              "sheet": None, "thumb": None})
+    (live_root / "ccor1").mkdir(parents=True, exist_ok=True)
+    (live_root / "ccor1" / "state.json").write_text(json.dumps({"camera": "ccor1", "tracks": [d]}))
+    (live_root / "ccor1" / "latest.json").write_text(json.dumps({"frame": names[-1], "ds": 4, "width": 512, "height": 480, "sun_xy": [1005.7, 957.1]}))
+    srv = serve.make_server("127.0.0.1", 0, live_root)
+    th = threading.Thread(target=srv.serve_forever, daemon=True)
+    th.start()
+    port = srv.server_address[1]
+    try:
+        req = Request(f"http://127.0.0.1:{port}/api/export", data=json.dumps({"camera": "ccor1", "id": "t1"}).encode(),
+                      headers={"Content-Type": "application/json"}, method="POST")
+        rec = json.loads(urlopen(req).read())
+        assert [f["name"] for f in rec["files"]] == ["t1.txt", "t1_movie.png"]  # no sheet/thumb in this fixture
+        assert "\n2130 1036 776\n" in rec["text"] and "origin upper left" in rec["text"] and "ring   tail" in rec["text"]
+        assert "heading 0 deg off the Sun" not in rec["text"]  # synthetic motion isn't sunward; the line is still there
+        assert "position angle" in rec["text"]
+        assert urlopen(f"http://127.0.0.1:{port}/ccor1/exports/t1.txt").read().decode() == rec["text"]
+        mv = json.loads(urlopen(f"http://127.0.0.1:{port}/api/movie?camera=ccor1&id=t1&stack=3").read())
+        assert mv["stack"] == 3 and len(mv["frames"]) == len(meta["frames"])
+    finally:
+        srv.shutdown()
+
 
 def _read_png(path):
     """Grayscale 8-bit PNG with filter 0 on every row (what inspect.write_png writes)."""
