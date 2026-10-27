@@ -2,19 +2,25 @@
 
   /            the dashboard page (web/index.html)
   /api/state   every camera's state.json, merged
+  /api/activity what each watcher is doing now
+  /api/movie   ?camera=&id= builds (once per growth) the hi-res movie of a track
+  /api/label   POST {camera, id, label}
   /<camera>/.. files the watcher wrote under data/live/ (images, state.json)
 """
 
 from __future__ import annotations
 
 import json
+import threading
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs
 
-from . import live, paths
+from . import live, movie, paths
 
 WEB = Path(__file__).parent / "web"
+MOVIE_LOCK = threading.Lock()
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -30,6 +36,8 @@ class Handler(SimpleHTTPRequestHandler):
             p = WEB / "examples" / Path(route).name
             if p.exists():
                 return self._send(p, "image/png")
+        if route == "/api/movie":
+            return self._movie(parse_qs(self.path.partition("?")[2]))
         if route in ("/api/state", "/api/activity"):
             body = json.dumps(live.merged_state() if route == "/api/state" else live.merged_activity()).encode()
             self.send_response(200)
@@ -58,6 +66,28 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(out)))
         self.end_headers()
         self.wfile.write(out)
+
+    def _movie(self, q: dict):
+        """Build (once per track growth) and describe the hi-res movie of one track."""
+        camera, tid = q.get("camera", [""])[0], q.get("id", [""])[0]
+        d = next((t for s in live.merged_state()["cameras"] if s["camera"] == camera
+                  for t in s["tracks"] if t["id"] == tid), None)
+        if d is None:
+            self.send_error(404, "no such track")
+            return
+        try:
+            with MOVIE_LOCK:
+                meta = movie.movie(camera, d, Path(self.directory) / camera / "movies")
+        except Exception as e:  # missing frames, unreadable maps: tell the page, keep serving
+            self.send_error(500, str(e))
+            return
+        body = json.dumps(meta).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def end_headers(self):
         if self.path.endswith(".json"):

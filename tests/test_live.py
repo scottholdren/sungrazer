@@ -252,3 +252,73 @@ def test_server_routes_and_labels(tmp_path, monkeypatch):
         assert json.loads(urlopen(req).read())["label"] is None
     finally:
         srv.shutdown()
+
+
+def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
+    """A synthetic object crossing the sig maps lands inside the ring on every shown frame."""
+    import numpy as np
+    from kreutz import movie
+    from kreutz.detect import frames as A
+
+    monkeypatch.setattr(live.paths, "DATA", tmp_path)
+    monkeypatch.setattr(live.paths, "FRAMES", tmp_path / "frames")
+    day = tmp_path / "frames" / "ccor1" / "20261027"
+    day.mkdir(parents=True)
+    (tmp_path / "derived" / "ccor1" / A.VERSION / "sig").mkdir(parents=True)
+    (tmp_path / "derived" / "ccor1" / A.VERSION / "meta").mkdir(parents=True)
+    vx, vy = 6.0, -4.0  # full-res px per frame, report coords (y down)
+    x0, y0 = 1000.0, 800.0
+    names = []
+    for k in range(10):
+        name = f"CCOR1_1B_20261027T{20 + k // 4:02d}{(k % 4) * 15:02d}25_V00_NC.fits"
+        (day / name).touch()
+        sig = np.random.default_rng(k).normal(0, 1, (960, 1024)).astype(np.float32)
+        x, y = x0 + vx * k, y0 + vy * k
+        col, row = int(round(x / 2)), int(round((1919 - y) / 2))
+        sig[row - 1:row + 2, col - 1:col + 2] += 12.0
+        np.save(A.sig_path("ccor1", name), sig.astype(np.float16))
+        A.meta_path("ccor1", name).write_text(json.dumps({"name": name, "time": 0, "ok": True, "problems": [], "drift": None,
+                                                           "drift_dt": None, "star_frames": 8, "n_stars_masked": 0, "sun_xy": None}))
+        names.append(name)
+    hits = [{"t": f"2026-10-27T{20 + k // 4:02d}:{(k % 4) * 15:02d}:25+00:00", "x": x0 + vx * k, "y": y0 + vy * k, "sig": 9.0}
+            for k in (6, 7, 8, 9)]
+    d = {"id": "t1", "n_hits": 4, "velocity": [vx, vy], "hits": hits}
+    meta = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies")
+    assert (tmp_path / "live" / "ccor1" / "movies" / "t1_4.png").exists()
+    assert len(meta["frames"]) == 1 + movie.LEAD_FRAMES + 3  # lead frames before the first hit, then the hits
+    assert [f["hit"] for f in meta["frames"]] == [False] * movie.LEAD_FRAMES + [True] * 4
+    assert meta["frames"][-1]["stacked"] == movie.STACK
+    sheet = _read_png(tmp_path / "live" / "ccor1" / "movies" / "t1_4.png")
+    T, z = meta["tile"], meta["zoom"]
+    for j, f in enumerate(meta["frames"]):
+        r, c = divmod(j, meta["cols"])
+        tile = sheet[r * T:(r + 1) * T, c * T:(c + 1) * T]
+        y, x = int(f["y"]), int(f["x"])
+        assert tile[y - 2 * z:y + 2 * z, x - 2 * z:x + 2 * z].max() > 200, f"object missing from frame {j}"
+        assert np.median(tile) < 40  # background stays dark
+    assert movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies") == meta  # cached
+    d["n_hits"] = 5
+    movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies")
+    assert not (tmp_path / "live" / "ccor1" / "movies" / "t1_4.png").exists()  # the stale one is dropped
+
+
+def _read_png(path):
+    """Grayscale 8-bit PNG with filter 0 on every row (what inspect.write_png writes)."""
+    import struct
+    import zlib
+
+    import numpy as np
+
+    data, pos, w = path.read_bytes(), 8, 0
+    idat = b""
+    while pos < len(data):
+        n, tag = struct.unpack(">I4s", data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + n]
+        if tag == b"IHDR":
+            w, h = struct.unpack(">II", body[:8])
+        elif tag == b"IDAT":
+            idat += body
+        pos += 12 + n
+    raw = np.frombuffer(zlib.decompress(idat), np.uint8).reshape(h, w + 1)
+    assert (raw[:, 0] == 0).all()
+    return raw[:, 1:]

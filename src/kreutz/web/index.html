@@ -31,6 +31,7 @@ details summary { cursor:pointer; color:var(--dim) }
 .panel h3 { margin:0 0 8px; font-size:16px } .close { float:right; cursor:pointer; color:var(--dim); font-size:20px }
 .anim { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start }
 canvas { background:#000; border-radius:4px; image-rendering:pixelated }
+.movie { margin-top:14px } .movie label { margin-right:14px } .movie #mvblack, .movie #mvspeed { width:140px }
 .ctl { margin:8px 0 } .ctl button { margin-right:6px } .ctl input[type=range] { width:260px; vertical-align:middle }
 table { border-collapse:collapse; font-size:12px; font-family:ui-monospace, monospace } td,th { padding:2px 8px; border-bottom:1px solid var(--line); text-align:right } th { color:var(--dim) }
 .full { position:relative; display:inline-block } .full img { display:block; width:512px; height:480px } .full svg { position:absolute; inset:0 }
@@ -197,7 +198,7 @@ function openDetail(cam, id) {
   fillDetail({...t, cam:c}, true);
   $('#detail').classList.add('open');
 }
-function closeDetail() { OPEN = null; clearInterval(ANIM.timer); $('#detail').classList.remove('open'); }
+function closeDetail() { OPEN = null; clearInterval(ANIM.timer); clearInterval(MV.timer); $('#detail').classList.remove('open'); }
 
 function fillDetail(t, fresh) {
   const c = t.cam, S = c.sheet, tile = (2*S.half+1)*S.scale, gap = S.gap;
@@ -221,7 +222,15 @@ function fillDetail(t, fresh) {
         <input id="scrub" type="range" min="0" max="${Math.max(t.columns.length-1,0)}" value="0" oninput="ANIM.frame=+this.value;ANIM.playing=false;draw()"> <span id="flabel" class="dim"></span></div>
         <div class="dim">top: raw frame · middle: significance map of that frame · bottom: the detector's view, the last 8 maps stacked along the track's motion (a comet is a steady dot in the ring). Older sheets have two rows.</div></div>
         ${full}
-        <div><table><tr><th>frame</th><th>x</th><th>y</th><th>σ</th></tr>${hits}</table></div></div>`;
+        <div><table><tr><th>frame</th><th>x</th><th>y</th><th>σ</th></tr>${hits}</table></div></div>
+      <div class="movie" id="movie"><button onclick="loadMovie('${c.camera}','${t.id}')">build hi-res movie</button>
+        <span class="dim">a fixed patch of sky at 2× camera resolution: significance maps with stars and corona modelled out, the last 3 frames added along the track's motion. The object should cross the patch inside the ring; noise does not travel.</span>
+        <div id="mvbox" style="display:none"><canvas id="mv"></canvas>
+          <div class="ctl"><button onclick="MV.playing=!MV.playing">play/pause</button><button onclick="mvStep(-1)">◀</button><button onclick="mvStep(1)">▶</button>
+            <input id="mvscrub" type="range" min="0" max="0" value="0" oninput="MV.frame=+this.value;MV.playing=false;drawMovie()"> <span id="mvlabel" class="dim"></span></div>
+          <div class="ctl"><label>black point <input id="mvblack" type="range" min="0" max="6" step="0.25" value="2" oninput="MV.black=+this.value;drawMovie()"> <span id="mvblackv" class="dim">2σ</span></label>
+            <label>speed <input id="mvspeed" type="range" min="1" max="8" step="1" value="3" oninput="MV.fps=+this.value;mvTimer()"></label>
+            <label><input type="checkbox" id="mvring" checked onchange="MV.ring=this.checked;drawMovie()"> ring on the fitted path (solid = a measured hit)</label></div></div></div>`;
     const img = new Image(); img.src = t.sheet ? `${t.sheet}?v=${t.n_hits}` : '';
     img.onload = () => { ANIM.img = img; ANIM.cols = t.columns; ANIM.tile = tile; ANIM.gap = gap; draw(); };
     clearInterval(ANIM.timer);
@@ -244,6 +253,52 @@ function draw() {
   }
   const s = $('#scrub'); if (s) s.value = j;
   const l = $('#flabel'); if (l) l.textContent = `${j+1}/${ANIM.cols.length}  ${ANIM.cols[j] || ''}`;
+}
+const MV = { img: null, meta: null, frame: 0, playing: true, timer: null, black: 2, fps: 3, ring: true, key: null };
+async function loadMovie(camera, id) {
+  const box = $('#mvbox'), btn = $('#movie button'), lbl = $('#mvlabel');
+  btn.disabled = true; btn.textContent = 'building…';
+  try {
+    const r = await fetch(`/api/movie?camera=${encodeURIComponent(camera)}&id=${encodeURIComponent(id)}`);
+    if (!r.ok) throw new Error(await r.text());
+    const meta = await r.json();
+    const img = new Image();
+    img.onload = () => {
+      MV.img = img; MV.meta = meta; MV.frame = 0; MV.playing = true; MV.key = `${camera}/${id}`;
+      const cv = $('#mv'); cv.width = meta.tile; cv.height = meta.tile; cv.style.maxWidth = '100%';
+      $('#mvscrub').max = meta.frames.length - 1;
+      box.style.display = ''; btn.textContent = 'rebuild'; btn.disabled = false;
+      mvTimer(); drawMovie();
+    };
+    img.onerror = () => { btn.textContent = 'image failed'; btn.disabled = false; };
+    img.src = `${meta.png}?v=${Date.now()}`;
+  } catch (e) { btn.textContent = 'failed: ' + e.message; btn.disabled = false; }
+}
+function mvTimer() {
+  clearInterval(MV.timer);
+  MV.timer = setInterval(() => { if (MV.playing && MV.meta && $('#mv')) { MV.frame = (MV.frame + 1) % MV.meta.frames.length; drawMovie(); } }, 1000 / MV.fps);
+}
+function mvStep(d) { MV.playing = false; if (MV.meta) { MV.frame = (MV.frame + d + MV.meta.frames.length) % MV.meta.frames.length; drawMovie(); } }
+function drawMovie() {
+  const cv = $('#mv'); if (!cv || !MV.img || !MV.meta) return;
+  const m = MV.meta, T = m.tile, j = MV.frame, f = m.frames[j];
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(MV.img, (j % m.cols) * T, Math.floor(j / m.cols) * T, T, T, 0, 0, T, T);
+  const b = Math.round(MV.black / m.range_sigma * 255);
+  if (b > 0) {  // black point: everything below b sigma is black, the rest re-stretched
+    const id = ctx.getImageData(0, 0, T, T), px = id.data, k = 255 / (255 - b);
+    for (let i = 0; i < px.length; i += 4) { const v = px[i] <= b ? 0 : Math.min(255, (px[i] - b) * k); px[i] = px[i+1] = px[i+2] = v; }
+    ctx.putImageData(id, 0, 0);
+  }
+  if (MV.ring) {
+    ctx.strokeStyle = f.hit ? '#4fd37a' : 'rgba(79,211,122,.55)'; ctx.lineWidth = 1.5;
+    ctx.setLineDash(f.hit ? [] : [4, 4]);
+    ctx.beginPath(); ctx.arc(f.x, f.y, 7 * m.zoom, 0, 2 * Math.PI); ctx.stroke(); ctx.setLineDash([]);
+  }
+  $('#mvscrub').value = j;
+  $('#mvblackv').textContent = `${MV.black}σ`;
+  $('#mvlabel').textContent = `${j+1}/${m.frames.length}  ${f.name}  ${fmt(f.t)}${f.hit ? '  ● hit' : ''}`;
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
 $('#detail').addEventListener('click', e => { if (e.target.id === 'detail') closeDetail(); });
