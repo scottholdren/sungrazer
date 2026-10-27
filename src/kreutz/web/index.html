@@ -224,7 +224,8 @@ function fillDetail(t, fresh) {
         ${full}
         <div><table><tr><th>frame</th><th>x</th><th>y</th><th>σ</th></tr>${hits}</table></div></div>
       <div class="movie" id="movie"><button onclick="loadMovie('${c.camera}','${t.id}')">build hi-res movie</button>
-        <span class="dim">a fixed patch of sky at 2× camera resolution: significance maps with stars and corona modelled out, the last 3 frames added along the track's motion. The object should cross the patch inside the ring; noise does not travel.</span>
+        <label class="dim">stack <select id="mvstack" onchange="if(MV.meta)loadMovie('${c.camera}','${t.id}')"><option value="8">8 frames (the detector's view)</option><option value="3">3 frames (less smoothing)</option></select></label>
+        <span class="dim">a fixed patch of sky at 2× camera resolution: significance maps with stars and corona modelled out, the last frames added along the track's motion. The object should cross the patch inside the ring; noise does not travel.</span>
         <div id="mvbox" style="display:none"><canvas id="mv"></canvas>
           <div class="ctl"><button onclick="MV.playing=!MV.playing">play/pause</button><button onclick="mvStep(-1)">◀</button><button onclick="mvStep(1)">▶</button>
             <input id="mvscrub" type="range" min="0" max="0" value="0" oninput="MV.frame=+this.value;MV.playing=false;drawMovie()"> <span id="mvlabel" class="dim"></span></div>
@@ -259,7 +260,7 @@ async function loadMovie(camera, id) {
   const box = $('#mvbox'), btn = $('#movie button'), lbl = $('#mvlabel');
   btn.disabled = true; btn.textContent = 'building…';
   try {
-    const r = await fetch(`/api/movie?camera=${encodeURIComponent(camera)}&id=${encodeURIComponent(id)}`);
+    const r = await fetch(`/api/movie?camera=${encodeURIComponent(camera)}&id=${encodeURIComponent(id)}&stack=${$('#mvstack').value}`);
     if (!r.ok) throw new Error(await r.text());
     const meta = await r.json();
     const img = new Image();

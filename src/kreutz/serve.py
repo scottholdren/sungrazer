@@ -70,6 +70,10 @@ class Handler(SimpleHTTPRequestHandler):
     def _movie(self, q: dict):
         """Build (once per track growth) and describe the hi-res movie of one track."""
         camera, tid = q.get("camera", [""])[0], q.get("id", [""])[0]
+        stack = int(q.get("stack", [movie.STACK])[0])
+        if stack not in (3, movie.STACK):
+            self.send_error(400, "stack must be 3 or 8")
+            return
         d = next((t for s in live.merged_state()["cameras"] if s["camera"] == camera
                   for t in s["tracks"] if t["id"] == tid), None)
         if d is None:
@@ -77,7 +81,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         try:
             with MOVIE_LOCK:
-                meta = movie.movie(camera, d, Path(self.directory) / camera / "movies")
+                meta = movie.movie(camera, d, Path(self.directory) / camera / "movies", stack)
         except Exception as e:  # missing frames, unreadable maps: tell the page, keep serving
             self.send_error(500, str(e))
             return

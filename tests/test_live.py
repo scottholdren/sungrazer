@@ -283,12 +283,12 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
     hits = [{"t": f"2026-10-27T{20 + k // 4:02d}:{(k % 4) * 15:02d}:25+00:00", "x": x0 + vx * k, "y": y0 + vy * k, "sig": 9.0}
             for k in (6, 7, 8, 9)]
     d = {"id": "t1", "n_hits": 4, "velocity": [vx, vy], "hits": hits}
-    meta = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies")
-    assert (tmp_path / "live" / "ccor1" / "movies" / "t1_4.png").exists()
+    meta = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3)
+    assert (tmp_path / "live" / "ccor1" / "movies" / "t1_4_s3.png").exists()
     assert len(meta["frames"]) == 1 + movie.LEAD_FRAMES + 3  # lead frames before the first hit, then the hits
     assert [f["hit"] for f in meta["frames"]] == [False] * movie.LEAD_FRAMES + [True] * 4
-    assert meta["frames"][-1]["stacked"] == movie.STACK
-    sheet = _read_png(tmp_path / "live" / "ccor1" / "movies" / "t1_4.png")
+    assert meta["frames"][-1]["stacked"] == 3
+    sheet = _read_png(tmp_path / "live" / "ccor1" / "movies" / "t1_4_s3.png")
     T, z = meta["tile"], meta["zoom"]
     for j, f in enumerate(meta["frames"]):
         r, c = divmod(j, meta["cols"])
@@ -296,10 +296,13 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
         y, x = int(f["y"]), int(f["x"])
         assert tile[y - 2 * z:y + 2 * z, x - 2 * z:x + 2 * z].max() > 200, f"object missing from frame {j}"
         assert np.median(tile) < 40  # background stays dark
-    assert movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies") == meta  # cached
+    assert movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3) == meta  # cached
+    deep = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies")  # the detector's 8-stack
+    assert deep["stack"] == movie.STACK and deep["frames"][-1]["stacked"] == movie.STACK
+    assert (tmp_path / "live" / "ccor1" / "movies" / "t1_4_s3.png").exists()  # both depths of the current size stay
     d["n_hits"] = 5
     movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies")
-    assert not (tmp_path / "live" / "ccor1" / "movies" / "t1_4.png").exists()  # the stale one is dropped
+    assert not list((tmp_path / "live" / "ccor1" / "movies").glob("t1_4_*"))  # stale ones are dropped
 
 
 def _read_png(path):

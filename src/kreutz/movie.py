@@ -30,15 +30,16 @@ from .inspect import write_png
 ZOOM = 4             # screen px per half-res map px (= 2x the camera's full resolution)
 MARGIN = 20          # half-res px of sky around the fitted path
 MIN_HALF, MAX_HALF = 36, 72  # patch half-size, half-res px (tile 292..580 px)
-STACK = 3            # maps added along the motion
+STACK = 8            # maps added along the motion (the detector stacks 8); 3 is offered too
 MAX_FRAMES = 40
 LEAD_FRAMES = 4      # frames shown before the first hit
 RANGE_SIGMA = 10.0   # 255 on the PNG
 
 
-def movie(camera: str, d: dict, out_dir: Path) -> dict:
-    """Build (or reuse) the movie for track summary `d` (state.json entry)."""
-    key = f"{d['id']}_{d['n_hits']}"
+def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK) -> dict:
+    """Build (or reuse) the movie for track summary `d` (state.json entry), each
+    frame the sum of the last `stack` maps along the motion."""
+    key = f"{d['id']}_{d['n_hits']}_s{stack}"
     png, js = out_dir / f"{key}.png", out_dir / f"{key}.json"
     if js.exists() and png.exists():
         return json.loads(js.read_text())
@@ -57,7 +58,7 @@ def movie(camera: str, d: dict, out_dir: Path) -> dict:
     idx = FrameIndex(camera, datetime.fromtimestamp(t_show0).date() - timedelta(days=1),
                      datetime.fromtimestamp(t_last).date())
     good = [(p, tt.timestamp()) for p, tt in zip(idx.paths, idx.times)
-            if t_show0 - (STACK + 1) * FRAME_SECONDS <= tt.timestamp() <= t_last + 60
+            if t_show0 - (stack + 1) * FRAME_SECONDS <= tt.timestamp() <= t_last + 60
             and (m := A.load_meta(camera, p.name)) is not None and m.ok and A.sig_path(camera, p.name).exists()]
     shown = [g for g in good if g[1] >= t_show0 - 60]
     if not shown:
@@ -79,7 +80,7 @@ def movie(camera: str, d: dict, out_dir: Path) -> dict:
     def sig(name: str) -> np.ndarray:
         if name not in cache:
             cache[name] = A.load_sig(camera, name)
-            if len(cache) > STACK + 2:
+            if len(cache) > stack + 2:
                 del cache[next(iter(cache))]
         return cache[name]
 
@@ -96,7 +97,7 @@ def movie(camera: str, d: dict, out_dir: Path) -> dict:
             dt = (ts - tq) / FRAME_SECONDS
             acc += _cut(sig(q.name), cx - vx * dt, cy - vy * dt, half)
             n += 1
-            if n >= STACK:
+            if n >= stack:
                 break
         img = np.clip(acc / np.sqrt(max(n, 1)) / RANGE_SIGMA, 0, 1)
         r, c = divmod(k, ncol)
@@ -108,9 +109,10 @@ def movie(camera: str, d: dict, out_dir: Path) -> dict:
                        "hit": int(round(ts / 60)) in hit_times, "stacked": n})
     out_dir.mkdir(parents=True, exist_ok=True)
     for old in out_dir.glob(f"{d['id']}_*"):
-        old.unlink()
+        if not old.name.startswith(f"{d['id']}_{d['n_hits']}_"):
+            old.unlink()
     write_png(png, sheet)
-    meta = {"png": f"{camera}/movies/{png.name}", "tile": tile, "cols": ncol, "zoom": ZOOM,
+    meta = {"png": f"{camera}/movies/{png.name}", "tile": tile, "cols": ncol, "zoom": ZOOM, "stack": stack,
             "range_sigma": RANGE_SIGMA, "frames": frames, "centre": [round(cx, 1), round(cy, 1)],
             "half_fullres": half * 2}
     js.write_text(json.dumps(meta))
