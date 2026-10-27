@@ -158,7 +158,7 @@ function badges(t) {
     b.push(r.lead_h < 0 ? `<span class="b green">found here ${hrs(r.lead_h)} before the report</span>` : `<span class="b">reported ${hrs(r.lead_h)} before we found it</span>`);
   } else b.push(`<span class="b amber">UNREPORTED on ${esc(t.cam.label)}</span>`);
   const l = t.lasco;
-  if (l) b.push(`<span class="b outline dim"><a href="${esc(l.url)}" target="_blank" onclick="event.stopPropagation()" style="color:inherit">a ${esc(l.camera)} claim by ${esc(l.reporter)} (${fmt(l.posted)}) overlaps in time; position not checked</a></span>`);
+  if (l && t.tier) b.push(`<span class="b outline dim"><a href="${esc(l.url)}" target="_blank" onclick="event.stopPropagation()" style="color:inherit">a ${esc(l.camera)} claim by ${esc(l.reporter)} (${fmt(l.posted)}) overlaps in time; position not checked</a></span>`);
   if (t.label) b.push(`<span class="b ${t.label.label === 'comet' ? 'green' : t.label.label === 'noise' ? 'outline dim' : 'outline'}">you: ${esc(t.label.label)}${t.label.contradicted ? ' — contradicted: ' + esc(t.label.contradicted.why) : ''}</span>`);
   if (t.merged) b.push(`<span class="b outline">merged with ${n(t.merged, 'other track')}</span>`);
   if (t.pieces && t.pieces.length) b.push(`<span class="b outline">+${n(t.pieces.length, 'piece')}</span>`);
