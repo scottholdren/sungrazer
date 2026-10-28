@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+import pytest
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -313,6 +315,7 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
     from kreutz import export, serve
     from urllib.request import Request
 
+    monkeypatch.setattr(export.paths, "ROOT", tmp_path / "repo")  # no .git: publish() returns None
     live_root = tmp_path / "live"
     d.update({"status": "candidate", "tier": None, "tier_at": None, "report": None, "label": None,
               "sheet": None, "thumb": None})
@@ -327,11 +330,14 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
         req = Request(f"http://127.0.0.1:{port}/api/export", data=json.dumps({"camera": "ccor1", "id": "t1"}).encode(),
                       headers={"Content-Type": "application/json"}, method="POST")
         rec = json.loads(urlopen(req).read())
-        assert [f["name"] for f in rec["files"]] == ["t1.txt", "t1_movie.png"]  # no sheet/thumb in this fixture
-        assert "\n2130 1036 776\n" in rec["text"] and "origin upper left" in rec["text"] and "ring   tail" in rec["text"]
-        assert "heading 0 deg off the Sun" not in rec["text"]  # synthetic motion isn't sunward; the line is still there
-        assert "position angle" in rec["text"]
-        assert urlopen(f"http://127.0.0.1:{port}/ccor1/exports/t1.txt").read().decode() == rec["text"]
+        assert [f["name"] for f in rec["files"]] == ["README.md", "movie.gif"]  # no sheet/thumb in this fixture
+        assert rec["url"] is None  # not a git checkout here
+        assert "\n2130 1036 776\n" in rec["text"] and "origin upper left" in rec["text"] and "| ring | tail |" in rec["text"]
+        assert "position angle" in rec["text"] and "![movie](movie.gif)" in rec["text"]
+        assert urlopen(f"http://127.0.0.1:{port}/finds/ccor1/t1/README.md").read().decode() == rec["text"]
+        g = urlopen(f"http://127.0.0.1:{port}/finds/ccor1/t1/movie.gif").read()
+        assert g[:6] == b"GIF89a" and g.count(b"\x21\xF9\x04") == len(meta["frames"])  # one graphic-control block per frame
+        assert (tmp_path / "repo" / "results" / "ccor1" / "live-finds" / "t1" / "movie.gif").read_bytes() == g
         mv = json.loads(urlopen(f"http://127.0.0.1:{port}/api/movie?camera=ccor1&id=t1&stack=3").read())
         assert mv["stack"] == 3 and len(mv["frames"]) == len(meta["frames"])
     finally:
@@ -377,3 +383,24 @@ def test_announce_logs_candidate_changes(tmp_path, monkeypatch):
     assert kinds == ["new", "grew", "watch"] and all(c["track"] == "t1" for c in w.activity.changes)
     assert "grew to 4 hits, 9.0σ (was 3 hits, 7.5σ) — UNREPORTED" in w.activity.changes[1]["msg"]
     assert [e["kind"] for e in w.activity.events] == ["track", "track"]  # growth stays out of the activity log
+
+
+def test_gif_roundtrip():
+    """Our LZW encoder against an independent decoder (Pillow, when installed)."""
+    import numpy as np
+    from kreutz import gif
+
+    PIL = pytest.importorskip("PIL.Image")
+    rng = np.random.default_rng(0)
+    frames = [gif.gray_to_index(rng.integers(0, 256, (40, 60)).astype(np.uint8)) for _ in range(3)]
+    frames[1][10:20, 10:50] = gif.GREEN
+    frames.append(np.zeros((40, 60), np.uint8))          # a flat frame: long runs, table resets
+    frames.append(np.tile(np.arange(60, dtype=np.uint8) * 4, (40, 1)))
+    out = Path(__import__("tempfile").mkdtemp()) / "t.gif"
+    gif.write_gif(out, frames, delay_cs=10)
+    im = PIL.open(out)
+    assert im.n_frames == len(frames)
+    pal = np.frombuffer(gif.palette(), np.uint8).reshape(256, 3)
+    for k, f in enumerate(frames):
+        im.seek(k)
+        assert np.array_equal(np.array(im.convert("RGB")), pal[f]), f"frame {k} differs"  # Pillow composes later frames in RGB

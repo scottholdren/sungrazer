@@ -108,6 +108,23 @@ def stretch(data: np.ndarray, centre: tuple[float, float] | None = None) -> np.n
     return np.flipud((img * 255).astype(np.uint8))  # FITS row 1 is the bottom
 
 
+def read_png(path: Path) -> np.ndarray:
+    """Read an 8-bit grayscale PNG written by write_png (filter 0 on every row)."""
+    data, pos, w, h, idat = path.read_bytes(), 8, 0, 0, b""
+    while pos < len(data):
+        n, tag = struct.unpack(">I4s", data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + n]
+        if tag == b"IHDR":
+            w, h = struct.unpack(">II", body[:8])
+        elif tag == b"IDAT":
+            idat += body
+        pos += 12 + n
+    raw = np.frombuffer(zlib.decompress(idat), np.uint8).reshape(h, w + 1)
+    if (raw[:, 0] != 0).any():
+        raise ValueError(f"{path}: not a filter-0 PNG")
+    return raw[:, 1:].copy()
+
+
 def write_png(path: Path, img: np.ndarray) -> None:
     """Write an 8-bit grayscale PNG using only the standard library."""
     h, w = img.shape

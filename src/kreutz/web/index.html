@@ -243,9 +243,9 @@ function fillDetail(t, fresh) {
             <label>speed <input id="mvspeed" type="range" min="1" max="8" step="1" value="3" oninput="MV.fps=+this.value;mvTimer()"></label>
             <label><input type="checkbox" id="mvring" checked onchange="MV.ring=this.checked;drawMovie()"> ring on the fitted path (solid = a measured hit)</label></div></div></div>
       <div class="movie" id="export"><button onclick="exportTrack('${c.camera}','${t.id}')">export for a hunter</button>
-        <span class="dim">writes a note in the Sungrazer form's layout (positions, convention, caveats, the movie's numbers) plus the sheet, movie and cutout as files you can send.</span>
+        <span class="dim">writes a Markdown report (positions in the form's layout, convention, caveats, the movie as an animated GIF, the sheet and cutout) into the repo and pushes it: the GitHub link is the thing to share.</span>
         <div id="exbox" style="display:none"><div id="exfiles" class="meta"></div>
-          <div class="ctl"><button onclick="navigator.clipboard.writeText($('#extext').value)">copy the note</button></div>
+          <div class="ctl"><button onclick="navigator.clipboard.writeText($('#extext').value)">copy the Markdown</button></div>
           <textarea id="extext" readonly spellcheck="false" style="width:100%;max-width:900px;height:320px;background:#0b0e13;color:#dfe5ec;border:1px solid #2a3140;border-radius:4px;padding:8px;font:12px/1.4 ui-monospace,monospace"></textarea></div></div>`;
     const img = new Image(); img.src = t.sheet ? `${t.sheet}?v=${t.n_hits}` : '';
     img.onload = () => { ANIM.img = img; ANIM.cols = t.columns; ANIM.tile = tile; ANIM.gap = gap; draw(); };
@@ -277,7 +277,8 @@ async function exportTrack(camera, id) {
     const r = await fetch('/api/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ camera, id }) });
     if (!r.ok) throw new Error(await r.text());
     const rec = await r.json();
-    $('#exfiles').innerHTML = 'files: ' + rec.files.map(f => `<a href="${esc(f.url)}" target="_blank" download style="color:#fff">${esc(f.name)}</a>`).join(' · ');
+    $('#exfiles').innerHTML = (rec.url ? `<div><b>share this link:</b> <a href="${esc(rec.url)}" target="_blank" style="color:#9ecbff">${esc(rec.url)}</a> <button onclick="navigator.clipboard.writeText('${esc(rec.url)}')">copy</button></div>` : '<div class="warn">not pushed to GitHub (this host cannot push); the files below are local to the dashboard</div>')
+      + 'files: ' + rec.files.map(f => `<a href="${esc(f.url)}" target="_blank" style="color:#fff">${esc(f.name)}</a>`).join(' · ');
     $('#extext').value = rec.text;
     $('#exbox').style.display = '';
     btn.textContent = 'export again'; btn.disabled = false;

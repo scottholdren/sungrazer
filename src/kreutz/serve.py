@@ -5,7 +5,9 @@
   /api/activity what each watcher is doing now
   /api/movie   ?camera=&id= builds (once per growth) the hi-res movie of a track
   /api/label   POST {camera, id, label}
-  /api/export  POST {camera, id}: writes the hunter's package under <camera>/exports/
+  /api/export  POST {camera, id}: writes the hunter's package to results/<camera>/live-finds/<id>/,
+               pushes it, and returns the GitHub link
+  /finds/<camera>/<id>/<file>  that package, served locally
   /<camera>/.. files the watcher wrote under data/live/ (images, state.json)
 """
 
@@ -37,6 +39,13 @@ class Handler(SimpleHTTPRequestHandler):
             p = WEB / "examples" / Path(route).name
             if p.exists():
                 return self._send(p, "image/png")
+        if route.startswith("/finds/") and "/.." not in route:
+            p = export.finds_dir(route.split("/")[2]) / "/".join(route.split("/")[3:]) if route.count("/") >= 4 else None
+            if p and p.is_file():
+                ctype = {"md": "text/markdown; charset=utf-8", "png": "image/png", "gif": "image/gif"}.get(p.suffix[1:], "application/octet-stream")
+                return self._send(p, ctype)
+            self.send_error(404)
+            return
         if route == "/api/movie":
             return self._movie(parse_qs(self.path.partition("?")[2]))
         if route in ("/api/state", "/api/activity"):
