@@ -81,6 +81,37 @@ def test_build_state_splits_live_and_rejected(monkeypatch):
     assert state["window"] is None
 
 
+def test_comet_label_holds_a_track_until_cleared(tmp_path, monkeypatch):
+    from kreutz.reports import db
+
+    monkeypatch.setattr(live.paths, "DATA", tmp_path)
+    monkeypatch.setattr(live.score, "latency_s", lambda cam: (0.0, "no log"))
+    monkeypatch.setattr(live, "_reports", lambda con, cam, now: [])
+    now = datetime(2026, 10, 24, 12, 0, tzinfo=timezone.utc)
+    t = _track(now - timedelta(hours=2), 5)
+    tid = live.track_key(t)
+    con = db.connect(":memory:")
+    build = lambda tracks, at: live.build_state("ccor1", tracks, [], [], [], None, con, at)
+    assert [d.get("held") for d in build([t], now)["tracks"]] == [None]  # live on its own merits
+    live.record_label("ccor1", tid, "comet")
+    assert [d.get("held") for d in build([t], now)["tracks"]] == [None]  # still on its merits
+    # the tracker rejects it: the label keeps it in the list, marked
+    bad = dict(t, status="rejected:extended", status_at={"3": "rejected:extended", "4": "rejected:extended"})
+    s = build([bad], now)
+    assert [d["id"] for d in s["tracks"]] == [tid] and s["tracks"][0]["held"] and s["rejected"] == []
+    # the tracker has let it go entirely (aged out, pruned): the kept copy stands in
+    s = build([], now + timedelta(days=3))
+    assert [d["id"] for d in s["tracks"]] == [tid] and s["tracks"][0]["held"]
+    (tmp_path / "live" / "ccor1" / "state.json").write_text(json.dumps(s))
+    assert [d["id"] for d in live.merged_state()["cameras"][0]["tracks"]] == [tid]
+    # clearing the label drops the hold at once, before the next cycle
+    live.record_label("ccor1", tid, "clear")
+    assert live.merged_state()["cameras"][0]["tracks"] == []
+    assert build([], now + timedelta(days=3))["tracks"] == []
+    # ... but a track that is live on its own stays after the label is cleared
+    assert [d["id"] for d in build([t], now)["tracks"]] == [tid]
+
+
 def test_tiers_fire_in_real_time_order():
     con = __import__("kreutz.reports.db", fromlist=["db"]).connect(":memory:")
     t0 = datetime(2026, 10, 25, 1, 0, 25, tzinfo=timezone.utc)

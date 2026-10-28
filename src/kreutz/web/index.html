@@ -142,9 +142,10 @@ function render() {
   const rank = {alert: 0, watch: 1};
   const tracks = all.filter(t => !t.group || t.group === t.id)
     .sort((a,b) => ((rank[a.tier] ?? 2) - (rank[b.tier] ?? 2)) || b.last_seen.localeCompare(a.last_seen));
-  const tiered = tracks.filter(t => t.tier).sort((a,b) => lrank(a) - lrank(b));
+  const top = t => t.tier || lab(t) === 'comet';  // your comet label keeps it up here until you clear it
+  const tiered = tracks.filter(top).sort((a,b) => lrank(a) - lrank(b));
   // confidence for the rest: persistence first (the only feature that separates comets at this stage), then brightness
-  const rest = tracks.filter(t => !t.tier).sort((a,b) => (lrank(a) - lrank(b)) || (b.n_hits - a.n_hits) || (b.best_sig - a.best_sig));
+  const rest = tracks.filter(t => !top(t)).sort((a,b) => (lrank(a) - lrank(b)) || (b.n_hits - a.n_hits) || (b.best_sig - a.best_sig));
   const np = all.length - tracks.length;
   const wasOpen = $('#others') ? $('#others').open : false;
   $('#following').innerHTML = (tiered.length ? tiered.map(card).join('')
@@ -171,6 +172,7 @@ function badges(t) {
   const l = t.lasco;
   if (l && t.tier) b.push(`<span class="b outline dim"><a href="${esc(l.url)}" target="_blank" onclick="event.stopPropagation()" style="color:inherit">a ${esc(l.camera)} claim by ${esc(l.reporter)} (${fmt(l.posted)}) overlaps in time; position not checked</a></span>`);
   if (t.label) b.push(`<span class="b ${t.label.label === 'comet' ? 'green' : t.label.label === 'noise' ? 'outline dim' : 'outline'}">you: ${esc(t.label.label)}${t.label.contradicted ? ' — contradicted: ' + esc(t.label.contradicted.why) : ''}</span>`);
+  if (t.held) b.push(`<span class="b outline dim">${t.status.startsWith('rejected') ? 'the tracker rejected it' : 'the tracker has let it go'}; your comet label keeps it here</span>`);
   if (t.merged) b.push(`<span class="b outline">merged with ${n(t.merged, 'other track')}</span>`);
   if (t.pieces && t.pieces.length) b.push(`<span class="b outline">+${n(t.pieces.length, 'piece')}</span>`);
   return b.join('');

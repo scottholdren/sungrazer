@@ -98,6 +98,12 @@ its stacked cutout (`<id>_stack.png`), for training a rejecter later. Labels
 change only display order and alerts; the tracker keeps following everything
 by its own rules, and a noise label on an object that later reaches the alert
 tier or matches a hunter's report is marked *contradicted* and announced.
+A comet label also holds the object in the top list until the label is
+cleared, through the tracker rejecting it, the 24 h display cutoff and the
+tracker's own pruning: the watcher keeps a copy of its last summary in
+`data/live/<camera>/held/` and shows that when the tracker has let it go
+(the card says so). Clearing the label drops only the hold; an object that
+is still a live watch stays by its own rules.
 
 Movie: the detail view's "build hi-res movie" button asks `/api/movie` for a
 fixed patch of sky (significance maps, the last 8 or 3 frames added along the

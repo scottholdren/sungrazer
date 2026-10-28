@@ -451,13 +451,17 @@ def _sync_reports(camera: str, since: date) -> bool:
 def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas, windows, last_window,
                 con, now: datetime) -> dict:
     cutoff = (now - timedelta(hours=SHOW_H)).isoformat()
-    recent = [t for t in tracks if t["hits"][-1]["frame_time"] >= cutoff]
+    held = {k for k, rec in load_labels(camera).items() if rec.get("label") == "comet"}
+    recent = [t for t in tracks if t["hits"][-1]["frame_time"] >= cutoff or track_key(t) in held]
     lat_s, lat_text = score.latency_s(camera)
     reports = _reports(con, camera, now)
     following, rejected = [], []
     for t in recent:
         d = _track_summary(t, reports, lat_s, con)
-        (following if d["live"] else rejected).append(d)
+        if d["id"] in held and not (d["live"] and d["last_seen"] >= cutoff):
+            d["held"] = True  # only the owner's comet label keeps it here
+        (following if d["live"] or d["id"] in held else rejected).append(d)
+    _hold(camera, following, held)
     rank = {"alert": 0, "watch": 1, None: 2}
     following.sort(key=lambda d: (rank[d["tier"]], d["last_seen"]), reverse=False)
     following.sort(key=lambda d: rank[d["tier"]])  # stable: alerts first, then watch, each newest-first
@@ -477,6 +481,23 @@ def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas
         "tracks": following, "rejected": rejected[:MAX_REJECTED], "n_rejected": len(rejected),
         "sheet": {"half": contact.HALF, "scale": contact.SCALE, "gap": 4},
     }
+
+
+def _hold(camera: str, following: list[dict], held: set[str]) -> None:
+    """The owner's comet labels keep a track on the dashboard until the label is
+    cleared: a copy of each labelled track's last summary is kept, and once the
+    tracker has let the track go (aged out, pruned) the copy stands in for it."""
+    hdir = live_dir(camera) / "held"
+    have = {d["id"] for d in following}
+    for k in held - have:
+        p = hdir / f"{k}.json"
+        if p.exists():
+            d = json.loads(p.read_text())
+            d["held"] = True
+            following.append(d)
+    for d in following:
+        if d["id"] in held:
+            _write_json(hdir / f"{d['id']}.json", {k: v for k, v in d.items() if k not in ("group", "pieces")})
 
 
 OBJECT_PX = 60.0  # tracks this close at the same time (or on each other's path) are one object
@@ -765,6 +786,8 @@ def merged_state() -> dict:
             labels = load_labels(cam)
             for t in s["tracks"]:
                 t["label"] = labels.get(t["id"])
+            # a track only the comet label was holding leaves as soon as the label is cleared
+            s["tracks"] = [t for t in s["tracks"] if not t.get("held") or (t["label"] or {}).get("label") == "comet"]
             cams.append(s)
     return {"now": datetime.now(timezone.utc).isoformat(timespec="seconds"), "cameras": cams}
 
