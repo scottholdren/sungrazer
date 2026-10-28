@@ -59,18 +59,24 @@ def track_key(t: dict) -> str:
 class Activity:
     """What the watcher is doing right now and what it did lately, for the dashboard.
 
-    data/live/<camera>/activity.json = {"current": {...}, "events": [...]}; rewritten
-    on every change so the page can poll it every few seconds."""
+    data/live/<camera>/activity.json = {"current": {...}, "events": [...], "changes": [...]};
+    rewritten on every change so the page can poll it every few seconds. `events` is
+    everything the watcher did; `changes` is only what happened to candidates (new,
+    grew, tiered, reported, merged), each tied to a track for the detail view."""
 
     MAX_EVENTS = 300
+    MAX_CHANGES = 500
 
     def __init__(self, camera: str):
         self.path = live_dir(camera) / "activity.json"
         self.events: list[dict] = []
+        self.changes: list[dict] = []
         self.current: dict | None = None
         if self.path.exists():
             try:
-                self.events = json.loads(self.path.read_text()).get("events", [])
+                saved = json.loads(self.path.read_text())
+                self.events = saved.get("events", [])
+                self.changes = saved.get("changes", [])
             except Exception:
                 pass
 
@@ -89,8 +95,14 @@ class Activity:
         print(f"  * {msg}", flush=True)
         self._write()
 
+    def change(self, msg: str, kind: str, track: str, **extra) -> None:
+        """A candidate changed: kind in new / grew / watch / alert / report / merge."""
+        self.changes.append({"t": _now_iso(), "kind": kind, "msg": msg, "track": track, **extra})
+        self.changes = self.changes[-self.MAX_CHANGES:]
+        self._write()
+
     def _write(self) -> None:
-        _write_json(self.path, {"current": self.current, "events": self.events})
+        _write_json(self.path, {"current": self.current, "events": self.events, "changes": self.changes})
 
 
 class Watcher:
@@ -249,25 +261,31 @@ class Watcher:
         for tid, d in cur.items():
             old = self.known.get(tid)
             where = f"at {d['x']},{d['y']}, {d['speed']} px/frame, {d['n_hits']} hits, {d['best_sig']}σ"
+            unrep = " — UNREPORTED" if not d["report"] else ""
             if old is None:
                 if d.get("group", tid) != tid and d["group"] in self.known:
                     self.activity.event(f"track {tid} joins object {d['group']} {where}", kind="info", track=d["group"])
+                    self.activity.change(f"track {tid} joins object {d['group']} {where}", "merge", d["group"])
                     continue
                 if not _recent(d["first_seen"]):
                     continue  # an old track resurfacing (regrouped, or its head aged out) is not news
-                self.activity.event(f"new object {tid} {where}" + (" — UNREPORTED" if not d["report"] else ""),
-                                    kind="track", track=tid)
+                self.activity.event(f"new object {tid} {where}{unrep}", kind="track", track=tid)
+                self.activity.change(f"new {tid} {where}{unrep}", "new", tid)
             elif d["report"] and not old.get("report"):
                 r = d["report"]
-                self.activity.event(f"track {tid} matches a report by {r['reporter']} ({r['lead_h']:+.1f} h)",
-                                    kind="track", track=tid)
+                msg = f"{tid} matches a report by {r['reporter']} ({r['lead_h']:+.1f} h)"
+                self.activity.event(f"track {msg}", kind="track", track=tid)
+                self.activity.change(msg, "report", tid)
             elif d["tier"] == "alert" and old.get("tier") != "alert" and _recent(d["tier_at"]):
-                self.activity.event(f"ALERT {tid} {where}" + (" — UNREPORTED" if not d["report"] else ""),
-                                    kind="alert", track=tid)
+                self.activity.event(f"ALERT {tid} {where}{unrep}", kind="alert", track=tid)
+                self.activity.change(f"ALERT {tid} {where}{unrep}", "alert", tid)
                 self.pending_posts.append(tid)
             elif d["tier"] == "watch" and old.get("tier") is None and _recent(d["tier_at"]):
-                self.activity.event(f"watch {tid} {where}" + (" — UNREPORTED" if not d["report"] else ""),
-                                    kind="track", track=tid)
+                self.activity.event(f"watch {tid} {where}{unrep}", kind="track", track=tid)
+                self.activity.change(f"watch {tid} {where}{unrep}", "watch", tid)
+            elif d["n_hits"] > old["n_hits"] or d["best_sig"] >= old["best_sig"] + 1.0:
+                self.activity.change(f"{tid} grew to {d['n_hits']} hits, {d['best_sig']}σ "
+                                     f"(was {old['n_hits']} hits, {old['best_sig']}σ){unrep}", "grew", tid)
         self.known = cur
 
     def _stage_a(self, paths_, targets, progress) -> None:

@@ -220,6 +220,8 @@ def test_activity_log_rolls_and_tracks_current(tmp_path, monkeypatch):
     from datetime import datetime, timezone
     a.now("idle", "next poll", until=datetime(2026, 10, 28, 1, 2, 25, tzinfo=timezone.utc))
     assert a.current["until"] == "2026-10-28T01:02:25+00:00"  # the page renders it in local time
+    a.change("t1 grew to 4 hits", "grew", "t1")
+    assert live.Activity("ccor1").changes[-1] == {"t": a.changes[-1]["t"], "kind": "grew", "msg": "t1 grew to 4 hits", "track": "t1"}
 
 
 def test_server_routes_and_labels(tmp_path, monkeypatch):
@@ -356,3 +358,22 @@ def _read_png(path):
     raw = np.frombuffer(zlib.decompress(idat), np.uint8).reshape(h, w + 1)
     assert (raw[:, 0] == 0).all()
     return raw[:, 1:]
+
+
+def test_announce_logs_candidate_changes(tmp_path, monkeypatch):
+    """The change log: a new candidate, then the same one growing, then reaching a tier."""
+    monkeypatch.setattr(live.paths, "DATA", tmp_path)
+    w = live.Watcher.__new__(live.Watcher)
+    w.camera, w.activity, w.pending_posts = "ccor1", live.Activity("ccor1"), []
+    w.known = {}
+    now = datetime.now(timezone.utc)
+    base = {"x": 1400, "y": 1200, "speed": 10.0, "report": None, "tier": None, "tier_at": None, "group": "t1",
+            "first_seen": now.isoformat()}
+    w._announce({"tracks": [{**base, "id": "t1", "n_hits": 3, "best_sig": 7.5}]})
+    w._announce({"tracks": [{**base, "id": "t1", "n_hits": 3, "best_sig": 7.5}]})  # nothing changed: silent
+    w._announce({"tracks": [{**base, "id": "t1", "n_hits": 4, "best_sig": 9.0}]})
+    w._announce({"tracks": [{**base, "id": "t1", "n_hits": 5, "best_sig": 12.0, "tier": "watch", "tier_at": now.isoformat()}]})
+    kinds = [c["kind"] for c in w.activity.changes]
+    assert kinds == ["new", "grew", "watch"] and all(c["track"] == "t1" for c in w.activity.changes)
+    assert "grew to 4 hits, 9.0σ (was 3 hits, 7.5σ) — UNREPORTED" in w.activity.changes[1]["msg"]
+    assert [e["kind"] for e in w.activity.events] == ["track", "track"]  # growth stays out of the activity log
