@@ -75,10 +75,11 @@ class Activity:
                 pass
 
     def now(self, stage: str, detail: str = "", done: int | None = None, total: int | None = None,
-            names: list[str] | None = None) -> None:
+            names: list[str] | None = None, until: datetime | None = None) -> None:
+        """`until`: when this stage ends by itself (an idle wait); the page shows it in local time."""
         keep_since = self.current and self.current.get("stage") == stage
         self.current = {"stage": stage, "detail": detail, "done": done, "total": total,
-                        "names": (names or [])[:12],
+                        "names": (names or [])[:12], "until": until.isoformat() if until else None,
                         "since": self.current["since"] if keep_since else _now_iso()}
         self._write()
 
@@ -113,7 +114,7 @@ class Watcher:
             wait = seconds_to_next_poll(self.camera, self.phase)  # a restart within the guard: wait for the slot
             at = datetime.now(timezone.utc) + timedelta(seconds=wait)
             print(f"restarted inside the poll guard; first poll at {at:%H:%M:%S} UTC", flush=True)
-            self.activity.now("idle", f"restarted; first poll at {at:%H:%M:%S} UTC")
+            self.activity.now("idle", "restarted; first poll", until=at)
             time.sleep(wait)
         while True:
             try:
@@ -126,7 +127,7 @@ class Watcher:
             wait = seconds_to_next_poll(self.camera, self.phase)
             at = datetime.now(timezone.utc) + timedelta(seconds=wait)
             print(f"next poll in {wait / 60:.1f} min", flush=True)
-            self.activity.now("idle", f"next poll at {at:%H:%M:%S} UTC")
+            self.activity.now("idle", "next poll", until=at)
             time.sleep(wait)
 
     def cycle(self) -> dict:

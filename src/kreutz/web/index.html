@@ -110,7 +110,9 @@ function renderActivity() {
     const secs = Math.max(0, Math.round((Date.now() - Date.parse(c.since)) / 1000));
     const bar = c.total ? `<span class="bar"><i style="width:${Math.round(100 * (c.done || 0) / c.total)}%"></i></span>` : '';
     const names = c.names && c.names.length ? `<div class="names">${c.names.map(n => esc(n.slice(9, 24))).join(' · ')}</div>` : '';
-    return `<div><span class="pulse ${idle ? 'idle' : ''}"></span><b>${esc(label(cam))}</b> <span class="st">${esc(c.stage)}</span> <span class="dim">·</span> ${esc(c.detail || '')}${bar} <span class="dim">· ${idle ? '' : 'for '}${secs}s</span>${names}</div>`;
+    const left = c.until ? Math.round((Date.parse(c.until) - Date.now()) / 1000) : null;
+    const until = c.until ? ` at ${clock(c.until)} ET <span class="dim">(${left > 0 ? 'in ' + (left >= 90 ? Math.round(left / 60) + ' min' : left + ' s') : 'due'})</span>` : '';
+    return `<div><span class="pulse ${idle ? 'idle' : ''}"></span><b>${esc(label(cam))}</b> <span class="st">${esc(c.stage)}</span> <span class="dim">·</span> ${esc(c.detail || '')}${until}${bar} <span class="dim">· ${idle ? '' : 'for '}${secs}s</span>${names}</div>`;
   }).join('');
   const ev = cams.flatMap(([cam, a]) => (a.events || []).map(e => ({...e, cam}))).sort((x, y) => y.t.localeCompare(x.t));
   const line = e => `<div class="ev ${esc(e.kind || '')}"><span class="t">${clock(e.t)}</span>${cams.length > 1 ? `<span class="b outline">${esc(label(e.cam))}</span> ` : ''}${e.track ? `<a href="#" onclick="openDetail('${e.cam}','${e.track}');return false" style="color:inherit">${esc(e.msg)}</a>` : esc(e.msg)}</div>`;
