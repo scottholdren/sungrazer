@@ -211,15 +211,15 @@ def test_activity_log_rolls_and_tracks_current(tmp_path, monkeypatch):
     since = a.current["since"]
     a.now("stage A", "working", 1, 3)
     assert a.current["since"] == since and a.current["done"] == 1  # same stage keeps its start time
-    from datetime import datetime, timezone
-    a.now("idle", "next poll", until=datetime(2026, 10, 28, 1, 2, 25, tzinfo=timezone.utc))
-    assert a.current["until"] == "2026-10-28T01:02:25+00:00"  # the page renders it in local time
     for i in range(live.Activity.MAX_EVENTS + 5):
         a.event(f"e{i}")
     saved = json.loads((tmp_path / "live" / "ccor1" / "activity.json").read_text())
     assert len(saved["events"]) == live.Activity.MAX_EVENTS and saved["events"][-1]["msg"].startswith("e")
     assert live.Activity("ccor1").events[-1]["msg"] == saved["events"][-1]["msg"]  # reloaded on restart
     assert live.merged_activity()["cameras"]["ccor1"]["current"]["stage"] == "stage A"
+    from datetime import datetime, timezone
+    a.now("idle", "next poll", until=datetime(2026, 10, 28, 1, 2, 25, tzinfo=timezone.utc))
+    assert a.current["until"] == "2026-10-28T01:02:25+00:00"  # the page renders it in local time
 
 
 def test_server_routes_and_labels(tmp_path, monkeypatch):
