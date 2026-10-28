@@ -181,7 +181,7 @@ function card(t) {
   const img = t.thumb ? `<div class="thumb"><img src="${t.thumb}?v=${t.n_hits}" alt="">${ring}</div>` : '<div class="noimg"></div>';
   const miss = t.missing ? ` <span class="dim">·</span> missing ${n(t.missing, 'frame')}` : '';
   return `<div class="card ${lab(t) === 'noise' ? 'dimcard' : ''}" onclick="openDetail('${t.cam.camera}','${t.id}')">${img}<div><div class="badges">${badges(t)}</div>
-    <div class="meta">${t.id} <span class="dim">·</span> first seen ${fmt(t.first_seen)} <span class="dim">·</span> last seen ${fmt(t.last_seen)} <span class="dim">·</span> at ${t.x},${t.y} <span class="dim">·</span> ${t.speed} px/frame <span class="dim">·</span> best ${t.best_sig}σ${miss}</div></div></div>`;
+    <div class="meta">${t.id} <span class="dim">·</span> first seen ${fmt(t.first_seen)} <span class="dim">(${ago(t.first_seen)})</span> <span class="dim">·</span> last seen ${fmt(t.last_seen)} <span class="dim">(${ago(t.last_seen)})</span> <span class="dim">·</span> at ${t.x},${t.y} <span class="dim">·</span> ${t.speed} px/frame <span class="dim">·</span> best ${t.best_sig}σ${miss}</div></div></div>`;
 }
 function labelButtons(t) {
   const cur = lab(t);
