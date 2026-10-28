@@ -99,6 +99,20 @@ change only display order and alerts; the tracker keeps following everything
 by its own rules, and a noise label on an object that later reaches the alert
 tier or matches a hunter's report is marked *contradicted* and announced.
 
+Movie: the detail view's "build hi-res movie" button asks `/api/movie` for a
+fixed patch of sky (significance maps, the last 8 or 3 frames added along the
+fitted motion, 2× camera resolution) and plays it with a black-point slider
+and a ring on the fitted path; each frame reports the sigma in the ring against
+the patch's brightest 0.1%. Built on demand under `data/live/<camera>/movies/`.
+
+Export: "export for a hunter" (`POST /api/export`) writes
+`results/<camera>/live-finds/<id>/` — `README.md` (the note in the Sungrazer
+form's layout with the convention and caveats), `movie.gif` (the movie,
+animated, standard-library GIF writer in `gif.py`), `sheet.png`, `thumb.png` —
+commits it and pushes, and returns the GitHub link to share. The VM pushes with
+a write deploy key (`~/.ssh/id_ed25519`, push URL `git@github.com:...`);
+without one the files are still served at `/finds/<camera>/<id>/`.
+
 Deployment: `deploy/` has systemd units (`kreutz-watch@ccor1`,
 `kreutz-serve`) that run as the repo owner with `Restart=always`. To deploy a
 change without sudo: `git pull`, then `kill $(systemctl show -p MainPID
