@@ -339,26 +339,30 @@ class Watcher:
         if self.tracker is None or self.tracker_key != key:
             self.tracker, self.tracker_key, self.fed_until, self.snapshot = Tracker(), key, 0.0, None
         tr, last, fed, scene = self.tracker, None, 0, None
+
+        def scene_of(i):  # what the rejection rules need for window i
+            mem = detect.window_members(metas, i)
+            env = envelopes[detect.month_of(metas[i].time)]
+            drifts = [metas[j].drift for j in mem if metas[j].drift] if mem else []
+            return mem, list(np.mean(drifts, axis=0)) if drifts else None, metas[i].sun_xy, env
+
         for i in windows:
             if metas[i] is None or not metas[i].ok:
                 continue
             last = metas[i]
             if metas[i].time <= self.fed_until:
                 continue
-            mem = detect.window_members(metas, i)
+            mem, drift, sun_xy, env = scene_of(i)
             if mem is None:
                 continue
-            env = envelopes[detect.month_of(metas[i].time)]
             p = detect.peaks_path(self.camera, paths_[i].name, env.grid)
             if not p.exists():
                 continue
             peaks = [B.Peak(**d) for d in json.loads(p.read_text())]
-            drifts = [metas[j].drift for j in mem if metas[j].drift]
-            drift = list(np.mean(drifts, axis=0)) if drifts else None
             seed = detect.SEED_COLD or all(A.is_warm(metas[j]) for j in mem)
-            tr.update(metas[i].time, peaks, drift, metas[i].sun_xy, envelope=env, seed=seed)
+            tr.update(metas[i].time, peaks, drift, sun_xy, envelope=env, seed=seed)
             self.fed_until = metas[i].time
-            scene = (drift, metas[i].sun_xy, env)
+            scene = (drift, sun_xy, env)
             fed += 1
         open_chains = [t for t in tr.active if len(t.hits) >= 2]
         print(f"stage C: {_n(fed, 'new window')} fed; {len(tr.active)} active, {len(tr.done)} finished", flush=True)
@@ -367,6 +371,9 @@ class Watcher:
             _write_bytes(pkl, pickle.dumps({"key": key, "tracker": tr, "fed_until": self.fed_until}))
             shown_since = (datetime.now(timezone.utc) - timedelta(hours=SHOW_H)).timestamp()
             self.snapshot = tr.snapshot(since=shown_since)  # merging is the cost; nothing changed otherwise
+            if scene is None:  # restarted with nothing new: judge the chains by the window they last hit on
+                fed_i = next((i for i in windows if metas[i] and metas[i].time == self.fed_until), None)
+                scene = scene_of(fed_i)[1:] if fed_i is not None else None
             self.sparks = sparks(tr, *scene) if scene else []
         return self.snapshot, open_chains, last, self.sparks
 
