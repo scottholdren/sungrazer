@@ -187,6 +187,11 @@ class Watcher:
         self._stage_a(paths_, targets, prog_a)
         timings["stage_a"] = _lap(t0, timings)
         metas = [A.load_meta(camera, p.name) for p in paths_]
+        for name in counts.get("new", []):  # say why a frame was thrown out, or the dashboard just looks stuck
+            m = next((m for m in metas if m is not None and m.name == name), None)
+            if m is not None and not m.ok:
+                act.event(f"frame {name[9:24]} unusable: {'; '.join(m.problems) or 'stage A rejected it'}"
+                          " — no new window until good frames return", kind="warn")
 
         def prog_b(done, total, names):
             act.now("stage B", f"shift-and-stack over {sum(len(e.grid) for e in envelopes.values())} velocities: "
