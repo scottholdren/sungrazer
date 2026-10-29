@@ -40,7 +40,8 @@ code { background:#000; padding:2px 6px; border-radius:4px; font-size:12px }
 .now .st { font-weight:700; color:#fff } .now .bar { display:inline-block; width:140px; height:6px; background:#000; border-radius:3px; vertical-align:middle; margin-left:8px; overflow:hidden } .now .bar i { display:block; height:100%; background:#4fd37a }
 .now .names { font-family:ui-monospace, monospace; font-size:12px; color:var(--dim) }
 .ev { font-size:13px; padding:2px 0 } .ev .t { color:var(--dim); font-family:ui-monospace, monospace; margin-right:8px } .ev.track { color:#ffd34d } .ev.alert { color:#ff7b7b; font-weight:700 } .ev.error { color:#ff7b7b } .ev.warn { color:#f0b64d } .ev.cycle { color:var(--dim) }
-.ev.ch .k { margin-right:8px; min-width:52px; text-align:center } .ev.new { color:#ffd34d } .ev.grew { color:#9ecbff } .ev.watch { color:#f0b64d } .ev.report { color:#4fd37a } .ev.merge { color:var(--dim) }
+.ev.ch .k { margin-right:8px; min-width:52px; text-align:center } .ev.new { color:#ffd34d } .ev.grew { color:#9ecbff } .ev.watch { color:#f0b64d } .ev.report { color:#4fd37a } .ev.merge { color:var(--dim) } .ev.spark { color:#ffd34d; opacity:.8 }
+.card.spark { cursor:default }
 #changes { max-height:300px; overflow:auto; border-top:1px solid var(--line); margin-top:6px; padding-top:6px }
 #evall { max-height:360px; overflow:auto; border-top:1px solid var(--line); margin-top:6px; padding-top:6px }
 .pulse { display:inline-block; width:8px; height:8px; border-radius:50%; background:#4fd37a; margin-right:6px; animation:pulse 1.2s infinite } @keyframes pulse { 50% { opacity:.2 } } .pulse.idle { background:#8a93a0; animation:none }
@@ -69,6 +70,9 @@ code { background:#000; padding:2px 6px; border-radius:4px; font-size:12px }
 <div class="chips" id="chips"></div>
 <h2>FOLLOWING</h2>
 <div id="following"></div>
+<h2>SPARKS</h2>
+<div class="dim">two-frame chains, both frames at or above 10σ, passing the usual rejection rules, as of the newest frame — a third frame moves one up to FOLLOWING, a miss drops it</div>
+<div id="sparks"></div>
 <details id="rejdet"><summary id="rejsum">rejected</summary><div id="rejected"></div></details>
 <div id="detail"><div class="panel" id="panel"></div></div>
 <script>
@@ -122,7 +126,7 @@ function renderActivity() {
   $('#recent').innerHTML = ev.slice(0, 5).map(line).join('');
   $('#evall').innerHTML = ev.slice(0, 300).map(line).join('');
   const ch = cams.flatMap(([cam, a]) => (a.changes || []).map(e => ({...e, cam}))).sort((x, y) => y.t.localeCompare(x.t));
-  const KIND = { new: 'new', grew: 'grew', watch: 'watch', alert: 'ALERT', report: 'reported', merge: 'merged' };
+  const KIND = { new: 'new', grew: 'grew', watch: 'watch', alert: 'ALERT', report: 'reported', merge: 'merged', spark: 'spark' };
   const cline = e => `<div class="ev ch ${esc(e.kind)}"><span class="t">${fmt(e.t)}</span><span class="b outline k">${KIND[e.kind] || esc(e.kind)}</span>${cams.length > 1 ? `<span class="b outline">${esc(label(e.cam))}</span> ` : ''}<a href="#" onclick="openDetail('${e.cam}','${e.track}');return false" style="color:inherit">${esc(e.msg)}</a></div>`;
   const html = ch.length ? ch.slice(0, 200).map(cline).join('') : '<div class="dim">nothing yet — the watcher logs a change the first time a candidate appears, gains a hit, reaches a tier or matches a report</div>';
   if ($('#changes').innerHTML !== html) $('#changes').innerHTML = html;
@@ -152,6 +156,9 @@ function render() {
       : '<div class="dim">no object has reached the alert (4 hits, 15σ) or watch (5 hits, 10σ) tier</div>')
     + (rest.length ? `<details id="others"${wasOpen ? ' open' : ''}><summary class="dim">other candidates: ${n(rest.length, 'object')} with 3+ hits but below both tiers, most persistent first — at this stage about 1 in 100 is a comet</summary>${rest.map(card).join('')}</details>` : '')
     + (np ? `<div class="dim">${n(tracks.length, 'object')} from ${n(all.length, 'track')}; pieces of the same object are listed in its detail view</div>` : '');
+  const sparks = show.flatMap(c => (c.sparks || []).map(t => ({...t, cam:c})));
+  $('#sparks').innerHTML = sparks.length ? sparks.map(spark).join('')
+    : '<div class="dim">none on the newest frame</div>';
   const rej = show.flatMap(c => c.rejected.map(t => ({...t, cam:c})));
   $('#rejsum').textContent = `rejected in the last 24 h: ${show.reduce((n,c)=>n+c.n_rejected,0)} (showing ${rej.length} by significance)`;
   $('#rejected').innerHTML = rej.map(t => `<div class="rej" onclick="openDetail('${t.cam.camera}','${t.id}')"><span class="b outline">${esc(t.cam.label)}</span> <span class="b red">${esc(t.status.replace('rejected:',''))}</span> ${t.id} · ${n(t.n_hits, 'hit')} · sig ${t.best_sig} · at ${t.x},${t.y} · ${t.speed} px/frame · last ${fmt(t.last_seen)}</div>`).join('');
@@ -176,6 +183,14 @@ function badges(t) {
   if (t.merged) b.push(`<span class="b outline">merged with ${n(t.merged, 'other track')}</span>`);
   if (t.pieces && t.pieces.length) b.push(`<span class="b outline">+${n(t.pieces.length, 'piece')}</span>`);
   return b.join('');
+}
+
+function spark(t) {
+  const ring = '<svg viewBox="0 0 160 160"><circle cx="80" cy="80" r="13" fill="none" stroke="#ffd34d" stroke-width="1.5"/></svg>';
+  const img = t.thumb ? `<div class="thumb"><img src="${t.thumb}?v=2" alt="">${ring}</div>` : '<div class="noimg"></div>';
+  const sigs = t.hits.map(h => `${h.sig}σ`).join(', ');
+  return `<div class="card spark">${img}<div><div class="badges"><span class="b outline">${esc(t.cam.label)}</span> <span class="b amber">2 frames: ${sigs}</span></div>
+    <div class="meta">${t.id} <span class="dim">·</span> first seen ${fmt(t.first_seen)} <span class="dim">(${ago(t.first_seen)})</span> <span class="dim">·</span> at ${t.x},${t.y} <span class="dim">·</span> ${t.speed} px/frame <span class="dim">·</span> heading (${t.velocity[0]}, ${t.velocity[1]}) px/frame</div></div></div>`;
 }
 
 function card(t) {

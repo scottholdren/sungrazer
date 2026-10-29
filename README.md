@@ -98,6 +98,15 @@ its stacked cutout (`<id>_stack.png`), for training a rejecter later. Labels
 change only display order and alerts; the tracker keeps following everything
 by its own rules, and a noise label on an object that later reaches the alert
 tier or matches a hunter's report is marked *contradicted* and announced.
+Sparks: a section under FOLLOWING lists two-hit chains that are bright on
+both hits (`SPARK_SIGMA`, 10 sigma, the watch tier's brightness) and pass the
+same rejection rules as candidates (outbound, off-envelope, glare, edge,
+extended, stationary, star-drift), with the detector's stacked cutout. Open
+chains die on their first miss, so sparks are always as of the newest frame:
+a third hit moves one up to FOLLOWING under the same id, a miss drops it. The
+change log notes each new spark once. Sparks on top of a followed object are
+not listed.
+
 A comet label also holds the object in the top list until the label is
 cleared, through the tracker rejecting it, the 24 h display cutoff and the
 tracker's own pruning: the watcher keeps a copy of its last summary in

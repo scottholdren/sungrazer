@@ -112,6 +112,43 @@ def test_comet_label_holds_a_track_until_cleared(tmp_path, monkeypatch):
     assert [d["id"] for d in build([t], now)["tracks"]] == [tid]
 
 
+def test_sparks_are_bright_two_hit_chains_that_pass_the_rules(tmp_path, monkeypatch):
+    from kreutz.detect.track import Tracker
+
+    t0 = datetime(2026, 10, 24, 10, 0, 25, tzinfo=timezone.utc).timestamp()
+    sun = [1041, 962]
+    mk = lambda x, y, sig, vx=-8.0, vy=-3.0: Peak(t=0, x=x, y=y, sig=sig, vx=vx, vy=vy, edge=None, elong=None)
+    tr = Tracker()
+    for i in range(2):
+        t = t0 + 900 * i
+        peaks = [mk(1500 - 8 * i, 1200 - 3 * i, 20.0),            # bright, inbound: a spark
+                 mk(1300 - 8 * i, 1100 - 3 * i, 6.0),             # too faint
+                 mk(700 - 8 * i, 800 - 3 * i, 30.0)]              # bright but outbound (moving away from the Sun)
+        peaks = [Peak(**{**p.__dict__, "t": t}) for p in peaks]
+        tr.update(t, peaks, None, sun, envelope=None, seed=True)
+    assert sum(len(t.hits) == 2 for t in tr.active) == 3
+    s = live.sparks(tr, None, sun, None)
+    assert [d["id"] for d in s] == ["20261024T1000_1500_1200"]
+    assert s[0]["hits"][1]["x"] == 1492 and s[0]["min_sig"] == 20.0 and s[0]["speed"] == 8.5
+    # a spark riding on a followed object is not listed; the change log announces a new spark once
+    monkeypatch.setattr(live.score, "latency_s", lambda cam: (0.0, "no log"))
+    monkeypatch.setattr(live, "_reports", lambda con, cam, now: [])
+    from kreutz.reports import db
+    now = datetime(2026, 10, 24, 10, 30, tzinfo=timezone.utc)
+    near = dict(s[0], id="x", hits=[dict(h, x=h["x"] + 20) for h in s[0]["hits"]])
+    st = live.build_state("ccor1", [], [], [], [], None, db.connect(":memory:"), now, sparks=[s[0], near])
+    assert [d["id"] for d in st["sparks"]] == [s[0]["id"], "x"]
+    big = _track(datetime(2026, 10, 24, 10, 0, 25, tzinfo=timezone.utc), 5)  # a followed object on the same path
+    st = live.build_state("ccor1", [big], [], [], [], None, db.connect(":memory:"), now, sparks=[s[0]])
+    assert st["sparks"] == []
+    monkeypatch.setattr(live.paths, "DATA", tmp_path)
+    w = live.Watcher.__new__(live.Watcher)
+    w.camera, w.activity, w.pending_posts, w.known = "ccor1", live.Activity("ccor1"), [], {}
+    w._announce({"tracks": [], "sparks": [s[0]]})
+    w._announce({"tracks": [], "sparks": [s[0]]})
+    assert [c["kind"] for c in w.activity.changes] == ["spark"] and s[0]["id"] in w.activity.changes[0]["msg"]
+
+
 def test_tiers_fire_in_real_time_order():
     con = __import__("kreutz.reports.db", fromlist=["db"]).connect(":memory:")
     t0 = datetime(2026, 10, 25, 1, 0, 25, tzinfo=timezone.utc)

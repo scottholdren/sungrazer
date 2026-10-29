@@ -118,6 +118,7 @@ class Watcher:
         self.known: dict[str, dict] | None = None  # track id -> summary from the previous cycle
         self.stage_a: A.StageA | None = None  # resident stage A, primed after the first backlog run
         self.snapshot: list[Track] | None = None  # merged candidates as of the last window fed
+        self.sparks: list[dict] = []  # bright two-hit chains as of the last window fed
         self.phase = poll_phase(camera)["phase_min"]  # fixed for the life of the process: no slot flapping
         self.pending_posts: list[str] = []  # alert-tier track ids to post to Discord once their sheet exists
 
@@ -196,12 +197,12 @@ class Watcher:
         detect.run_stage_b(camera, paths_, metas, windows, envelopes, progress=prog_b)
         timings["stage_b"] = _lap(t0, timings)
         act.now("stage C", "linking peaks into tracks")
-        tracks, open_chains, last_window = self._track(paths_, metas, windows, envelopes, t_start)
+        tracks, open_chains, last_window, sparks_ = self._track(paths_, metas, windows, envelopes, t_start)
         timings["stage_c"] = _lap(t0, timings)
 
         act.now("state", "matching tracks against hunter reports")
         state = build_state(camera, [detect.track_dict(t, camera) for t in tracks], open_chains, metas, windows,
-                            last_window, con, now)
+                            last_window, con, now, sparks=sparks_)
         timings["state"] = _lap(t0, timings)
         self._announce(state)
         out = live_dir(camera)
@@ -287,6 +288,12 @@ class Watcher:
                 self.activity.change(f"{tid} grew to {d['n_hits']} hits, {d['best_sig']}σ "
                                      f"(was {old['n_hits']} hits, {old['best_sig']}σ){unrep}", "grew", tid)
         self.known = cur
+        seen = getattr(self, "known_sparks", set())
+        for s in state.get("sparks", []):
+            if s["id"] not in seen and s["id"] not in cur:
+                sigs = ", ".join(f"{h['sig']}σ" for h in s["hits"])
+                self.activity.change(f"spark {s['id']} at {s['x']},{s['y']}, {s['speed']} px/frame, 2 hits: {sigs}", "spark", s["id"])
+        self.known_sparks = {s["id"] for s in state.get("sparks", [])}
 
     def _stage_a(self, paths_, targets, progress) -> None:
         """Feed new frames to the resident StageA when they directly follow what it
@@ -331,7 +338,7 @@ class Watcher:
                 print(f"tracker.pkl unreadable, rebuilding: {e}", flush=True)
         if self.tracker is None or self.tracker_key != key:
             self.tracker, self.tracker_key, self.fed_until, self.snapshot = Tracker(), key, 0.0, None
-        tr, last, fed = self.tracker, None, 0
+        tr, last, fed, scene = self.tracker, None, 0, None
         for i in windows:
             if metas[i] is None or not metas[i].ok:
                 continue
@@ -351,6 +358,7 @@ class Watcher:
             seed = detect.SEED_COLD or all(A.is_warm(metas[j]) for j in mem)
             tr.update(metas[i].time, peaks, drift, metas[i].sun_xy, envelope=env, seed=seed)
             self.fed_until = metas[i].time
+            scene = (drift, metas[i].sun_xy, env)
             fed += 1
         open_chains = [t for t in tr.active if len(t.hits) >= 2]
         print(f"stage C: {_n(fed, 'new window')} fed; {len(tr.active)} active, {len(tr.done)} finished", flush=True)
@@ -359,7 +367,33 @@ class Watcher:
             _write_bytes(pkl, pickle.dumps({"key": key, "tracker": tr, "fed_until": self.fed_until}))
             shown_since = (datetime.now(timezone.utc) - timedelta(hours=SHOW_H)).timestamp()
             self.snapshot = tr.snapshot(since=shown_since)  # merging is the cost; nothing changed otherwise
-        return self.snapshot, open_chains, last
+            self.sparks = sparks(tr, *scene) if scene else []
+        return self.snapshot, open_chains, last, self.sparks
+
+
+SPARK_SIGMA = 10.0  # a two-hit chain this bright on both hits (the watch tier's brightness) is a spark
+
+
+def sparks(tr: Tracker, drift, sun_xy, envelope) -> list[dict]:
+    """Two-hit chains worth a look before their third frame: both hits at least
+    SPARK_SIGMA and nothing the candidate rules would reject. Open chains are
+    dropped on their first miss, so these all hit on the newest window; the
+    id is the one the track will carry if it becomes a candidate."""
+    out = []
+    for t in tr.active:
+        if len(t.hits) != 2 or t.candidate or min(h.sig for h in t.hits) < SPARK_SIGMA:
+            continue
+        vx, vy = t.velocity()
+        if C.rejection(vx, vy, t.last.x, t.last.y, drift, sun_xy, t.hits, envelope):
+            continue
+        hits = [{"t": detect._iso(h.t), "x": round(h.x, 1), "y": round(h.y, 1), "sig": round(h.sig, 1)} for h in t.hits]
+        out.append({"id": track_key({"hits": [{"frame_time": hits[0]["t"], "x": t.hits[0].x, "y": t.hits[0].y}]}),
+                    "hits": hits, "first_seen": hits[0]["t"], "last_seen": hits[-1]["t"],
+                    "x": round(t.last.x), "y": round(t.last.y),
+                    "velocity": [round(vx, 1), round(vy, 1)], "speed": round(float(np.hypot(vx, vy)), 1),
+                    "best_sig": round(max(h.sig for h in t.hits), 1), "min_sig": round(min(h.sig for h in t.hits), 1)})
+    out.sort(key=lambda d: -d["min_sig"])
+    return out
 
 
 def watch(camera: str, once: bool = False, span_h: float = SPAN_H, fetch_h: float = FETCH_H) -> None:
@@ -449,7 +483,7 @@ def _sync_reports(camera: str, since: date) -> bool:
 
 
 def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas, windows, last_window,
-                con, now: datetime) -> dict:
+                con, now: datetime, sparks: list[dict] = ()) -> dict:
     cutoff = (now - timedelta(hours=SHOW_H)).isoformat()
     held = {k for k, rec in load_labels(camera).items() if rec.get("label") == "comet"}
     recent = [t for t in tracks if t["hits"][-1]["frame_time"] >= cutoff or track_key(t) in held]
@@ -467,6 +501,10 @@ def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas
     following.sort(key=lambda d: rank[d["tier"]])  # stable: alerts first, then watch, each newest-first
     rejected.sort(key=lambda d: -d["best_sig"])
     group_objects(following)
+    # a spark on top of a followed object (a bright comet's satellite peaks) is that object, not news
+    taken = [(h["t"], h["x"], h["y"]) for d in following for h in d["hits"]]
+    sparks = [s for s in sparks if not any(t == h["t"] and np.hypot(h["x"] - x, h["y"] - y) < OBJECT_PX
+                                          for h in s["hits"] for t, x, y in taken)]
     good = [metas[i] for i in windows if metas[i] and metas[i].ok]
     longest = max(open_chains, key=lambda t: len(t.hits), default=None)
     return {
@@ -479,6 +517,7 @@ def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas
         "good_frames": len(good), "cold_frames": sum(1 for m in good if not A.is_warm(m)),
         "latency_min": round(lat_s / 60, 1), "latency_text": lat_text,
         "tracks": following, "rejected": rejected[:MAX_REJECTED], "n_rejected": len(rejected),
+        "sparks": list(sparks),
         "sheet": {"half": contact.HALF, "scale": contact.SCALE, "gap": 4},
     }
 
@@ -669,9 +708,17 @@ def _images(camera: str, state: dict, paths_, metas, out: Path, tiles: dict | No
         d["sheet"] = f"{camera}/tracks/{sheet.name}" if sheet.exists() else None
         d["columns"] = [c[9:24] for c in meta.get("columns", [])]
         d["thumb"] = f"{camera}/tracks/{thumb.name}" if thumb.exists() else None
+    for d in state.get("sparks", []):  # what the detector saw, for the two-hit chains worth a look
+        thumb = tdir / f"{d['id']}_thumb.png"
+        if not thumb.exists():
+            try:
+                _thumbnail(camera, d, thumb)
+            except Exception as e:
+                print(f"thumbnail for spark {d['id']} failed: {e}", flush=True)
+        d["thumb"] = f"{camera}/tracks/{thumb.name}" if thumb.exists() else None
     _preview(camera, state, paths_, metas, out)
-    keep = {p.name for d in state["tracks"] for p in (tdir / f"{d['id']}.png", tdir / f"{d['id']}.json",
-                                                        tdir / f"{d['id']}_thumb.png")}
+    keep = {p.name for d in state["tracks"] + state.get("sparks", [])
+            for p in (tdir / f"{d['id']}.png", tdir / f"{d['id']}.json", tdir / f"{d['id']}_thumb.png")}
     for p in tdir.iterdir():
         if p.name not in keep:
             p.unlink()
