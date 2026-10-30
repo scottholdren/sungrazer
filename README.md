@@ -98,6 +98,15 @@ its stacked cutout (`<id>_stack.png`), for training a rejecter later. Labels
 change only display order and alerts; the tracker keeps following everything
 by its own rules, and a noise label on an object that later reaches the alert
 tier or matches a hunter's report is marked *contradicted* and announced.
+Steady tier: below alert (4 hits, 15 sigma) and watch (5 hits, 10 sigma) sits
+*steady*: `STEADY_HITS` (5) hits in consecutive frames at any brightness, first
+hit at least `STEADY_R` (550) px from the Sun. Faint comets peaking at 8-9
+sigma never reach the brightness tiers and show themselves only by
+persisting; every real comet so far started 560+ px out, while long-lived
+noise lives in the streamer belt at 380-420 px (`results/ccor1/learn/`). On
+the benchmark weeks it keeps every comet at about 12 noise tracks a week. It
+is shown in the top list and the change log, never posted to Discord.
+
 Sparks: a section under FOLLOWING lists two-hit chains that are bright on
 both hits (`SPARK_SIGMA`, 10 sigma, the watch tier's brightness) and pass the
 same rejection rules as candidates (outbound, off-envelope, glare, edge,

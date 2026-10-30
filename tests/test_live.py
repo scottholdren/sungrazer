@@ -160,6 +160,16 @@ def test_tiers_fire_in_real_time_order():
     assert d["tier"] == "alert" and d["tier_at"] == t["hits"][5]["frame_time"]
     w = live._track_summary(_track(t0, 5, sig=12.0), [], 0.0, con)
     assert w["tier"] == "watch" and w["tier_at"] == w["hits"][4]["t"]
+    # steady: five hits in a row at any brightness, started >= 550 px from the Sun (1041, 962)
+    s = live._track_summary(_track(t0, 8, x0=1600, sig=8.0), [], 0.0, con)  # r0 = 607 px
+    assert s["tier"] == "steady" and s["tier_at"] == s["hits"][4]["t"]
+    assert faint["tier"] is None  # the default track starts 517 px out: too close in
+    gappy = _track(t0, 9, x0=1600, sig=8.0)
+    del gappy["hits"][3]  # a missed frame breaks the run; it restarts after the gap (five more needed)
+    g = live._track_summary(gappy, [], 0.0, con)
+    assert g["tier"] == "steady" and g["tier_at"] == gappy["hits"][-1]["frame_time"]
+    bright = live._track_summary(_track(t0, 8, x0=1600, sig=12.0), [], 0.0, con)
+    assert bright["tier"] == "watch"  # the brightness tiers win when they fire
 
 
 def test_discord_post_once_with_sheet(tmp_path, monkeypatch):

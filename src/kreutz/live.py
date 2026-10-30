@@ -42,6 +42,12 @@ NEWS_H = 3  # "new object" events only for tracks that began within this many ho
 # Alert tiers, from the operating-point tables of 2026-10-26 (results/STATUS.md): (min hits, min best sigma).
 # alert: Oct 17-24 precision 0.60, 3/5 comets, median real lead -3.6 h; watch: July 7/8 comets at ~+0.2 h.
 TIERS = {"alert": (4, 15.0), "watch": (5, 10.0)}
+# The steady tier, below watch: STEADY_HITS hits in consecutive frames at any brightness, first
+# hit at least STEADY_R px from the Sun. Faint comets (peak 8-9 sigma) never reach the brightness
+# tiers; they reveal themselves by persisting, and every real one so far started >= 560 px out
+# while long-lived noise lives in the streamer belt at 380-420 px (results/ccor1/learn/).
+STEADY_HITS, STEADY_R = 5, 550.0
+SUN_XY_DEFAULT = (1005.7, 957.1)
 DASHBOARD_URL = os.environ.get("KREUTZ_DASHBOARD_URL")  # appended to Discord posts when set
 PREVIEW_DS = 4  # full-frame preview downsample
 LABELS = {"ccor1": "CCOR-1", "ccor2": "CCOR-2"}
@@ -286,9 +292,12 @@ class Watcher:
                 self.activity.event(f"ALERT {tid} {where}{unrep}", kind="alert", track=tid)
                 self.activity.change(f"ALERT {tid} {where}{unrep}", "alert", tid)
                 self.pending_posts.append(tid)
-            elif d["tier"] == "watch" and old.get("tier") is None and _recent(d["tier_at"]):
+            elif d["tier"] == "watch" and old.get("tier") not in ("watch", "alert") and _recent(d["tier_at"]):
                 self.activity.event(f"watch {tid} {where}{unrep}", kind="track", track=tid)
                 self.activity.change(f"watch {tid} {where}{unrep}", "watch", tid)
+            elif d["tier"] == "steady" and old.get("tier") is None and _recent(d["tier_at"]):
+                self.activity.event(f"steady {tid} {where}{unrep}", kind="track", track=tid)
+                self.activity.change(f"steady {tid} {where}{unrep}", "steady", tid)
             elif d["n_hits"] > old["n_hits"] or d["best_sig"] >= old["best_sig"] + 1.0:
                 self.activity.change(f"{tid} grew to {d['n_hits']} hits, {d['best_sig']}σ "
                                      f"(was {old['n_hits']} hits, {old['best_sig']}σ){unrep}", "grew", tid)
@@ -511,7 +520,7 @@ def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas
             d["held"] = True  # only the owner's comet label keeps it here
         (following if d["live"] or d["id"] in held else rejected).append(d)
     _hold(camera, following, held)
-    rank = {"alert": 0, "watch": 1, None: 2}
+    rank = {"alert": 0, "watch": 1, "steady": 2, None: 3}
     following.sort(key=lambda d: (rank[d["tier"]], d["last_seen"]), reverse=False)
     following.sort(key=lambda d: rank[d["tier"]])  # stable: alerts first, then watch, each newest-first
     rejected.sort(key=lambda d: -d["best_sig"])
@@ -629,6 +638,10 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con) -> di
         if at is not None:
             tier, tier_at = name, at
             break
+    if tier is None:
+        at = _steady_at(hits, t.get("sun_xy"))
+        if at is not None:
+            tier, tier_at = "steady", at
     out = {
         "tier": tier, "tier_at": tier_at,
         "id": track_key(t), "live": live, "status": t["status"], "status_at": t["status_at"],
@@ -656,6 +669,20 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con) -> di
 
 def _recent(iso: str | None) -> bool:
     return iso is not None and time.time() - _ts(iso) <= NEWS_H * 3600
+
+
+def _steady_at(hits: list[dict], sun_xy) -> str | None:
+    """Frame time at which the track first had STEADY_HITS hits in consecutive frames,
+    if its first hit was at least STEADY_R px from the Sun."""
+    sx, sy = sun_xy or SUN_XY_DEFAULT
+    if np.hypot(hits[0]["x"] - sx, hits[0]["y"] - sy) < STEADY_R:
+        return None
+    run = 1
+    for a, b in zip(hits, hits[1:]):
+        run = run + 1 if abs(_ts(b["frame_time"]) - _ts(a["frame_time"]) - 900) < 60 else 1
+        if run >= STEADY_HITS:
+            return b["frame_time"]
+    return None
 
 
 def _fires_at(hits: list[dict], k: int, s: float) -> str | None:
