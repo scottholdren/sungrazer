@@ -129,6 +129,11 @@ def main(argv=None) -> None:
     w.add_argument("--fetch-hours", type=float, default=36, help="hours of the live feed to fill (default 36)")
     w.set_defaults(func=cmd_watch)
 
+    le = sub.add_parser("learn", help="train the candidate rejecter from scored runs and the live archive, "
+                                      "labels from the Sungrazer reports; writes results/<camera>/learn/")
+    le.add_argument("--camera", default="ccor1", choices=["ccor1", "ccor2"])
+    le.set_defaults(func=lambda a: __import__("kreutz.learn", fromlist=["learn"]).learn(a.camera))
+
     v = sub.add_parser("serve", help="serve the live dashboard")
     v.add_argument("--host", default="0.0.0.0")
     v.add_argument("--port", type=int, default=8080)

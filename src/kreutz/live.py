@@ -292,6 +292,9 @@ class Watcher:
             elif d["n_hits"] > old["n_hits"] or d["best_sig"] >= old["best_sig"] + 1.0:
                 self.activity.change(f"{tid} grew to {d['n_hits']} hits, {d['best_sig']}σ "
                                      f"(was {old['n_hits']} hits, {old['best_sig']}σ){unrep}", "grew", tid)
+        for tid, old in self.known.items():  # file every candidate the tracker is done with, for training
+            if tid not in cur and not old.get("held"):
+                _archive(self.camera, old)
         self.known = cur
         seen = getattr(self, "known_sparks", set())
         for s in state.get("sparks", []):
@@ -534,6 +537,14 @@ def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas
     }
 
 
+def _archive(camera: str, d: dict) -> None:
+    """data/live/<camera>/archive/YYYY-MM/<id>.json: the last summary of a candidate
+    that has left the dashboard. `kreutz learn` labels these from the reports."""
+    month = d["first_seen"][:7]
+    _write_json(live_dir(camera) / "archive" / month / f"{d['id']}.json",
+                {k: v for k, v in d.items() if k not in ("group", "pieces", "sheet", "thumb", "columns", "label")})
+
+
 def _hold(camera: str, following: list[dict], held: set[str]) -> None:
     """The owner's comet labels keep a track on the dashboard until the label is
     cleared: a copy of each labelled track's last summary is kept, and once the
@@ -626,7 +637,7 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con) -> di
         "first_seen": first["frame_time"], "last_seen": last["frame_time"],
         "x": round(last["x"]), "y": round(last["y"]),
         "velocity": [round(vx, 1), round(vy, 1)], "speed": round(float(np.hypot(vx, vy)), 1),
-        "best_sig": round(max(h["sig"] for h in hits), 1),
+        "best_sig": round(max(h["sig"] for h in hits), 1), "sun_xy": t.get("sun_xy"),
         "hits": [{"t": h["frame_time"], "x": round(h["x"], 1), "y": round(h["y"], 1), "sig": round(h["sig"], 1)}
                  for h in hits],
         "report": None,

@@ -107,6 +107,22 @@ a third hit moves one up to FOLLOWING under the same id, a miss drops it. The
 change log notes each new spark once. Sparks on top of a followed object are
 not listed.
 
+Learning from the reports: `kreutz learn` builds a labelled set of candidates
+without anyone in the loop. Every track with 5+ hits that the rules kept is a
+*comet* if it matches a non-rejected Sungrazer report (the scorer's truth
+matching) and *noise* if the reports stayed silent; tracks matching a rejected
+claim, duplicates of a comet track, and bright (20 sigma+) unreported tracks
+are left out as ambiguous. The owner's comet labels count as comets; noise
+labels are not needed. Features are what the detector knows at its fifth hit
+(start radius, speed for that radius, heading, brightness and trend, shape,
+straightness); the model is a logistic regression scored leave-one-period-out,
+and the smallest feature set that passes the least noise at full recall wins.
+Sources are the scored runs under `results/<camera>/` and the live watcher's
+archive (`data/live/<camera>/archive/YYYY-MM/<id>.json`, one file per candidate
+once it leaves the dashboard), so the set grows by itself and a track reported
+after the fact changes side at the next training. Output:
+`results/<camera>/learn/README.md` and `model.json`.
+
 A comet label also holds the object in the top list until the label is
 cleared, through the tracker rejecting it, the 24 h display cutoff and the
 tracker's own pruning: the watcher keeps a copy of its last summary in
