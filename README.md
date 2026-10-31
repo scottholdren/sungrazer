@@ -108,13 +108,16 @@ the benchmark weeks it keeps every comet at about 12 noise tracks a week. It
 is shown in the top list and the change log, never posted to Discord.
 
 Sparks: a section under FOLLOWING lists two-hit chains that are bright on
-both hits (`SPARK_SIGMA`, 10 sigma, the watch tier's brightness) and pass the
-same rejection rules as candidates (outbound, off-envelope, glare, edge,
-extended, stationary, star-drift), with the detector's stacked cutout. Open
-chains die on their first miss, so sparks are always as of the newest frame:
-a third hit moves one up to FOLLOWING under the same id, a miss drops it. The
-change log notes each new spark once. Sparks on top of a followed object are
-not listed.
+both hits (`SPARK_SIGMA`, 8 sigma: about two a day, and half the benchmark
+comets qualify at two hits) and pass the same rejection rules as candidates
+(outbound, off-envelope, glare, edge, extended, stationary, star-drift), with
+the detector's stacked cutout. Open chains die on their first miss, so sparks
+are always as of the newest frame: a third hit moves one up to FOLLOWING
+under the same id, a miss drops it. Because a spark lives one frame, the
+state also carries `spark_log`, the last `SPARK_LOG_H` (6) hours of sparks
+with their fate (grew into a track, rejected at the third hit, gone), listed
+under the section. The change log notes each new spark once. Sparks on top
+of a followed object are not listed.
 
 Learning from the reports: `kreutz learn` builds a labelled set of candidates
 without anyone in the loop. Every track with 5+ hits that the rules kept is a

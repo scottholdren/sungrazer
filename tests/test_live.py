@@ -115,7 +115,8 @@ def test_comet_label_holds_a_track_until_cleared(tmp_path, monkeypatch):
 def test_sparks_are_bright_two_hit_chains_that_pass_the_rules(tmp_path, monkeypatch):
     from kreutz.detect.track import Tracker
 
-    t0 = datetime(2026, 10, 24, 10, 0, 25, tzinfo=timezone.utc).timestamp()
+    t0dt = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(second=25, microsecond=0)
+    t0 = t0dt.timestamp()  # recent: the spark log keeps the last few hours
     sun = [1041, 962]
     mk = lambda x, y, sig, vx=-8.0, vy=-3.0: Peak(t=0, x=x, y=y, sig=sig, vx=vx, vy=vy, edge=None, elong=None)
     tr = Tracker()
@@ -128,7 +129,7 @@ def test_sparks_are_bright_two_hit_chains_that_pass_the_rules(tmp_path, monkeypa
         tr.update(t, peaks, None, sun, envelope=None, seed=True)
     assert sum(len(t.hits) == 2 for t in tr.active) == 3
     s = live.sparks(tr, None, sun, None)
-    assert [d["id"] for d in s] == ["20261024T1000_1500_1200"]
+    assert [d["id"] for d in s] == [f"{t0dt:%Y%m%dT%H%M}_1500_1200"]
     assert s[0]["hits"][1]["x"] == 1492 and s[0]["min_sig"] == 20.0 and s[0]["speed"] == 8.5
     # a spark riding on a followed object is not listed; the change log announces a new spark once
     monkeypatch.setattr(live.score, "latency_s", lambda cam: (0.0, "no log"))
@@ -138,15 +139,29 @@ def test_sparks_are_bright_two_hit_chains_that_pass_the_rules(tmp_path, monkeypa
     near = dict(s[0], id="x", hits=[dict(h, x=h["x"] + 20) for h in s[0]["hits"]])
     st = live.build_state("ccor1", [], [], [], [], None, db.connect(":memory:"), now, sparks=[s[0], near])
     assert [d["id"] for d in st["sparks"]] == [s[0]["id"], "x"]
-    big = _track(datetime(2026, 10, 24, 10, 0, 25, tzinfo=timezone.utc), 5)  # a followed object on the same path
+    big = _track(t0dt, 5)  # a followed object on the same path at the same times
     st = live.build_state("ccor1", [big], [], [], [], None, db.connect(":memory:"), now, sparks=[s[0]])
     assert st["sparks"] == []
     monkeypatch.setattr(live.paths, "DATA", tmp_path)
     w = live.Watcher.__new__(live.Watcher)
     w.camera, w.activity, w.pending_posts, w.known = "ccor1", live.Activity("ccor1"), [], {}
-    w._announce({"tracks": [], "sparks": [s[0]]})
-    w._announce({"tracks": [], "sparks": [s[0]]})
+    st1 = {"tracks": [], "sparks": [s[0]]}
+    w._announce(st1)
+    w._announce(st1)
     assert [c["kind"] for c in w.activity.changes] == ["spark"] and s[0]["id"] in w.activity.changes[0]["msg"]
+    assert st1["spark_log"] == [{"id": s[0]["id"], "first_seen": s[0]["first_seen"], "x": 1492, "y": 1197, "speed": 8.5,
+                                 "sigs": [20.0, 20.0], "fate": None}]
+    # the spark lives one frame; the log records what became of it
+    st2 = {"tracks": [{"id": s[0]["id"], "x": 1484, "y": 1194, "speed": 8.5, "report": None, "tier": None, "tier_at": None,
+                       "group": s[0]["id"], "first_seen": s[0]["first_seen"], "n_hits": 3, "best_sig": 20.0}], "sparks": []}
+    w._announce(st2)
+    assert st2["spark_log"][0]["fate"] == "grew"
+    w.spark_log = None  # a restart reloads the log from the state on disk
+    (tmp_path / "live" / "ccor1").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "live" / "ccor1" / "state.json").write_text(json.dumps({"tracks": [], "spark_log": [{**st1["spark_log"][0], "fate": None}]}))
+    st3 = {"tracks": [], "sparks": [], "rejected": []}
+    w._announce(st3)
+    assert st3["spark_log"][0]["fate"] == "gone"
 
 
 def test_tiers_fire_in_real_time_order():

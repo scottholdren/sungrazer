@@ -311,6 +311,31 @@ class Watcher:
                 sigs = ", ".join(f"{h['sig']}σ" for h in s["hits"])
                 self.activity.change(f"spark {s['id']} at {s['x']},{s['y']}, {s['speed']} px/frame, 2 hits: {sigs}", "spark", s["id"])
         self.known_sparks = {s["id"] for s in state.get("sparks", [])}
+        self._spark_log(state, cur)
+
+    def _spark_log(self, state: dict, cur: dict) -> None:
+        """A spark is gone at the next frame, so keep the last SPARK_LOG_H hours of them
+        with what became of each: grew into a track, rejected at its third hit, or gone."""
+        log = getattr(self, "spark_log", None)
+        if log is None:
+            p = live_dir(self.camera) / "state.json"
+            try:
+                log = json.loads(p.read_text()).get("spark_log", []) if p.exists() else []
+            except Exception:
+                log = []
+        now_ids = {s["id"] for s in state.get("sparks", [])}
+        rejected = {d["id"] for d in state.get("rejected", [])}
+        for e in log:
+            if e["fate"] is None and e["id"] not in now_ids:
+                e["fate"] = "grew" if e["id"] in cur else "rejected" if e["id"] in rejected else "gone"
+        known = {e["id"] for e in log}
+        for s in state.get("sparks", []):
+            if s["id"] not in known:
+                log.append({"id": s["id"], "first_seen": s["first_seen"], "x": s["x"], "y": s["y"], "speed": s["speed"],
+                            "sigs": [h["sig"] for h in s["hits"]], "fate": None})
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=SPARK_LOG_H)).isoformat()
+        self.spark_log = [e for e in log if e["first_seen"] >= cutoff]
+        state["spark_log"] = self.spark_log
 
     def _stage_a(self, paths_, targets, progress) -> None:
         """Feed new frames to the resident StageA when they directly follow what it
@@ -395,7 +420,8 @@ class Watcher:
         return self.snapshot, open_chains, last, self.sparks
 
 
-SPARK_SIGMA = 10.0  # a two-hit chain this bright on both hits (the watch tier's brightness) is a spark
+SPARK_SIGMA = 8.0  # a two-hit chain this bright on both hits is a spark (~2/day; half the comets qualify)
+SPARK_LOG_H = 6  # sparks live one frame, so the dashboard also keeps a log of recent ones and their fate
 
 
 def sparks(tr: Tracker, drift, sun_xy, envelope) -> list[dict]:

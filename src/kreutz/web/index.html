@@ -71,8 +71,9 @@ code { background:#000; padding:2px 6px; border-radius:4px; font-size:12px }
 <h2>FOLLOWING</h2>
 <div id="following"></div>
 <h2>SPARKS</h2>
-<div class="dim">two-frame chains, both frames at or above 10σ, passing the usual rejection rules, as of the newest frame — a third frame moves one up to FOLLOWING, a miss drops it</div>
+<div class="dim">two-frame chains, both frames at or above 8σ, passing the usual rejection rules, as of the newest frame — a third frame moves one up to FOLLOWING, a miss drops it. A spark lives one frame, so the last 6 h are listed below with what became of each</div>
 <div id="sparks"></div>
+<div id="sparklog" class="dim" style="margin-top:6px"></div>
 <details id="rejdet"><summary id="rejsum">rejected</summary><div id="rejected"></div></details>
 <div id="detail"><div class="panel" id="panel"></div></div>
 <script>
@@ -159,6 +160,13 @@ function render() {
   const sparks = show.flatMap(c => (c.sparks || []).map(t => ({...t, cam:c})));
   $('#sparks').innerHTML = sparks.length ? sparks.map(spark).join('')
     : '<div class="dim">none on the newest frame</div>';
+  const FATE = { grew: 'grew into a track', rejected: 'rejected at its third frame', gone: 'no third frame' };
+  const log = show.flatMap(c => (c.spark_log || []).filter(e => e.fate).map(e => ({...e, cam:c})))
+    .sort((a,b) => b.first_seen.localeCompare(a.first_seen));
+  $('#sparklog').innerHTML = log.length ? 'earlier: ' + log.map(e => {
+    const what = `${fmt(e.first_seen)} ${e.id} (${e.sigs.map(s => s + 'σ').join(', ')}, ${e.speed} px/frame)`;
+    return e.fate === 'grew' ? `<a href="#" onclick="openDetail('${e.cam.camera}','${e.id}');return false" style="color:#9ecbff">${esc(what)} — ${FATE.grew}</a>` : `${esc(what)} — ${FATE[e.fate]}`;
+  }).join('<br>') : '';
   const rej = show.flatMap(c => c.rejected.map(t => ({...t, cam:c})));
   $('#rejsum').textContent = `rejected in the last 24 h: ${show.reduce((n,c)=>n+c.n_rejected,0)} (showing ${rej.length} by significance)`;
   $('#rejected').innerHTML = rej.map(t => `<div class="rej" onclick="openDetail('${t.cam.camera}','${t.id}')"><span class="b outline">${esc(t.cam.label)}</span> <span class="b red">${esc(t.status.replace('rejected:',''))}</span> ${t.id} · ${n(t.n_hits, 'hit')} · sig ${t.best_sig} · at ${t.x},${t.y} · ${t.speed} px/frame · last ${fmt(t.last_seen)}</div>`).join('');
