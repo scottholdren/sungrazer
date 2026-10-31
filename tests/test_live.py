@@ -368,15 +368,20 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
     (tmp_path / "derived" / "ccor1" / A.VERSION / "meta").mkdir(parents=True)
     vx, vy = 6.0, -4.0  # full-res px per frame, report coords (y down)
     x0, y0 = 1000.0, 800.0
+    from astropy.io import fits as pyfits
+
     names = []
+    corona = 1000.0 / (1 + np.hypot(*np.indices((1920, 2048)) - np.array([[[960]], [[1024]]])) / 300.0)  # static, bright
     for k in range(10):
         name = f"CCOR1_1B_20261027T{20 + k // 4:02d}{(k % 4) * 15:02d}25_V00_NC.fits"
-        (day / name).touch()
         sig = np.random.default_rng(k).normal(0, 1, (960, 1024)).astype(np.float32)
         x, y = x0 + vx * k, y0 + vy * k
         col, row = int(round(x / 2)), int(round((1919 - y) / 2))
         sig[row - 1:row + 2, col - 1:col + 2] += 12.0
         np.save(A.sig_path("ccor1", name), sig.astype(np.float16))
+        raw = (corona + np.random.default_rng(100 + k).normal(0, 1, (1920, 2048))).astype(np.float32)  # the raw frame
+        raw[1919 - int(y) - 2:1919 - int(y) + 3, int(x) - 2:int(x) + 3] += 6.0  # the object, FITS rows from the bottom
+        pyfits.PrimaryHDU(raw).writeto(day / name)
         A.meta_path("ccor1", name).write_text(json.dumps({"name": name, "time": 0, "ok": True, "problems": [], "drift": None,
                                                            "drift_dt": None, "star_frames": 8, "n_stars_masked": 0, "sun_xy": None}))
         names.append(name)
@@ -399,17 +404,20 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
     assert movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3) == meta  # cached
     deep = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies")  # the detector's 8-stack
     assert deep["stack"] == movie.STACK and deep["frames"][-1]["stacked"] == movie.STACK
-    # the full field: one PNG per frame, the whole half-res map, ring in map px
+    # the full field: one PNG per frame, the raw frame minus the median of the five before it, no stacking,
+    # noise kept as texture (black point -2 sigma), ring in half-res px
     fm = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3, full=True)
     assert len(fm["pngs"]) == len(fm["frames"]) == 1 + movie.LEAD_FRAMES + 3 and (fm["width"], fm["height"]) == (1024, 960)
+    assert fm["stack"] == 1 and (fm["lo_sigma"], fm["hi_sigma"]) == (movie.FIELD_LO, movie.FIELD_HI)
     for j, f in enumerate(fm["frames"]):
         img = _read_png(tmp_path / "live" / "ccor1" / "movies" / fm["pngs"][j].split("/")[-1])
         assert img.shape == (960, 1024)
         y, x = int(round(f["y"])), int(round(f["x"]))
         assert img[y - 2:y + 3, x - 2:x + 3].max() > 200, f"object missing from full frame {j}"
-        assert np.median(img) < 40
-    assert fm["frames"][-1]["stacked"] == 3 and fm["frames"][-1]["peak"] > 15
-    assert movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3, full=True) == fm  # cached
+        assert 30 < np.median(img) < 80  # zero sigma sits at (0 - lo) / (hi - lo): the noise is visible, not black
+        assert f["stacked"] == 1
+    assert fm["frames"][-1]["background"] == movie.FIELD_BG and fm["frames"][-1]["peak"] > 6
+    assert movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=8, full=True) == fm  # cached; stack ignored
     assert (tmp_path / "live" / "ccor1" / "movies" / "t1_4_s3.png").exists()  # both depths of the current size stay
     d["n_hits"] = 5
     movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies")

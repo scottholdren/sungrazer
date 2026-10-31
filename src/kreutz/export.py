@@ -28,7 +28,8 @@ from .inspect import read_png, write_png
 
 LANE = ("Kreutz comets in CCOR-1 arrive from the lower right, position angle -10 to -45 deg, "
         "and head within ~20 deg of the Sun")
-BLACK_SIGMA = 2.5  # the GIF's black point
+BLACK_SIGMA = 2.5  # the patch GIF's black point
+FIELD_BLACK_SIGMA = -2.0  # the field GIF's: below zero, so the noise stays as texture
 RING_R = 7         # half-res px
 
 
@@ -93,11 +94,13 @@ def write_field_gif(root: Path, fm: dict, out: Path) -> None:
     """The full-field movie's frames (one PNG each) with the black point and the ring,
     as an animated GIF; mostly black, so it compresses well despite the size."""
     yy, xx = np.mgrid[0:fm["height"], 0:fm["width"]]
-    b = BLACK_SIGMA / fm["range_sigma"] * 255
+    lo, hi = fm.get("lo_sigma", 0.0), fm.get("hi_sigma", fm["range_sigma"])
+    b = max((FIELD_BLACK_SIGMA - lo) / (hi - lo) * 255, 0.0)  # the field keeps its noise as texture
     frames = []
     for p, f in zip(fm["pngs"], fm["frames"]):
         img = read_png(root / p).astype(np.float32)
-        img = np.where(img <= b, 0, (img - b) * 255 / (255 - b))
+        if b > 0:
+            img = np.where(img <= b, 0, (img - b) * 255 / (255 - b))
         idx = gif.gray_to_index(img)
         ring = np.abs(np.hypot(xx - f["x"], yy - f["y"]) - fm["ring_r"]) < 1.2
         idx[ring] = gif.GREEN if f["hit"] else gif.YELLOW
@@ -319,9 +322,10 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
               "![movie](movie.gif)"]
     if "field.gif" in files:
         L += ["", "## Full field", "",
-              "The whole frame at half resolution, the last frames up to the newest hit (three maps added along the "
-              "motion), same scale and ring. For where the object sits in the corona and what else is moving; "
-              "a faint object is easier to judge in the patch above.", "",
+              "The whole frame at half resolution, the last frames up to the newest hit: each frame minus the "
+              "median of the five before it, no stacking, on a linear scale from -2 sigma of the frame's noise "
+              "(so the noise shows as texture). For where the object sits in the corona and what else is moving; "
+              "a faint object is easier to judge in the stacked patch above.", "",
               "![full field](field.gif)"]
     if "sheet.png" in files:
         L += ["", "## Contact sheet", "",

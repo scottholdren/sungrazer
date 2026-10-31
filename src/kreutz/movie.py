@@ -34,15 +34,17 @@ STACK = 8            # maps added along the motion (the detector stacks 8); 3 is
 MAX_FRAMES = 40
 LEAD_FRAMES = 4      # frames shown before the first hit
 RANGE_SIGMA = 10.0   # 255 on the PNG
-FULL_FRAMES = 16     # the full-field movie: the whole half-res map, this many frames up to the newest hit
+FULL_FRAMES = 16     # the full-field movie: the whole frame at half res, this many frames up to the newest hit
 FULL_RING = 10       # ring radius on it, px
+FIELD_BG = 5         # the field is the frame minus the median of this many earlier frames
+FIELD_LO, FIELD_HI = -2.0, 8.0  # the field's linear scale in sigma of the frame's own noise (0 and 255 on the PNG)
 
 
 def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = False) -> dict:
     """Build (or reuse) the movie for track summary `d` (state.json entry), each
     frame the sum of the last `stack` maps along the motion. `full` gives the
     whole field at half resolution (one PNG per frame) instead of the zoomed patch."""
-    key = f"{d['id']}_{d['n_hits']}_s{stack}" + ("_full" if full else "")
+    key = f"{d['id']}_{d['n_hits']}_full" if full else f"{d['id']}_{d['n_hits']}_s{stack}"
     png, js = out_dir / f"{key}.png", out_dir / f"{key}.json"
     if js.exists():
         meta = json.loads(js.read_text())
@@ -63,7 +65,7 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
     idx = FrameIndex(camera, datetime.fromtimestamp(t_show0).date() - timedelta(days=1),
                      datetime.fromtimestamp(t_last).date())
     good = [(p, tt.timestamp()) for p, tt in zip(idx.paths, idx.times)
-            if t_show0 - (stack + 1) * FRAME_SECONDS <= tt.timestamp() <= t_last + 60
+            if t_show0 - (max(stack, FIELD_BG) + 1) * FRAME_SECONDS <= tt.timestamp() <= t_last + 60
             and (m := A.load_meta(camera, p.name)) is not None and m.ok and A.sig_path(camera, p.name).exists()]
     shown = [g for g in good if g[1] >= t_show0 - 60]
     if not shown:
@@ -93,36 +95,48 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
 
     hit_times = set(np.round(t / 60).astype(int))
     if full:
+        # The field is the raw frame minus the median of the previous FIELD_BG frames
+        # (no stacking: shifting along one object's motion smears everything else),
+        # on a linear scale from FIELD_LO sigma of the frame's own noise, so the noise
+        # shows as texture rather than being cut to black.
         out_dir.mkdir(parents=True, exist_ok=True)
         frames, pngs = [], []
-        h, w = sig(shown[-1][0].name).shape
+        raws: dict[str, np.ndarray] = {}
+
+        def raw(p: Path) -> np.ndarray:
+            if p.name not in raws:
+                raws[p.name] = _raw_half(p)
+                if len(raws) > FIELD_BG + 2:
+                    del raws[next(iter(raws))]
+            return raws[p.name]
+
         for k, (p, ts) in enumerate(shown):
-            acc, n = np.zeros((h, w), np.float32), 0
-            for q, tq in reversed(good):
-                if tq > ts + 1:
-                    continue
-                dt = (ts - tq) / FRAME_SECONDS
-                acc += _shift(sig(q.name), vx * dt / 2, vy * dt / 2)
-                n += 1
-                if n >= stack:
-                    break
-            stk = acc / np.sqrt(max(n, 1))
+            earlier = [q for q, tq in good if tq < ts - 1][-FIELD_BG:]
+            if not earlier:
+                raise ValueError("no earlier frames for the background")
+            cur = raw(p)
+            diff = cur - np.nanmedian(np.stack([raw(q) for q in earlier]), axis=0)
+            ok = np.isfinite(diff)
+            sigma = 1.4826 * float(np.nanmedian(np.abs(diff[ok] - np.nanmedian(diff[ok])))) if ok.any() else 1.0
+            z = np.where(ok, diff / max(sigma, 1e-9), FIELD_LO)
+            img = (np.clip((z - FIELD_LO) / (FIELD_HI - FIELD_LO), 0, 1) * 255).astype(np.uint8)
+            h, w = img.shape
             fpng = out_dir / f"{key}_{k:02d}.png"
-            write_png(fpng, (np.clip(stk / RANGE_SIGMA, 0, 1) * 255).astype(np.uint8))
+            write_png(fpng, img)
             pngs.append(f"{camera}/movies/{fpng.name}")
             px, py = np.polyval(fx, ts / FRAME_SECONDS), np.polyval(fy, ts / FRAME_SECONDS)
             ri, ci = int(round(py / 2)), int(round(px / 2))
-            ring = stk[max(ri - 3, 0):ri + 4, max(ci - 3, 0):ci + 4]
+            ring = z[max(ri - 3, 0):ri + 4, max(ci - 3, 0):ci + 4]
             frames.append({"peak": round(float(ring.max()), 1) if ring.size else None,
-                           "tail": round(float(np.percentile(stk, 99.9)), 1),
+                           "tail": round(float(np.percentile(z[ok], 99.9)), 1) if ok.any() else None,
                            "name": p.name[9:24], "t": datetime.fromtimestamp(ts).astimezone().isoformat(timespec="minutes"),
                            "x": round(px / 2, 1), "y": round(py / 2, 1),
-                           "hit": int(round(ts / 60)) in hit_times, "stacked": n})
+                           "hit": int(round(ts / 60)) in hit_times, "stacked": 1, "background": len(earlier)})
         for old in out_dir.glob(f"{d['id']}_*"):
             if not old.name.startswith(f"{d['id']}_{d['n_hits']}_"):
                 old.unlink()
-        meta = {"pngs": pngs, "width": w, "height": h, "zoom": 1, "stack": stack, "range_sigma": RANGE_SIGMA,
-                "frames": frames, "ring_r": FULL_RING}
+        meta = {"pngs": pngs, "width": w, "height": h, "zoom": 1, "stack": 1, "range_sigma": FIELD_HI,
+                "lo_sigma": FIELD_LO, "hi_sigma": FIELD_HI, "frames": frames, "ring_r": FULL_RING}
         js.write_text(json.dumps(meta))
         return meta
     ncol = math.ceil(math.sqrt(len(shown)))
@@ -164,19 +178,17 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
     return meta
 
 
-def _shift(sig: np.ndarray, dx: float, dy: float) -> np.ndarray:
-    """The whole half-res map in report orientation (row 0 = top), its content moved
-    by (dx, dy) half-res px (so an earlier map lines up with where the object is now);
-    off-map pixels are 0."""
-    m = np.flipud(np.nan_to_num(sig.astype(np.float32), nan=0.0))
-    h, w = m.shape
-    out = np.zeros_like(m)
-    ix, iy = int(round(dx)), int(round(dy))
-    ys, yd = (slice(0, h - iy), slice(iy, h)) if iy >= 0 else (slice(-iy, h), slice(0, h + iy))
-    xs, xd = (slice(0, w - ix), slice(ix, w)) if ix >= 0 else (slice(-ix, w), slice(0, w + ix))
-    if h - abs(iy) > 0 and w - abs(ix) > 0:
-        out[yd, xd] = m[ys, xs]
-    return out
+def _raw_half(p: Path) -> np.ndarray:
+    """The raw frame at half resolution (2x2 mean), report orientation (row 0 = top),
+    masked pixels NaN."""
+    from .fitsio import read_frame
+
+    d = read_frame(p, check_orientation=False).data.astype(np.float32)
+    d = np.where(d > 0, d, np.nan)  # the occulter and the arm read 0 or below
+    h, w = (d.shape[0] // 2) * 2, (d.shape[1] // 2) * 2
+    with np.errstate(all="ignore"):
+        small = np.nanmean(d[:h, :w].reshape(h // 2, 2, w // 2, 2), axis=(1, 3))
+    return np.flipud(small)
 
 
 def _cut(sig: np.ndarray, x: float, y: float, half: int) -> np.ndarray:

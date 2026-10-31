@@ -152,10 +152,15 @@ previews with the object's own picture, where a link into the repo shows
 GitHub's card for the repo. Pages rebuilds a minute or two after each push.
 
 Full field: the "full field" button next to it asks `/api/movie` with
-`full=1` for the whole half-resolution map (one PNG per frame, the last
-`FULL_FRAMES` = 16 frames up to the newest hit, earlier maps shifted along the
-motion and added), with the ring at the fitted position; click the picture for
-1:1. Same black point, speed and scrub controls.
+`full=1` for the whole frame at half resolution (one PNG per frame, the last
+`FULL_FRAMES` = 16 frames up to the newest hit): each raw frame minus the
+median of the `FIELD_BG` (5) frames before it, no stacking (shifting along one
+object's motion smears everything else; stacking stays in the zoomed patch,
+where it helps a faint comet show), on a linear scale from `FIELD_LO` (-2) to
+`FIELD_HI` (8) sigma of the frame's own noise so the noise shows as texture
+rather than being cut to black. Ring at the fitted position; click the picture
+for 1:1. Same speed and scrub controls; the black point slider goes below zero
+and defaults to -2 sigma here, 2 sigma for the patch.
 
 Movie: the detail view's "build hi-res movie" button asks `/api/movie` for a
 fixed patch of sky (significance maps, the last 8 or 3 frames added along the
