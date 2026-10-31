@@ -204,7 +204,8 @@ def _radial_sigma(diff: np.ndarray, ok: np.ndarray, centre: tuple[float, float] 
     if not good.any():
         return np.ones_like(diff)
     prof = np.interp(np.arange(n), np.flatnonzero(good), prof[good])
-    return np.maximum(prof[r], 1e-9).astype(np.float32)
+    floor = 1e-3 * float(np.median(prof[good]))  # raw units are tiny (1e-10): the floor must be relative
+    return np.maximum(prof[r], floor).astype(np.float32)
 
 
 def _raw_half(p: Path) -> np.ndarray:
