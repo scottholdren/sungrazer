@@ -142,6 +142,12 @@ tracker's own pruning: the watcher keeps a copy of its last summary in
 (the card says so). Clearing the label drops only the hold; an object that
 is still a live watch stays by its own rules.
 
+Full field: the "full field" button next to it asks `/api/movie` with
+`full=1` for the whole half-resolution map (one PNG per frame, the last
+`FULL_FRAMES` = 16 frames up to the newest hit, earlier maps shifted along the
+motion and added), with the ring at the fitted position; click the picture for
+1:1. Same black point, speed and scrub controls.
+
 Movie: the detail view's "build hi-res movie" button asks `/api/movie` for a
 fixed patch of sky (significance maps, the last 8 or 3 frames added along the
 fitted motion, 2× camera resolution) and plays it with a black-point slider

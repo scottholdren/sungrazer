@@ -34,15 +34,20 @@ STACK = 8            # maps added along the motion (the detector stacks 8); 3 is
 MAX_FRAMES = 40
 LEAD_FRAMES = 4      # frames shown before the first hit
 RANGE_SIGMA = 10.0   # 255 on the PNG
+FULL_FRAMES = 16     # the full-field movie: the whole half-res map, this many frames up to the newest hit
+FULL_RING = 10       # ring radius on it, px
 
 
-def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK) -> dict:
+def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = False) -> dict:
     """Build (or reuse) the movie for track summary `d` (state.json entry), each
-    frame the sum of the last `stack` maps along the motion."""
-    key = f"{d['id']}_{d['n_hits']}_s{stack}"
+    frame the sum of the last `stack` maps along the motion. `full` gives the
+    whole field at half resolution (one PNG per frame) instead of the zoomed patch."""
+    key = f"{d['id']}_{d['n_hits']}_s{stack}" + ("_full" if full else "")
     png, js = out_dir / f"{key}.png", out_dir / f"{key}.json"
-    if js.exists() and png.exists():
-        return json.loads(js.read_text())
+    if js.exists():
+        meta = json.loads(js.read_text())
+        if png.exists() or (full and all((out_dir / Path(p).name).exists() for p in meta.get("pngs", []))):
+            return meta
     hits = d["hits"]
     t = np.array([_ts(h["t"]) for h in hits])
     xs, ys = np.array([h["x"] for h in hits], float), np.array([h["y"] for h in hits], float)
@@ -63,7 +68,9 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK) -> dict:
     shown = [g for g in good if g[1] >= t_show0 - 60]
     if not shown:
         raise ValueError("no processed frames for this track")
-    if len(shown) > MAX_FRAMES:
+    if full:
+        shown = shown[-FULL_FRAMES:]
+    elif len(shown) > MAX_FRAMES:
         shown = [shown[i] for i in np.linspace(0, len(shown) - 1, MAX_FRAMES).round().astype(int)]
 
     # fixed patch: centred on the middle of the fitted path, big enough for all of it
@@ -85,6 +92,39 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK) -> dict:
         return cache[name]
 
     hit_times = set(np.round(t / 60).astype(int))
+    if full:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        frames, pngs = [], []
+        h, w = sig(shown[-1][0].name).shape
+        for k, (p, ts) in enumerate(shown):
+            acc, n = np.zeros((h, w), np.float32), 0
+            for q, tq in reversed(good):
+                if tq > ts + 1:
+                    continue
+                dt = (ts - tq) / FRAME_SECONDS
+                acc += _shift(sig(q.name), vx * dt / 2, vy * dt / 2)
+                n += 1
+                if n >= stack:
+                    break
+            stk = acc / np.sqrt(max(n, 1))
+            fpng = out_dir / f"{key}_{k:02d}.png"
+            write_png(fpng, (np.clip(stk / RANGE_SIGMA, 0, 1) * 255).astype(np.uint8))
+            pngs.append(f"{camera}/movies/{fpng.name}")
+            px, py = np.polyval(fx, ts / FRAME_SECONDS), np.polyval(fy, ts / FRAME_SECONDS)
+            ri, ci = int(round(py / 2)), int(round(px / 2))
+            ring = stk[max(ri - 3, 0):ri + 4, max(ci - 3, 0):ci + 4]
+            frames.append({"peak": round(float(ring.max()), 1) if ring.size else None,
+                           "tail": round(float(np.percentile(stk, 99.9)), 1),
+                           "name": p.name[9:24], "t": datetime.fromtimestamp(ts).astimezone().isoformat(timespec="minutes"),
+                           "x": round(px / 2, 1), "y": round(py / 2, 1),
+                           "hit": int(round(ts / 60)) in hit_times, "stacked": n})
+        for old in out_dir.glob(f"{d['id']}_*"):
+            if not old.name.startswith(f"{d['id']}_{d['n_hits']}_"):
+                old.unlink()
+        meta = {"pngs": pngs, "width": w, "height": h, "zoom": 1, "stack": stack, "range_sigma": RANGE_SIGMA,
+                "frames": frames, "ring_r": FULL_RING}
+        js.write_text(json.dumps(meta))
+        return meta
     ncol = math.ceil(math.sqrt(len(shown)))
     nrow = math.ceil(len(shown) / ncol)
     sheet = np.zeros((nrow * tile, ncol * tile), np.uint8)
@@ -122,6 +162,21 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK) -> dict:
             "half_fullres": half * 2}
     js.write_text(json.dumps(meta))
     return meta
+
+
+def _shift(sig: np.ndarray, dx: float, dy: float) -> np.ndarray:
+    """The whole half-res map in report orientation (row 0 = top), its content moved
+    by (dx, dy) half-res px (so an earlier map lines up with where the object is now);
+    off-map pixels are 0."""
+    m = np.flipud(np.nan_to_num(sig.astype(np.float32), nan=0.0))
+    h, w = m.shape
+    out = np.zeros_like(m)
+    ix, iy = int(round(dx)), int(round(dy))
+    ys, yd = (slice(0, h - iy), slice(iy, h)) if iy >= 0 else (slice(-iy, h), slice(0, h + iy))
+    xs, xd = (slice(0, w - ix), slice(ix, w)) if ix >= 0 else (slice(-ix, w), slice(0, w + ix))
+    if h - abs(iy) > 0 and w - abs(ix) > 0:
+        out[yd, xd] = m[ys, xs]
+    return out
 
 
 def _cut(sig: np.ndarray, x: float, y: float, half: int) -> np.ndarray:

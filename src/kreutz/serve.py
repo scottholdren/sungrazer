@@ -104,9 +104,10 @@ class Handler(SimpleHTTPRequestHandler):
         if d is None:
             self.send_error(404, "no such track")
             return
+        full = q.get("full", ["0"])[0] == "1"
         try:
             with MOVIE_LOCK:
-                meta = movie.movie(camera, d, Path(self.directory) / camera / "movies", stack)
+                meta = movie.movie(camera, d, Path(self.directory) / camera / "movies", stack, full=full)
         except Exception as e:  # missing frames, unreadable maps: tell the page, keep serving
             self.send_error(500, str(e))
             return

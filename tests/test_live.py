@@ -399,6 +399,17 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
     assert movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3) == meta  # cached
     deep = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies")  # the detector's 8-stack
     assert deep["stack"] == movie.STACK and deep["frames"][-1]["stacked"] == movie.STACK
+    # the full field: one PNG per frame, the whole half-res map, ring in map px
+    fm = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3, full=True)
+    assert len(fm["pngs"]) == len(fm["frames"]) == 1 + movie.LEAD_FRAMES + 3 and (fm["width"], fm["height"]) == (1024, 960)
+    for j, f in enumerate(fm["frames"]):
+        img = _read_png(tmp_path / "live" / "ccor1" / "movies" / fm["pngs"][j].split("/")[-1])
+        assert img.shape == (960, 1024)
+        y, x = int(round(f["y"])), int(round(f["x"]))
+        assert img[y - 2:y + 3, x - 2:x + 3].max() > 200, f"object missing from full frame {j}"
+        assert np.median(img) < 40
+    assert fm["frames"][-1]["stacked"] == 3 and fm["frames"][-1]["peak"] > 15
+    assert movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3, full=True) == fm  # cached
     assert (tmp_path / "live" / "ccor1" / "movies" / "t1_4_s3.png").exists()  # both depths of the current size stay
     d["n_hits"] = 5
     movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies")
