@@ -13,6 +13,12 @@ A fixed patch of sky at 2x the camera's resolution: significance maps (stars and
 
 ![movie](movie.gif)
 
+## Full field
+
+The whole frame at half resolution, the last frames up to the newest hit (three maps added along the motion), same scale and ring. For where the object sits in the corona and what else is moving; a faint object is easier to judge in the patch above.
+
+![full field](field.gif)
+
 ## Contact sheet
 
 Top: raw frame. Middle: significance map of that frame. Bottom: the detector's view, the last 8 maps stacked along the motion. Ticks mark the predicted position; a comet is a steady dot on the ticks.
@@ -62,4 +68,4 @@ Sigma inside the ring on the fitted position vs the brightest 0.1% of the whole 
 | 20261031T103025 | 7.8 | 5.2 | hit |
 | 20261031T104525 | 8.0 | 5.2 | hit |
 
-*Written 2026-10-31 20:22 UTC.*
+*Written 2026-10-31 20:24 UTC.*
