@@ -143,7 +143,13 @@ tracker's own pruning: the watcher keeps a copy of its last summary in
 is still a live watch stays by its own rules.
 
 The export also writes it as `field.gif` (3-map stack, black point, ring)
-with its own section in the note.
+with its own section in the note, plus `card.png` (a colour crop of the
+newest hit frame around the object) and `index.html` (the note as HTML with
+Open Graph tags pointing at the card). GitHub Pages serves the repo from
+`main` (`.nojekyll` at the root), so the link to share is
+`https://<owner>.github.io/<repo>/results/<camera>/live-finds/<id>/`: it
+previews with the object's own picture, where a link into the repo shows
+GitHub's card for the repo. Pages rebuilds a minute or two after each push.
 
 Full field: the "full field" button next to it asks `/api/movie` with
 `full=1` for the whole half-resolution map (one PNG per frame, the last

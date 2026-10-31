@@ -126,15 +126,16 @@ def read_png(path: Path) -> np.ndarray:
 
 
 def write_png(path: Path, img: np.ndarray) -> None:
-    """Write an 8-bit grayscale PNG using only the standard library."""
-    h, w = img.shape
-    raw = b"".join(b"\x00" + img[y].tobytes() for y in range(h))
+    """Write an 8-bit grayscale (h, w) or RGB (h, w, 3) PNG using only the standard library."""
+    h, w = img.shape[:2]
+    colour = 2 if img.ndim == 3 else 0
+    raw = b"".join(b"\x00" + np.ascontiguousarray(img[y]).tobytes() for y in range(h))
 
     def chunk(tag, payload):
         return struct.pack(">I", len(payload)) + tag + payload + struct.pack(">I", zlib.crc32(tag + payload))
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"\x89PNG\r\n\x1a\n"
-                     + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0))
+                     + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, colour, 0, 0, 0))
                      + chunk(b"IDAT", zlib.compress(raw, 6))
                      + chunk(b"IEND", b""))

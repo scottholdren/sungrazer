@@ -434,7 +434,16 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
         req = Request(f"http://127.0.0.1:{port}/api/export", data=json.dumps({"camera": "ccor1", "id": "t1"}).encode(),
                       headers={"Content-Type": "application/json"}, method="POST")
         rec = json.loads(urlopen(req).read())
-        assert [f["name"] for f in rec["files"]] == ["README.md", "movie.gif", "field.gif"]  # no sheet/thumb in this fixture
+        assert [f["name"] for f in rec["files"]] == ["README.md", "index.html", "movie.gif", "field.gif", "card.png"]  # no sheet/thumb here
+        page = urlopen(f"http://127.0.0.1:{port}/finds/ccor1/t1/index.html").read().decode()
+        assert "<title>CCOR-1 candidate t1</title>" in page and '<img alt="movie" src="movie.gif">' in page
+        assert "og:image" not in page  # no GitHub remote in this fixture: no page URL, so no absolute image URL
+        assert "<table><tr><th>date</th>" in page and "<pre>" in page and "<h2>Positions</h2>" in page
+        c = urlopen(f"http://127.0.0.1:{port}/finds/ccor1/t1/card.png").read()
+        assert c[:8] == b"\x89PNG\r\n\x1a\n" and c[16:24] == (1000).to_bytes(4, "big") + (525).to_bytes(4, "big") and c[25] == 2  # RGB
+        from kreutz import export
+        html = export.write_page({"id": "t1"}, rec["text"], ["card.png"], "https://x.github.io/r/results/ccor1/live-finds/t1/")
+        assert '<meta property="og:image" content="https://x.github.io/r/results/ccor1/live-finds/t1/card.png">' in html
         fg = urlopen(f"http://127.0.0.1:{port}/finds/ccor1/t1/field.gif").read()
         assert fg[:6] == b"GIF89a" and fg[6:10] == b"\x00\x04\xc0\x03"  # 1024 x 960, little-endian
         assert fg.count(b"\x21\xF9\x04") == 1 + movie.LEAD_FRAMES + 3 and "![full field](field.gif)" in rec["text"]

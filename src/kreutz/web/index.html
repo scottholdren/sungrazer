@@ -332,7 +332,7 @@ async function exportTrack(camera, id) {
     if (!r.ok) throw new Error(await r.text());
     const rec = await r.json();
     EXPORT = rec;
-    $('#exfiles').innerHTML = (rec.url ? `<div><b>share this link:</b> <a href="${esc(rec.url)}" target="_blank" style="color:#9ecbff">${esc(rec.url)}</a> <button onclick="copyLink(this)">copy link</button></div>` : '<div class="warn">not pushed to GitHub (this host cannot push); the files below are local to the dashboard</div>')
+    $('#exfiles').innerHTML = (rec.url ? `<div><b>share this link:</b> <a href="${esc(rec.url)}" target="_blank" style="color:#9ecbff">${esc(rec.url)}</a> <button onclick="copyLink(this)">copy link</button> <span class="dim">(its own page with a preview picture; live a minute or two after the push · <a href="${esc(rec.repo_url)}" target="_blank" style="color:inherit">the files on GitHub</a>)</span></div>` : '<div class="warn">not pushed to GitHub (this host cannot push); the files below are local to the dashboard</div>')
       + 'files: ' + rec.files.map(f => `<a href="${esc(f.url)}" target="_blank" style="color:#fff">${esc(f.name)}</a>`).join(' · ');
     $('#extext').value = (rec.url ? rec.url + '\n\n' : '') + rec.text;
     $('#exbox').style.display = '';
