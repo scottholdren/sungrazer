@@ -37,6 +37,7 @@ LEAD_FRAMES = 4      # frames shown before the first hit
 RANGE_SIGMA = 10.0   # 255 on the PNG
 FULL_FRAMES = 16     # the full-field movie: the whole frame at half res, this many frames up to the newest hit
 FULL_RING = 10       # ring radius on it, px
+FIELD_VERSION = 2    # in the cache key: bump when the field rendering changes, or old frames are served
 FIELD_BG = 5         # the field is the frame minus the median of this many earlier frames
 FIELD_LO, FIELD_HI = -2.0, 8.0  # the field's linear scale in sigma of the frame's own noise (0 and 255 on the PNG)
 
@@ -45,7 +46,7 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
     """Build (or reuse) the movie for track summary `d` (state.json entry), each
     frame the sum of the last `stack` maps along the motion. `full` gives the
     whole field at half resolution (one PNG per frame) instead of the zoomed patch."""
-    key = f"{d['id']}_{d['n_hits']}_full" if full else f"{d['id']}_{d['n_hits']}_s{stack}"
+    key = f"{d['id']}_{d['n_hits']}_full{FIELD_VERSION}" if full else f"{d['id']}_{d['n_hits']}_s{stack}"
     png, js = out_dir / f"{key}.png", out_dir / f"{key}.json"
     if js.exists():
         meta = json.loads(js.read_text())
