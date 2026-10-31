@@ -53,4 +53,4 @@ Sigma inside the ring on the fitted position vs the brightest 0.1% of the whole 
 | 20261028T141525 | 7.4 | 5.0 | hit |
 | 20261028T143025 | 8.9 | 5.0 | hit |
 
-*Written 2026-10-28 18:14 UTC by kreutz live.*
+*Written 2026-10-28 18:14 UTC.*
