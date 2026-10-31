@@ -145,7 +145,7 @@ def make_server(host: str, port: int, root: Path | None = None) -> ThreadingHTTP
 
 def serve(host: str = "0.0.0.0", port: int = 8080) -> None:
     srv = make_server(host, port)
-    print(f"kreutz live on http://{host}:{port}/ serving {paths.DATA / 'live'}", flush=True)
+    print(f"dashboard on http://{host}:{port}/ serving {paths.DATA / 'live'}", flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

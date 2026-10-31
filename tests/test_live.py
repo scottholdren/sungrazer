@@ -316,7 +316,7 @@ def test_server_routes_and_labels(tmp_path, monkeypatch):
     port = srv.server_address[1]
     try:
         html = urlopen(f"http://127.0.0.1:{port}/").read().decode()
-        assert "kreutz live" in html
+        assert "<title>sungrazer</title>" in html and "kreutz live" not in html
         api = json.loads(urlopen(f"http://127.0.0.1:{port}/api/state").read())
         assert api["cameras"][0]["camera"] == "ccor1" and api["cameras"][0]["tracks"][0]["label"] is None
         raw = json.loads(urlopen(f"http://127.0.0.1:{port}/ccor1/state.json").read())

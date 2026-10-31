@@ -87,8 +87,7 @@ def publish(folder: Path, tid: str) -> str | None:
         subprocess.run(git + ["add", str(rel)], check=True, capture_output=True, timeout=30)
         staged = subprocess.run(git + ["diff", "--cached", "--quiet", "--", str(rel)], capture_output=True, timeout=30)
         if staged.returncode != 0:  # something to commit
-            subprocess.run(git + ["-c", "user.name=kreutz live", "-c", "user.email=kreutz-live@stargrazer",
-                                  "commit", "-q", "-m", f"Live find {tid}: hunter's package"],
+            subprocess.run(git + ["commit", "-q", "-m", f"Live find {tid}: hunter's package"],  # as the repo's own user
                            check=True, capture_output=True, timeout=30)
         subprocess.run(git + ["pull", "-q", "--rebase"], check=True, capture_output=True, timeout=120)
         subprocess.run(git + ["push", "-q"], check=True, capture_output=True, timeout=120)
@@ -162,5 +161,5 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
         L += [f"| {f['name']} | {f.get('peak') if f.get('peak') is not None else '-'} | {f.get('tail', '-')} | {'hit' if f['hit'] else ''} |" for f in mv["frames"]]
     elif mv and "error" in mv:
         L += ["", f"(no movie: {mv['error']})"]
-    L += ["", f"*Written {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC by kreutz live.*"]
+    L += ["", f"*Written {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC.*"]
     return "\n".join(L) + "\n"

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>kreutz live</title>
+<title>sungrazer</title>
 <style>
 :root { --bg:#14171c; --card:#1c2027; --line:#2b313b; --fg:#d7dce3; --dim:#8a93a0; --green:#2e7d4f; --blue:#2b5fa8; --amber:#8a6d1f; --red:#8a2f2f; --chip:#2a303a; }
 * { box-sizing:border-box }
@@ -48,7 +48,7 @@ code { background:#000; padding:2px 6px; border-radius:4px; font-size:12px }
 </style>
 </head>
 <body>
-<h1>kreutz live</h1>
+<h1>sungrazer</h1>
 <div id="cams"></div>
 <div class="now" id="now"><span class="dim">waiting for the watcher…</span></div>
 <div id="recent"></div>
@@ -263,7 +263,7 @@ function fillDetail(t, fresh) {
       <div class="movie" id="export"><button onclick="exportTrack('${c.camera}','${t.id}')">export for a hunter</button>
         <span class="dim">writes a Markdown report (positions in the form's layout, convention, caveats, the movie as an animated GIF, the sheet and cutout) into the repo and pushes it: the GitHub link is the thing to share.</span>
         <div id="exbox" style="display:none"><div id="exfiles" class="meta"></div>
-          <div class="ctl"><button onclick="navigator.clipboard.writeText($('#extext').value)">copy the Markdown</button></div>
+          <div class="ctl"><button onclick="copyText($('#extext').value, null, this)">copy the Markdown</button></div>
           <textarea id="extext" readonly spellcheck="false" style="width:100%;max-width:900px;height:320px;background:#0b0e13;color:#dfe5ec;border:1px solid #2a3140;border-radius:4px;padding:8px;font:12px/1.4 ui-monospace,monospace"></textarea></div></div>`;
     const img = new Image(); img.src = t.sheet ? `${t.sheet}?v=${t.n_hits}` : '';
     img.onload = () => { ANIM.img = img; ANIM.cols = t.columns; ANIM.tile = tile; ANIM.gap = gap; draw(); };
@@ -288,6 +288,33 @@ function draw() {
   const s = $('#scrub'); if (s) s.value = j;
   const l = $('#flabel'); if (l) l.textContent = `${j+1}/${ANIM.cols.length}  ${ANIM.cols[j] || ''}`;
 }
+let EXPORT = null;  // the last export's record (url, text, files)
+function copyLink(btn) {
+  if (!EXPORT || !EXPORT.url) return;
+  const title = EXPORT.text.split('\n')[0].replace(/^#\s*/, '');
+  copyText(EXPORT.url, `<a href="${esc(EXPORT.url)}">${esc(title)}</a>`, btn);
+}
+async function copyText(text, html, btn) {
+  // The page is served over plain http, where browsers withhold navigator.clipboard;
+  // fall back to the old selection-based copy. With the API, put a clickable link
+  // on the clipboard as well as the plain URL.
+  try {
+    if (navigator.clipboard && window.ClipboardItem && html) {
+      await navigator.clipboard.write([new ClipboardItem({'text/plain': new Blob([text], {type: 'text/plain'}),
+                                                          'text/html': new Blob([html], {type: 'text/html'})})]);
+    } else if (navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      if (!ok) throw new Error('the browser refused');
+    }
+    if (btn) { const was = btn.textContent; btn.textContent = 'copied'; setTimeout(() => { btn.textContent = was; }, 1500); }
+  } catch (e) { alert('copy failed: ' + e.message + ' — select it and copy by hand'); }
+}
 async function exportTrack(camera, id) {
   const btn = $('#export button');
   btn.disabled = true; btn.textContent = 'writing…';
@@ -295,9 +322,10 @@ async function exportTrack(camera, id) {
     const r = await fetch('/api/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ camera, id }) });
     if (!r.ok) throw new Error(await r.text());
     const rec = await r.json();
-    $('#exfiles').innerHTML = (rec.url ? `<div><b>share this link:</b> <a href="${esc(rec.url)}" target="_blank" style="color:#9ecbff">${esc(rec.url)}</a> <button onclick="navigator.clipboard.writeText('${esc(rec.url)}')">copy</button></div>` : '<div class="warn">not pushed to GitHub (this host cannot push); the files below are local to the dashboard</div>')
+    EXPORT = rec;
+    $('#exfiles').innerHTML = (rec.url ? `<div><b>share this link:</b> <a href="${esc(rec.url)}" target="_blank" style="color:#9ecbff">${esc(rec.url)}</a> <button onclick="copyLink(this)">copy link</button></div>` : '<div class="warn">not pushed to GitHub (this host cannot push); the files below are local to the dashboard</div>')
       + 'files: ' + rec.files.map(f => `<a href="${esc(f.url)}" target="_blank" style="color:#fff">${esc(f.name)}</a>`).join(' · ');
-    $('#extext').value = rec.text;
+    $('#extext').value = (rec.url ? rec.url + '\n\n' : '') + rec.text;
     $('#exbox').style.display = '';
     btn.textContent = 'export again'; btn.disabled = false;
   } catch (e) { btn.textContent = 'failed: ' + e.message; btn.disabled = false; }
