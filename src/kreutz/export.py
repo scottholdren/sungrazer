@@ -52,7 +52,7 @@ def export_track(camera: str, d: dict, latest: dict | None, root: Path, publish_
         fm = movie.movie(camera, d, root / camera / "movies", stack=3, full=True)
         write_field_gif(root, fm, out / "field.gif")
         files.append("field.gif")
-        card(root, fm, out / "card.png")
+        card(root, fm, out / "card.png", camera)
         files.append("card.png")
     except Exception as e:
         print(f"full-field gif for {d['id']} failed: {e}", flush=True)
@@ -109,13 +109,17 @@ CARD_W, CARD_H = 1000, 525  # the link-preview image: a crop of the newest full-
 _NAVY, _BLUE, _WHITE = np.array([6, 10, 28]), np.array([38, 92, 205]), np.array([255, 255, 255])
 
 
-def card(root: Path, fm: dict, out: Path) -> None:
-    """A colour crop of the newest hit frame around the object, ring on, for link previews."""
+def card(root: Path, fm: dict, out: Path, camera: str = "ccor1") -> None:
+    """A colour crop around the object on the newest hit frame, ring on, for link
+    previews: the raw coronagraph frame (radially flattened, so streamers and the
+    occulter show) when it is on disk, else the significance map."""
     k = max((i for i, f in enumerate(fm["frames"]) if f["hit"]), default=len(fm["frames"]) - 1)
     f = fm["frames"][k]
-    img = read_png(root / fm["pngs"][k]).astype(np.float32)
-    b = BLACK_SIGMA / fm["range_sigma"] * 255
-    img = np.where(img <= b, 0, (img - b) * 255 / (255 - b))
+    img = _raw_half(camera, f["name"])
+    if img is None:
+        img = read_png(root / fm["pngs"][k]).astype(np.float32)
+        b = BLACK_SIGMA / fm["range_sigma"] * 255
+        img = np.where(img <= b, 0, (img - b) * 255 / (255 - b))
     h, w = img.shape
     x0 = int(np.clip(round(f["x"] - CARD_W / 2), 0, max(w - CARD_W, 0)))
     y0 = int(np.clip(round(f["y"] - CARD_H / 2), 0, max(h - CARD_H, 0)))
@@ -126,6 +130,26 @@ def card(root: Path, fm: dict, out: Path) -> None:
     ring = np.abs(np.hypot(xx - (f["x"] - x0), yy - (f["y"] - y0)) - fm["ring_r"] * 1.6) < 1.6
     rgb[ring] = (79, 211, 122)
     write_png(out, np.clip(rgb, 0, 255).astype(np.uint8))
+
+
+def _raw_half(camera: str, name: str) -> np.ndarray | None:
+    """The raw frame `name` (YYYYMMDDTHHMMSS) at half resolution, display-stretched,
+    row 0 at the top; None if it is not on disk or unreadable."""
+    from .fitsio import read_frame_cached
+    from .inspect import stretch
+
+    hits = sorted(paths.frame_dir(camera, name[:8]).glob(f"*{name}*.fits*"))
+    if not hits:
+        return None
+    try:
+        d = read_frame_cached(hits[0]).data.astype(np.float64)
+        h, w = (d.shape[0] // 2) * 2, (d.shape[1] // 2) * 2
+        with np.errstate(all="ignore"):
+            small = np.nanmean(d[:h, :w].reshape(h // 2, 2, w // 2, 2), axis=(1, 3))
+        return stretch(small).astype(np.float32)
+    except Exception as e:
+        print(f"card: raw frame {name} unreadable ({e}); using the significance map", flush=True)
+        return None
 
 
 def _repo_slug() -> str | None:
