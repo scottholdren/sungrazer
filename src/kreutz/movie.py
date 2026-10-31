@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import math
+import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -115,10 +116,13 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
             if not earlier:
                 raise ValueError("no earlier frames for the background")
             cur = raw(p)
-            diff = cur - np.nanmedian(np.stack([raw(q) for q in earlier]), axis=0)
+            with np.errstate(all="ignore"), warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN columns under the occulter
+                diff = cur - np.nanmedian(np.stack([raw(q) for q in earlier]), axis=0)
             ok = np.isfinite(diff)
-            sigma = 1.4826 * float(np.nanmedian(np.abs(diff[ok] - np.nanmedian(diff[ok])))) if ok.any() else 1.0
-            z = np.where(ok, diff / max(sigma, 1e-9), FIELD_LO)
+            m = A.load_meta(camera, p.name)
+            centre = (m.sun_xy[0] / 2, m.sun_xy[1] / 2) if m is not None and m.sun_xy else None
+            z = np.where(ok, diff / _radial_sigma(diff, ok, centre), FIELD_LO)
             img = (np.clip((z - FIELD_LO) / (FIELD_HI - FIELD_LO), 0, 1) * 255).astype(np.uint8)
             h, w = img.shape
             fpng = out_dir / f"{key}_{k:02d}.png"
@@ -176,6 +180,31 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
             "half_fullres": half * 2}
     js.write_text(json.dumps(meta))
     return meta
+
+
+RADIAL_STEP = 8  # px annuli for the field's noise estimate
+
+
+def _radial_sigma(diff: np.ndarray, ok: np.ndarray, centre: tuple[float, float] | None) -> np.ndarray:
+    """Per-pixel noise of a difference frame as a function of distance from the Sun
+    (photon noise follows the corona's brightness, which falls steeply with radius):
+    a robust sigma (1.4826 MAD) in RADIAL_STEP-px annuli, interpolated across empty ones."""
+    h, w = diff.shape
+    cx, cy = centre if centre else (w / 2, h / 2)
+    yy, xx = np.indices(diff.shape)
+    r = (np.hypot(yy - cy, xx - cx) / RADIAL_STEP).astype(int)
+    n = int(r.max()) + 1
+    prof = np.full(n, np.nan)
+    for k in range(n):
+        sel = ok & (r == k)
+        if sel.sum() >= 50:
+            v = diff[sel]
+            prof[k] = 1.4826 * np.median(np.abs(v - np.median(v)))
+    good = np.isfinite(prof) & (prof > 0)
+    if not good.any():
+        return np.ones_like(diff)
+    prof = np.interp(np.arange(n), np.flatnonzero(good), prof[good])
+    return np.maximum(prof[r], 1e-9).astype(np.float32)
 
 
 def _raw_half(p: Path) -> np.ndarray:
