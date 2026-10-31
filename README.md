@@ -142,6 +142,9 @@ tracker's own pruning: the watcher keeps a copy of its last summary in
 (the card says so). Clearing the label drops only the hold; an object that
 is still a live watch stays by its own rules.
 
+The export also writes it as `field.gif` (3-map stack, black point, ring)
+with its own section in the note.
+
 Full field: the "full field" button next to it asks `/api/movie` with
 `full=1` for the whole half-resolution map (one PNG per frame, the last
 `FULL_FRAMES` = 16 frames up to the newest hit, earlier maps shifted along the

@@ -434,7 +434,10 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
         req = Request(f"http://127.0.0.1:{port}/api/export", data=json.dumps({"camera": "ccor1", "id": "t1"}).encode(),
                       headers={"Content-Type": "application/json"}, method="POST")
         rec = json.loads(urlopen(req).read())
-        assert [f["name"] for f in rec["files"]] == ["README.md", "movie.gif"]  # no sheet/thumb in this fixture
+        assert [f["name"] for f in rec["files"]] == ["README.md", "movie.gif", "field.gif"]  # no sheet/thumb in this fixture
+        fg = urlopen(f"http://127.0.0.1:{port}/finds/ccor1/t1/field.gif").read()
+        assert fg[:6] == b"GIF89a" and fg[6:10] == b"\x00\x04\xc0\x03"  # 1024 x 960, little-endian
+        assert fg.count(b"\x21\xF9\x04") == 1 + movie.LEAD_FRAMES + 3 and "![full field](field.gif)" in rec["text"]
         assert rec["url"] is None  # not a git checkout here
         assert "\n2130 1036 776\n" in rec["text"] and "origin upper left" in rec["text"] and "| ring | tail |" in rec["text"]
         assert "position angle" in rec["text"] and "![movie](movie.gif)" in rec["text"]

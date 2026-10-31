@@ -46,6 +46,12 @@ def export_track(camera: str, d: dict, latest: dict | None, root: Path, publish_
         files.append("movie.gif")
     except Exception as e:  # no processed frames yet: the note still goes out
         mv = {"error": str(e)}
+    try:
+        fm = movie.movie(camera, d, root / camera / "movies", stack=3, full=True)
+        write_field_gif(root, fm, out / "field.gif")
+        files.append("field.gif")
+    except Exception as e:
+        print(f"full-field gif for {d['id']} failed: {e}", flush=True)
     text = note(camera, d, latest, mv, files)
     (out / "README.md").write_text(text)
     files.insert(0, "README.md")
@@ -74,6 +80,22 @@ def write_movie_gif(sheet_png: Path, mv: dict, out: Path) -> None:
         idx[ring] = gif.GREEN if f["hit"] else gif.YELLOW
         frames.append(idx)
     gif.write_gif(out, frames, delay_cs=35)
+
+
+def write_field_gif(root: Path, fm: dict, out: Path) -> None:
+    """The full-field movie's frames (one PNG each) with the black point and the ring,
+    as an animated GIF; mostly black, so it compresses well despite the size."""
+    yy, xx = np.mgrid[0:fm["height"], 0:fm["width"]]
+    b = BLACK_SIGMA / fm["range_sigma"] * 255
+    frames = []
+    for p, f in zip(fm["pngs"], fm["frames"]):
+        img = read_png(root / p).astype(np.float32)
+        img = np.where(img <= b, 0, (img - b) * 255 / (255 - b))
+        idx = gif.gray_to_index(img)
+        ring = np.abs(np.hypot(xx - f["x"], yy - f["y"]) - fm["ring_r"]) < 1.2
+        idx[ring] = gif.GREEN if f["hit"] else gif.YELLOW
+        frames.append(idx)
+    gif.write_gif(out, frames, delay_cs=50)
 
 
 def publish(folder: Path, tid: str) -> str | None:
@@ -139,6 +161,12 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
               "The ring rides the fitted path: green on frames with a measured hit, yellow before the first hit. "
               "A real object crosses the patch inside the ring; noise does not travel.", "",
               "![movie](movie.gif)"]
+    if "field.gif" in files:
+        L += ["", "## Full field", "",
+              "The whole frame at half resolution, the last frames up to the newest hit (three maps added along the "
+              "motion), same scale and ring. For where the object sits in the corona and what else is moving; "
+              "a faint object is easier to judge in the patch above.", "",
+              "![full field](field.gif)"]
     if "sheet.png" in files:
         L += ["", "## Contact sheet", "",
               "Top: raw frame. Middle: significance map of that frame. Bottom: the detector's view, the last 8 maps "
