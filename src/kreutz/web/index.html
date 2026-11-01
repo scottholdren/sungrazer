@@ -256,8 +256,8 @@ function fillDetail(t, fresh) {
       <div class="meta">status <b>${esc(t.status)}</b> · at 3/4/5 hits: ${esc(sa)} · velocity (${t.velocity[0]}, ${t.velocity[1]}) px/frame · ${n(t.n_hits, 'hit')}, ${t.missing} missing${pieceOf}</div>${piecesLine}
       <div class="anim"><div><canvas id="cv" width="${tile*2}" height="${tile*6+16}"></canvas>
         <div class="ctl"><button onclick="ANIM.playing=!ANIM.playing">play/pause</button><button onclick="step(-1)">◀</button><button onclick="step(1)">▶</button>
-        <input id="scrub" type="range" min="0" max="${Math.max(t.columns.length-1,0)}" value="0" oninput="ANIM.frame=+this.value;ANIM.playing=false;draw()"> <span id="flabel" class="dim"></span></div>
-        <div class="dim">top: raw frame · middle: significance map of that frame · bottom: the detector's view, the last 8 maps stacked along the track's motion (a comet is a steady dot in the ring). Older sheets have two rows.</div></div>
+        <input id="scrub" type="range" min="0" max="${Math.max((t.columns||[]).length-1,0)}" value="0" oninput="ANIM.frame=+this.value;ANIM.playing=false;draw()"> <span id="flabel" class="dim"></span></div>
+        <div class="dim">${t.sheet ? 'top: raw frame · middle: significance map of that frame · bottom: the detector\'s view, the last 8 maps stacked along the track\'s motion (a comet is a steady dot in the ring). Older sheets have two rows.' : 'no contact sheet: the watcher draws them for tracks it is following, not for rejected ones. The hi-res movie and full field below work from the hits.'}</div></div>
         ${full}
         <div><table><tr><th>frame</th><th>x</th><th>y</th><th>σ</th></tr>${hits}</table></div></div>
       <div class="movie" id="movie"><button onclick="loadMovie('${c.camera}','${t.id}',false)">build hi-res movie</button> <button onclick="loadMovie('${c.camera}','${t.id}',true)">full field</button>
@@ -274,8 +274,11 @@ function fillDetail(t, fresh) {
         <div id="exbox" style="display:none"><div id="exfiles" class="meta"></div>
           <div class="ctl"><button onclick="copyText($('#extext').value, null, this)">copy the Markdown</button></div>
           <textarea id="extext" readonly spellcheck="false" style="width:100%;max-width:900px;height:320px;background:#0b0e13;color:#dfe5ec;border:1px solid #2a3140;border-radius:4px;padding:8px;font:12px/1.4 ui-monospace,monospace"></textarea></div></div>`;
-    const img = new Image(); img.src = t.sheet ? `${t.sheet}?v=${t.n_hits}` : '';
-    img.onload = () => { ANIM.img = img; ANIM.cols = t.columns; ANIM.tile = tile; ANIM.gap = gap; draw(); };
+    ANIM.img = null; ANIM.cols = t.columns || [];
+    if (t.sheet) {
+      const img = new Image(); img.src = `${t.sheet}?v=${t.n_hits}`;
+      img.onload = () => { ANIM.img = img; ANIM.cols = t.columns || []; ANIM.tile = tile; ANIM.gap = gap; draw(); };
+    }
     clearInterval(ANIM.timer);
     ANIM.timer = setInterval(() => { if (ANIM.playing && ANIM.cols && ANIM.cols.length) { ANIM.frame = (ANIM.frame + 1) % ANIM.cols.length; draw(); } }, 350);
   }
