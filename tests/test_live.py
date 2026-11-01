@@ -149,8 +149,10 @@ def test_sparks_are_bright_two_hit_chains_that_pass_the_rules(tmp_path, monkeypa
     w._announce(st1)
     w._announce(st1)
     assert [c["kind"] for c in w.activity.changes] == ["spark"] and s[0]["id"] in w.activity.changes[0]["msg"]
-    assert st1["spark_log"] == [{"id": s[0]["id"], "first_seen": s[0]["first_seen"], "x": 1492, "y": 1197, "speed": 8.5,
-                                 "sigs": [20.0, 20.0], "fate": None}]
+    (e,) = st1["spark_log"]
+    assert {k: e[k] for k in ("id", "first_seen", "x", "y", "speed", "sigs", "fate")} == {
+        "id": s[0]["id"], "first_seen": s[0]["first_seen"], "x": 1492, "y": 1197, "speed": 8.5, "sigs": [20.0, 20.0], "fate": None}
+    assert e["hits"] == s[0]["hits"] and e["velocity"] == s[0]["velocity"]  # kept so the panel can open a logged spark
     # the spark lives one frame; the log records what became of it
     st2 = {"tracks": [{"id": s[0]["id"], "x": 1484, "y": 1194, "speed": 8.5, "report": None, "tier": None, "tier_at": None,
                        "group": s[0]["id"], "first_seen": s[0]["first_seen"], "n_hits": 3, "best_sig": 20.0}], "sparks": []}
