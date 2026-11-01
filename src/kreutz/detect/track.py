@@ -26,6 +26,8 @@ Rejection rules (see README), applied to candidates:
   off-envelope  position angle or direction of motion outside where this
               month's Kreutz comets come from (envelope.py)
   glare-zone  median distance from the Sun < 320 px (occulter glare)
+  pylon       median position within 110 px of the pylon axis, below the Sun
+              (the arm's edge residual slides along it at any vertical speed)
   edge        never more than 25 px from the occulter, arm or field/array edge
   extended    the blob under the hits is long and thin (median axis ratio > 3)
 """
@@ -39,7 +41,7 @@ import numpy as np
 from .stack import Peak
 from .velocity import FRAME_SECONDS
 
-VERSION = "c2"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
+VERSION = "c3"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
 MATCH_RADIUS = 6.0  # px, full resolution (half-res stacking + 0.5 px/frame velocity steps)
 MATCH_DV = 2.0  # px/frame
 MAX_MISSES = 2
@@ -52,6 +54,9 @@ MERGE_ALONG = 40.0  # px along the motion, for tracks with the same velocity (he
 SATELLITE_RADIUS = 60.0  # px: a shorter track this close to a longer one at >= 2 common times is a satellite of it
 CONTINUE_FRAMES = 3  # a track starting within this many frames after another ends, on its path, continues it
 GLARE_RADIUS = 320.0  # px; confirmed CCOR-1 comets were never reported closer than 392
+PYLON_HALF = 110.0  # px either side of the pylon axis (the arm's shadow is ~65 px wide below y=1250; its edge
+#                     residual reaches ~25 px past stage A's mask). Confirmed comets start at position angles
+#                     within 45 deg of lower right, > 400 px from the axis.
 EDGE_MIN = 25.0  # px
 MAX_ELONGATION = 3.0
 
@@ -114,6 +119,10 @@ def rejection(vx: float, vy: float, x: float, y: float, star_drift, sun_xy,
         r = np.median([np.hypot(h.x - sun_xy[0], h.y - sun_xy[1]) for h in hits] or [np.hypot(x - sun_xy[0], y - sun_xy[1])])
         if r < GLARE_RADIUS:
             return "glare-zone"
+        dx = [abs(h.x - sun_xy[0]) for h in hits] or [abs(x - sun_xy[0])]
+        dy = [h.y - sun_xy[1] for h in hits] or [y - sun_xy[1]]
+        if np.median(dx) < PYLON_HALF and np.median(dy) > 0:
+            return "pylon"
     edges = [h.edge for h in hits if h.edge is not None]
     if edges and max(edges) < EDGE_MIN:
         return "edge"

@@ -114,6 +114,8 @@ def test_tracker_does_not_promote_a_two_window_blip():
     ((2.2, -0.4), (1600, 1500), {}, "star-drift"),
     ((5.0, 4.0), (1600, 1500), {}, "outbound"),  # down-right, away from the Sun
     ((-3.0, -3.0), (1200, 1150), {}, "glare-zone"),  # ~250 px from the Sun
+    ((-0.5, -4.0), (956, 1630), {}, "pylon"),  # 85 px left of the pylon axis, 670 px below the Sun, inbound
+    ((-0.5, -4.0), (1300, 1630), {}, None),  # same motion well clear of the pylon
     ((-5.0, -4.0), (1600, 1500), {"edge": 10.0}, "edge"),
     ((-5.0, -4.0), (1600, 1500), {"elong": 5.0}, "extended"),
     ((-5.0, -4.0), (1600, 1500), {}, None),  # a well-behaved inbound comet
