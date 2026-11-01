@@ -542,3 +542,18 @@ def test_find_track_falls_back_to_held_and_archived_copies(tmp_path, monkeypatch
     assert live.find_track("ccor1", "20261101T0700_3_3") is None
     assert live.find_track("ccor1", "../../etc/passwd") is None
     assert live.find_track("nope", "20261101T0530_1_1") is None
+
+
+def test_find_track_shapes_a_logged_spark_like_a_track(tmp_path, monkeypatch):
+    monkeypatch.setattr(live.paths, "DATA", tmp_path)
+    hits = [{"t": "2026-11-01T07:45:25+00:00", "x": 920.0, "y": 1430.0, "sig": 9.2},
+            {"t": "2026-11-01T08:00:25+00:00", "x": 918.0, "y": 1420.0, "sig": 9.6}]
+    live._write_json(live.live_dir("ccor1") / "state.json", {
+        "tracks": [], "rejected": [],
+        "sparks": [{"id": "20261101T0800_1_1", "hits": hits, "velocity": [-2.0, -10.0], "first_seen": hits[0]["t"], "last_seen": hits[1]["t"], "x": 918, "y": 1420, "speed": 10.2}],
+        "spark_log": [{"id": "20261101T0745_922_1426", "fate": "gone", "sigs": [9.2, 9.6], "hits": hits, "velocity": [-2.0, -10.0]},
+                      {"id": "20261101T0500_1_1", "fate": "gone", "sigs": [8.1, 8.3]}]})  # an entry from before hits were logged
+    t = live.find_track("ccor1", "20261101T0745_922_1426")
+    assert t["spark"] and t["status"] == "spark: gone" and t["n_hits"] == 2 and t["best_sig"] == 9.6 and t["last_seen"] == hits[1]["t"]
+    assert live.find_track("ccor1", "20261101T0800_1_1")["status"] == "spark"
+    assert live.find_track("ccor1", "20261101T0500_1_1") is None

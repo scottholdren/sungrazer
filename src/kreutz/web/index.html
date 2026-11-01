@@ -190,6 +190,7 @@ function badges(t) {
   if (l && t.tier) b.push(`<span class="b outline dim"><a href="${esc(l.url)}" target="_blank" onclick="event.stopPropagation()" style="color:inherit">a ${esc(l.camera)} claim by ${esc(l.reporter)} (${fmt(l.posted)}) overlaps in time; position not checked</a></span>`);
   if (t.label) b.push(`<span class="b ${t.label.label === 'comet' ? 'green' : t.label.label === 'noise' ? 'outline dim' : 'outline'}">you: ${esc(t.label.label)}${t.label.contradicted ? ' — contradicted: ' + esc(t.label.contradicted.why) : ''}</span>`);
   if (t.held) b.push(`<span class="b outline dim">${t.status.startsWith('rejected') ? 'the tracker rejected it' : 'the tracker has let it go'}; your comet label keeps it here</span>`);
+  if (t.spark) b.push(`<span class="b amber">spark: two frames${t.status.includes(':') ? ', then ' + esc(t.status.split(': ')[1] === 'grew' ? 'it grew into a track' : t.status.split(': ')[1] === 'rejected' ? 'rejected at its third frame' : 'no third frame') : ''}</span>`);
   if (t.archived) b.push(`<span class="b outline dim">from the archive: the tracker no longer holds this track (its last status is shown)</span>`);
   if (t.merged) b.push(`<span class="b outline">merged with ${n(t.merged, 'other track')}</span>`);
   if (t.pieces && t.pieces.length) b.push(`<span class="b outline">+${n(t.pieces.length, 'piece')}</span>`);

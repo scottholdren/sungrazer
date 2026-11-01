@@ -331,8 +331,9 @@ class Watcher:
         known = {e["id"] for e in log}
         for s in state.get("sparks", []):
             if s["id"] not in known:
-                log.append({"id": s["id"], "first_seen": s["first_seen"], "x": s["x"], "y": s["y"], "speed": s["speed"],
-                            "sigs": [h["sig"] for h in s["hits"]], "fate": None})
+                log.append({"id": s["id"], "first_seen": s["first_seen"], "last_seen": s["last_seen"], "x": s["x"], "y": s["y"],
+                            "speed": s["speed"], "velocity": s["velocity"], "sigs": [h["sig"] for h in s["hits"]],
+                            "hits": s["hits"], "fate": None})
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=SPARK_LOG_H)).isoformat()
         self.spark_log = [e for e in log if e["first_seen"] >= cutoff]
         state["spark_log"] = self.spark_log
@@ -612,7 +613,15 @@ def find_track(camera: str, id_: str) -> dict | None:
             if t["id"] == id_:
                 t["label"] = labels.get(id_)
                 return t
-    copies = [live_dir(camera) / "held" / f"{id_}.json"] + sorted((live_dir(camera) / "archive").glob(f"*/{id_}.json"))
+        for sp in s.get("sparks", []) + s.get("spark_log", []):  # two-hit chains, shaped like a track for the panel
+            if sp["id"] == id_ and sp.get("hits"):
+                t = dict(sp)
+                t.update({"status": "spark" + (f": {sp['fate']}" if sp.get("fate") else ""), "status_at": {}, "reached": {},
+                          "n_hits": len(sp["hits"]), "missing": 0, "velocity": sp.get("velocity") or [0, 0],
+                          "best_sig": max(h["sig"] for h in sp["hits"]), "last_seen": sp.get("last_seen") or sp["hits"][-1]["t"],
+                          "spark": True, "label": labels.get(id_)})
+                return t
+    copies =[live_dir(camera) / "held" / f"{id_}.json"] + sorted((live_dir(camera) / "archive").glob(f"*/{id_}.json"))
     for q in copies:
         if q.exists():
             t = json.loads(q.read_text())

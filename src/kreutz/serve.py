@@ -95,10 +95,12 @@ class Handler(SimpleHTTPRequestHandler):
 
     @staticmethod
     def _track(camera: str, tid: str):
-        """(camera state, track summary) from the merged state, or (None, None)."""
+        """(camera state, track summary) from the merged state, or (None, None). A track
+        that is not being followed (rejected, a spark, held, archived) comes from
+        live.find_track, so the movie and export work for anything the page can open."""
         for s in live.merged_state()["cameras"]:
             if s["camera"] == camera:
-                return s, next((t for t in s["tracks"] if t["id"] == tid), None)
+                return s, next((t for t in s["tracks"] if t["id"] == tid), None) or live.find_track(camera, tid)
         return None, None
 
     def _movie(self, q: dict):
