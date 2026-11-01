@@ -190,6 +190,7 @@ function badges(t) {
   if (l && t.tier) b.push(`<span class="b outline dim"><a href="${esc(l.url)}" target="_blank" onclick="event.stopPropagation()" style="color:inherit">a ${esc(l.camera)} claim by ${esc(l.reporter)} (${fmt(l.posted)}) overlaps in time; position not checked</a></span>`);
   if (t.label) b.push(`<span class="b ${t.label.label === 'comet' ? 'green' : t.label.label === 'noise' ? 'outline dim' : 'outline'}">you: ${esc(t.label.label)}${t.label.contradicted ? ' — contradicted: ' + esc(t.label.contradicted.why) : ''}</span>`);
   if (t.held) b.push(`<span class="b outline dim">${t.status.startsWith('rejected') ? 'the tracker rejected it' : 'the tracker has let it go'}; your comet label keeps it here</span>`);
+  if (t.archived) b.push(`<span class="b outline dim">from the archive: the tracker no longer holds this track (its last status is shown)</span>`);
   if (t.merged) b.push(`<span class="b outline">merged with ${n(t.merged, 'other track')}</span>`);
   if (t.pieces && t.pieces.length) b.push(`<span class="b outline">+${n(t.pieces.length, 'piece')}</span>`);
   return b.join('');
@@ -227,10 +228,16 @@ async function setLabel(cam, id, label) {
   } catch (e) { alert('label failed: ' + e.message); }
 }
 
-function openDetail(cam, id) {
+async function openDetail(cam, id) {
   const c = STATE.cameras.find(c => c.camera === cam);
-  const t = c.tracks.concat(c.rejected).find(t => t.id === id);
-  if (!t) return;
+  let t = c.tracks.concat(c.rejected).find(t => t.id === id);
+  if (!t) {  // it has left the dashboard: the held or archived copy
+    try {
+      const r = await fetch(`/api/track?camera=${encodeURIComponent(cam)}&id=${encodeURIComponent(id)}`, {cache:'no-store'});
+      if (!r.ok) throw new Error(await r.text());
+      t = await r.json();
+    } catch (e) { alert(`no record of ${id}: ${e.message}`); return; }
+  }
   OPEN = {cam, id}; ANIM.frame = 0; ANIM.playing = true;
   fillDetail({...t, cam:c}, true);
   $('#detail').classList.add('open');

@@ -528,3 +528,17 @@ def test_gif_roundtrip():
     for k, f in enumerate(frames):
         im.seek(k)
         assert np.array_equal(np.array(im.convert("RGB")), pal[f]), f"frame {k} differs"  # Pillow composes later frames in RGB
+
+
+def test_find_track_falls_back_to_held_and_archived_copies(tmp_path, monkeypatch):
+    monkeypatch.setattr(live.paths, "DATA", tmp_path)
+    d = live.live_dir("ccor1")
+    live._write_json(d / "state.json", {"tracks": [{"id": "20261101T0530_1_1", "hits": []}], "rejected": []})
+    live._archive("ccor1", {"id": "20261101T0600_2_2", "first_seen": "2026-11-01T06:00:25+00:00", "hits": [],
+                            "sheet": "x.png", "columns": [1]})
+    assert live.find_track("ccor1", "20261101T0530_1_1")["id"] == "20261101T0530_1_1"
+    a = live.find_track("ccor1", "20261101T0600_2_2")
+    assert a["archived"] and a["id"] == "20261101T0600_2_2" and "sheet" not in a
+    assert live.find_track("ccor1", "20261101T0700_3_3") is None
+    assert live.find_track("ccor1", "../../etc/passwd") is None
+    assert live.find_track("nope", "20261101T0530_1_1") is None

@@ -597,6 +597,31 @@ def _hold(camera: str, following: list[dict], held: set[str]) -> None:
             _write_json(hdir / f"{d['id']}.json", {k: v for k, v in d.items() if k not in ("group", "pieces")})
 
 
+def find_track(camera: str, id_: str) -> dict | None:
+    """A track by id for the dashboard: the live state first, then the held and
+    archived copies, so a link in the changes log still opens after the tracker
+    has let the track go or rebuilt itself without it. Copies from the archive
+    carry `archived: True`; they have no sheet or frame columns."""
+    if camera not in cameras.CAMERAS or not id_.replace("_", "").replace("T", "").isdigit():
+        return None
+    labels = load_labels(camera)
+    p = live_dir(camera) / "state.json"
+    if p.exists():
+        s = json.loads(p.read_text())
+        for t in s.get("tracks", []) + s.get("rejected", []):
+            if t["id"] == id_:
+                t["label"] = labels.get(id_)
+                return t
+    copies = [live_dir(camera) / "held" / f"{id_}.json"] + sorted((live_dir(camera) / "archive").glob(f"*/{id_}.json"))
+    for q in copies:
+        if q.exists():
+            t = json.loads(q.read_text())
+            t["archived"] = True
+            t["label"] = labels.get(id_)
+            return t
+    return None
+
+
 OBJECT_PX = 60.0  # tracks this close at the same time (or on each other's path) are one object
 CONTINUE_FRAMES = 3  # a track starting within this many frames after another ends, on its path, continues it
 

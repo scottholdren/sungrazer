@@ -48,8 +48,16 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if route == "/api/movie":
             return self._movie(parse_qs(self.path.partition("?")[2]))
-        if route in ("/api/state", "/api/activity"):
-            body = json.dumps(live.merged_state() if route == "/api/state" else live.merged_activity()).encode()
+        if route == "/api/track":  # a track that has left the state: held or archived copy
+            q = parse_qs(self.path.partition("?")[2])
+            t = live.find_track(q.get("camera", [""])[0], q.get("id", [""])[0])
+            if t is None:
+                self.send_error(404, "no record of that track")
+                return
+            body = json.dumps(t).encode()
+        if route in ("/api/state", "/api/activity", "/api/track"):
+            if route != "/api/track":
+                body = json.dumps(live.merged_state() if route == "/api/state" else live.merged_activity()).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
