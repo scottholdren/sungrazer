@@ -310,6 +310,20 @@ function draw() {
   const l = $('#flabel'); if (l) l.textContent = `${j+1}/${ANIM.cols.length}  ${ANIM.cols[j] || ''}`;
 }
 let EXPORT = null;  // the last export's record (url, text, files)
+function waitForPages(url) {
+  // GitHub Pages builds the pushed page in about a minute; the link answers 404 until then.
+  // An <img> load of the card tells us when it is up (cross-origin, so a fetch could not).
+  const el = $('#exlive'); if (!el) return;
+  let n = 0;
+  const probe = () => {
+    const im = new Image();
+    im.onload = () => { if ($('#exlive') === el) el.innerHTML = '<span class="b green">the page is live</span>'; };
+    im.onerror = () => { if ($('#exlive') !== el) return; if (++n < 40) setTimeout(probe, 15000); else el.innerHTML = '<span class="warn">still not live after 10 minutes: check the Pages build on GitHub</span>'; };
+    im.src = `${url}card.png?p=${Date.now()}`;
+  };
+  el.innerHTML = '<span class="b amber">GitHub Pages is building it; the link answers 404 until then (about a minute)</span>';
+  probe();
+}
 function copyLink(btn) {
   if (!EXPORT || !EXPORT.url) return;
   const title = EXPORT.text.split('\n')[0].replace(/^#\s*/, '');
@@ -344,7 +358,8 @@ async function exportTrack(camera, id) {
     if (!r.ok) throw new Error(await r.text());
     const rec = await r.json();
     EXPORT = rec;
-    $('#exfiles').innerHTML = (rec.url ? `<div><b>share this link:</b> <a href="${esc(rec.url)}" target="_blank" style="color:#9ecbff">${esc(rec.url)}</a> <button onclick="copyLink(this)">copy link</button> <span class="dim">(its own page with a preview picture; live a minute or two after the push · <a href="${esc(rec.repo_url)}" target="_blank" style="color:inherit">the files on GitHub</a>)</span></div>` : '<div class="warn">not pushed to GitHub (this host cannot push); the files below are local to the dashboard</div>')
+    $('#exfiles').innerHTML = (rec.url ? `<div><b>share this link:</b> <a href="${esc(rec.url)}" target="_blank" style="color:#9ecbff">${esc(rec.url)}</a> <button onclick="copyLink(this)">copy link</button> <span id="exlive"></span> <span class="dim">(its own page with a preview picture · <a href="${esc(rec.repo_url)}" target="_blank" style="color:inherit">the files on GitHub</a>)</span></div>` : '<div class="warn">not pushed to GitHub (this host cannot push); the files below are local to the dashboard</div>');
+    if (rec.url) waitForPages(rec.url);
       + 'files: ' + rec.files.map(f => `<a href="${esc(f.url)}" target="_blank" style="color:#fff">${esc(f.name)}</a>`).join(' · ');
     $('#extext').value = (rec.url ? rec.url + '\n\n' : '') + rec.text;
     $('#exbox').style.display = '';
