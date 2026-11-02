@@ -57,6 +57,9 @@ VERIFIED_ORIENTATIONS: dict[tuple, str] = {
     # so solar north stays up; the occulter arm moves from the top to the bottom.
     ("ccor1", True, 2, 0): "2026-10-17..24, 30 positions of unreviewed (non-retracted) "
                            "hunter reports; stack peak at offset (row 0, col -1), 13x scatter",
+    # CCOR-2 (SWFO-L1) level 1A: no YAWFLIP keyword; the occulter arm is at the top of the display.
+    ("ccor2", True, 0, None): "2026-10-31..11-02, 25 positions of hunter reports (reported/known); "
+                              "stack peak at offset (row 0, col -1), 6x scatter; the three alternatives flat",
 }
 
 
