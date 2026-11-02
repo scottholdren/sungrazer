@@ -6,6 +6,7 @@
 - Motion (-7.1, -3.8) px per 15-min frame, 8.1 px/frame.
 - Last position 739 px from the Sun at position angle -40 deg, heading 12 deg off the Sun direction (Kreutz comets in CCOR-1 arrive from the lower right, position angle -10 to -45 deg, and head within ~20 deg of the Sun).
 - No CCOR-1 report matches it on the Sungrazer site.
+- Owner's label: comet.
 
 ## Movie
 
@@ -15,7 +16,7 @@ A fixed patch of sky at 2x the camera's resolution: significance maps (stars and
 
 ## Full field
 
-The object's quadrant at half resolution, from just outside the occulter out to the field edge, the last frames up to the newest hit: each frame minus the minimum of the previous 24 hours (streamers and stars stay, the static corona and glare cancel), lightly smoothed, no stacking, on a linear scale from -1 sigma of the frame's noise (so the noise shows as grain). The crosshair follows the fitted path, yellow on a measured hit. For where the object sits in the corona and what else is moving; a faint object is easier to judge in the stacked patch above.
+The object's quadrant at half resolution, from just outside the occulter out to the field edge, the last frames up to the newest hit: each frame minus the minimum of the previous 24 hours (streamers and stars stay, the static corona and glare cancel), lightly smoothed, no stacking, on a linear scale from -2 sigma of the frame's noise (so the noise shows as grain). The crosshair follows the fitted path, yellow on a measured hit. For where the object sits in the corona and what else is moving; a faint object is easier to judge in the stacked patch above.
 
 ![full field](field.gif)
 
@@ -128,4 +129,4 @@ Sigma inside the ring on the fitted position vs the brightest 0.1% of the whole 
 | 20261102T171525 | 21.8 | 5.3 | hit |
 | 20261102T173025 | 21.0 | 5.4 | hit |
 
-*Written 2026-11-02 17:55 UTC.*
+*Written 2026-11-02 18:00 UTC.*
