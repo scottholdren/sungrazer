@@ -125,6 +125,10 @@ _GOOD_IF_TRUE = {
 #             the Earth seen from GEO; images look normal (July 2025).
 ADVISORY = {"MONFOV_Q", "BORSGT_Q"}
 MAX_OFFSUNDR = 100
+# CCOR-2 level 1A writes OFFSUNDR as ~1.7e5-2.0e5 on every frame (2026-11-02), so the
+# keyword is not in arcsec there (or not the same quantity); the CRVAL-jump check in
+# stage A covers its off-points. Cameras not listed here skip the OFFSUNDR test.
+OFFSUNDR_MAX = {"ccor1": MAX_OFFSUNDR}
 
 _BAD_IF_NONZERO = {
     "E_ECLPSE": "Earth eclipse state set (Sun blocked by Earth)",
@@ -165,7 +169,8 @@ def frame_quality(header, data: np.ndarray | None = None) -> Quality:
     # Off-Sun pointing (arcsec). Normal frames are < 25; the daily calibration
     # off-points (~07:00-07:45 UTC, Oct 2026) reach thousands. Not every off-pointed
     # frame shows it here, so stage A also checks CRVAL jumps (detect/frames.py).
-    if (header.get("OFFSUNDR") or 0) > MAX_OFFSUNDR:
+    cam = str(header.get("INSTRUME", "ccor1")).strip().lower()
+    if cam in OFFSUNDR_MAX and (header.get("OFFSUNDR") or 0) > OFFSUNDR_MAX[cam]:
         problems.append(f"OFFSUNDR={header['OFFSUNDR']}: spacecraft off-pointed from the Sun")
 
     stats = {}

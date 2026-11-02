@@ -54,7 +54,8 @@ DEDUP_RADIUS = 12.0  # px: other peaks this close to a claimed one are the same 
 MERGE_RADIUS = 8.0  # px: candidate tracks sharing >= 2 hit times this close are merged
 MERGE_ALONG = 40.0  # px along the motion, for tracks with the same velocity (head and tail pieces)
 SATELLITE_RADIUS = 60.0  # px: a shorter track this close to a longer one at >= 2 common times is a satellite of it
-CONTINUE_FRAMES = 3  # a track starting within this many frames after another ends, on its path, continues it
+CONTINUE_FRAMES = 6  # a track starting within this many frames after another ends, on its path, continues it
+#                      (2026-11-02: a faint comet at 3-6 sigma per frame came out as two 3-hit pieces 4 frames apart)
 GLARE_RADIUS = 320.0  # px; confirmed CCOR-1 comets were never reported closer than 392
 PYLON_HALF = 110.0  # px either side of the pylon axis (the arm's shadow is ~65 px wide below y=1250; its edge
 #                     residual reaches ~25 px past stage A's mask). Confirmed comets start at position angles

@@ -633,7 +633,7 @@ def find_track(camera: str, id_: str) -> dict | None:
 
 
 OBJECT_PX = 60.0  # tracks this close at the same time (or on each other's path) are one object
-CONTINUE_FRAMES = 3  # a track starting within this many frames after another ends, on its path, continues it
+CONTINUE_FRAMES = C.CONTINUE_FRAMES  # a track starting within this many frames after another ends, on its path, continues it
 
 
 def _same_object(a: dict, b: dict) -> bool:
