@@ -26,8 +26,10 @@ Rejection rules (see README), applied to candidates:
   off-envelope  position angle or direction of motion outside where this
               month's Kreutz comets come from (envelope.py)
   glare-zone  median distance from the Sun < 320 px (occulter glare)
-  pylon       median position within 110 px of the pylon axis, below the Sun
-              (the arm's edge residual slides along it at any vertical speed)
+  pylon       median position within 110 px of the pylon axis (the Sun's x), either
+              side (the arm's edge residual slides along it at any vertical speed)
+Pixel thresholds were set on CCOR-1; `scale` (cameras.px_scale) applies them to
+a camera with a different plate scale.
   edge        never more than 25 px from the occulter, arm or field/array edge
   extended    the blob under the hits is long and thin (median axis ratio > 3)
 """
@@ -41,7 +43,7 @@ import numpy as np
 from .stack import Peak
 from .velocity import FRAME_SECONDS
 
-VERSION = "c3"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
+VERSION = "c4"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
 MATCH_RADIUS = 6.0  # px, full resolution (half-res stacking + 0.5 px/frame velocity steps)
 MATCH_DV = 2.0  # px/frame
 MAX_MISSES = 2
@@ -100,11 +102,11 @@ class Track:
 
 
 def rejection(vx: float, vy: float, x: float, y: float, star_drift, sun_xy,
-              hits: list[Peak] = (), envelope=None) -> str | None:
+              hits: list[Peak] = (), envelope=None, scale: float = 1.0) -> str | None:
     speed = np.hypot(vx, vy)
-    if speed < MIN_SPEED:
+    if speed < MIN_SPEED * scale:
         return "stationary"
-    if star_drift is not None and np.hypot(vx - star_drift[0], vy - star_drift[1]) < STAR_DV:
+    if star_drift is not None and np.hypot(vx - star_drift[0], vy - star_drift[1]) < STAR_DV * scale:
         return "star-drift"
     if sun_xy is not None:
         to_sun = np.array(sun_xy) - [x, y]
@@ -117,11 +119,10 @@ def rejection(vx: float, vy: float, x: float, y: float, star_drift, sun_xy,
             return why
     if sun_xy is not None:
         r = np.median([np.hypot(h.x - sun_xy[0], h.y - sun_xy[1]) for h in hits] or [np.hypot(x - sun_xy[0], y - sun_xy[1])])
-        if r < GLARE_RADIUS:
+        if r < GLARE_RADIUS * scale:
             return "glare-zone"
         dx = [abs(h.x - sun_xy[0]) for h in hits] or [abs(x - sun_xy[0])]
-        dy = [h.y - sun_xy[1] for h in hits] or [y - sun_xy[1]]
-        if np.median(dx) < PYLON_HALF and np.median(dy) > 0:
+        if np.median(dx) < PYLON_HALF * scale:  # either side: the arm is above the Sun before the 2026 yaw flip and on CCOR-2
             return "pylon"
     edges = [h.edge for h in hits if h.edge is not None]
     if edges and max(edges) < EDGE_MIN:
@@ -133,10 +134,11 @@ def rejection(vx: float, vy: float, x: float, y: float, star_drift, sun_xy,
 
 
 class Tracker:
-    def __init__(self):
+    def __init__(self, scale: float = 1.0):
         self.active: list[Track] = []
         self.done: list[Track] = []
         self._next = 0
+        self.scale = scale  # cameras.px_scale: pixel thresholds relative to CCOR-1
 
     def update(self, t: float, peaks: list[Peak], star_drift, sun_xy, envelope=None, seed: bool = True) -> None:
         """Extend tracks with this window's peaks; if `seed`, unclaimed peaks start new tracks."""
@@ -167,7 +169,8 @@ class Tracker:
             if tr.candidate:
                 tr.star_drift, tr.sun_xy = star_drift, sun_xy
                 vx, vy = tr.velocity()
-                tr.rejected = rejection(vx, vy, tr.last.x, tr.last.y, star_drift, sun_xy, tr.hits, envelope)
+                tr.rejected = rejection(vx, vy, tr.last.x, tr.last.y, star_drift, sun_xy, tr.hits, envelope,
+                                        getattr(self, "scale", 1.0))
                 for k in (3, 4, 5):
                     if n >= k and k not in tr.reached:
                         tr.reached[k] = t

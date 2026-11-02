@@ -1,6 +1,6 @@
 """Re-check the report coordinate convention against confirmed comets.
 
-For every frame position in confirmed CCOR-1 reports that we have frames for,
+For every frame position in confirmed reports on a camera that we have frames for,
 cut a 51x51 box around where each hypothesis says the comet is, subtract a
 background made from the median of frames 1-3 hours either side (the comet and
 stars have moved away by then, the corona hasn't), and median-stack the boxes.
@@ -33,9 +33,10 @@ def main():
                     help="report statuses to use (recent data has only 'reported')")
     ap.add_argument("--allow-unverified", action="store_true",
                     help="read frames whose orientation flags are not yet verified (to verify them)")
+    ap.add_argument("--camera", default="ccor1", choices=["ccor1", "ccor2"])
     a = ap.parse_args()
 
-    frames = [p for p in fetch.local_frames("ccor1") if p.name.endswith("_NC.fits")]
+    frames = [p for p in fetch.local_frames(a.camera) if p.name.endswith("_NC.fits")]
     times = np.array([fitsio.filename_time(p.name).timestamp() for p in frames])
     cache, flags = {}, set()
 
@@ -60,12 +61,12 @@ def main():
     stacks = {k: [] for k in hyps}
     rows = db.connect().execute(
         """SELECT f.* FROM frames f JOIN reports r USING (report_id)
-           WHERE r.status IN ({}) AND r.camera = 'ccor1' AND f.x_ul IS NOT NULL
+           WHERE r.status IN ({}) AND r.camera = ? AND f.x_ul IS NOT NULL
              AND f.frame_time BETWEEN ? AND ?""".format(",".join("?" * len(a.status))),
-        (*a.status, a.start, a.end)).fetchall()
+        (*a.status, a.camera, a.start, a.end)).fetchall()
     for f in rows:
-        # Hunters quote HHMM; CCOR-1 frames start at HH:MM:25.
-        t = (datetime.fromisoformat(f["frame_time"]) + timedelta(seconds=25)).timestamp()
+        # Hunters quote HHMM; CCOR-1 frames start at HH:MM:25, CCOR-2 at HH:MM:14.
+        t = (datetime.fromisoformat(f["frame_time"]) + timedelta(seconds=25 if a.camera == "ccor1" else 14)).timestamp()
         i = nearest(t)
         if i is None:
             continue

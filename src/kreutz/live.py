@@ -47,7 +47,6 @@ TIERS = {"alert": (4, 15.0), "watch": (5, 10.0)}
 # tiers; they reveal themselves by persisting, and every real one so far started >= 560 px out
 # while long-lived noise lives in the streamer belt at 380-420 px (results/ccor1/learn/).
 STEADY_HITS, STEADY_R = 5, 550.0
-SUN_XY_DEFAULT = (1005.7, 957.1)
 DASHBOARD_URL = os.environ.get("KREUTZ_DASHBOARD_URL")  # appended to Discord posts when set
 PREVIEW_DS = 4  # full-frame preview downsample
 LABELS = {"ccor1": "CCOR-1", "ccor2": "CCOR-2"}
@@ -380,7 +379,7 @@ class Watcher:
             except Exception as e:
                 print(f"tracker.pkl unreadable, rebuilding: {e}", flush=True)
         if self.tracker is None or self.tracker_key != key:
-            self.tracker, self.tracker_key, self.fed_until, self.snapshot = Tracker(), key, 0.0, None
+            self.tracker, self.tracker_key, self.fed_until, self.snapshot = Tracker(scale=cameras.px_scale(self.camera)), key, 0.0, None
         tr, last, fed, scene = self.tracker, None, 0, None
 
         def scene_of(i):  # what the rejection rules need for window i
@@ -435,7 +434,7 @@ def sparks(tr: Tracker, drift, sun_xy, envelope) -> list[dict]:
         if len(t.hits) != 2 or t.candidate or min(h.sig for h in t.hits) < SPARK_SIGMA:
             continue
         vx, vy = t.velocity()
-        if C.rejection(vx, vy, t.last.x, t.last.y, drift, sun_xy, t.hits, envelope):
+        if C.rejection(vx, vy, t.last.x, t.last.y, drift, sun_xy, t.hits, envelope, getattr(tr, "scale", 1.0)):
             continue
         hits = [{"t": detect._iso(h.t), "x": round(h.x, 1), "y": round(h.y, 1), "sig": round(h.sig, 1)} for h in t.hits]
         out.append({"id": track_key({"hits": [{"frame_time": hits[0]["t"], "x": t.hits[0].x, "y": t.hits[0].y}]}),
@@ -544,7 +543,7 @@ def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas
     reports = _reports(con, camera, now)
     following, rejected = [], []
     for t in recent:
-        d = _track_summary(t, reports, lat_s, con)
+        d = _track_summary(t, reports, lat_s, con, camera)
         if d["id"] in held and not (d["live"] and d["last_seen"] >= cutoff):
             d["held"] = True  # only the owner's comet label keeps it here
         (following if d["live"] or d["id"] in held else rejected).append(d)
@@ -686,7 +685,7 @@ def _reports(con, camera: str, now: datetime) -> list[score.Truth]:
     return score.other_reports(con, camera, lo, now.date())
 
 
-def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con) -> dict:
+def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con, camera: str = "ccor1") -> dict:
     hits = t["hits"]
     live = any(score.live_at(t, k) for k in score.THRESHOLDS) and not t["status"].startswith("rejected")
     vx, vy = t["velocity"]
@@ -701,7 +700,7 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con) -> di
             tier, tier_at = name, at
             break
     if tier is None:
-        at = _steady_at(hits, t.get("sun_xy"))
+        at = _steady_at(hits, t.get("sun_xy"), camera)
         if at is not None:
             tier, tier_at = "steady", at
     out = {
@@ -735,11 +734,11 @@ def _recent(iso: str | None) -> bool:
     return iso is not None and time.time() - _ts(iso) <= NEWS_H * 3600
 
 
-def _steady_at(hits: list[dict], sun_xy) -> str | None:
+def _steady_at(hits: list[dict], sun_xy, camera: str = "ccor1") -> str | None:
     """Frame time at which the track first had STEADY_HITS hits in consecutive frames,
-    if its first hit was at least STEADY_R px from the Sun."""
-    sx, sy = sun_xy or SUN_XY_DEFAULT
-    if np.hypot(hits[0]["x"] - sx, hits[0]["y"] - sy) < STEADY_R:
+    if its first hit was at least STEADY_R px (CCOR-1 pixels) from the Sun."""
+    sx, sy = sun_xy or cameras.CAMERAS[camera].nominal_sun
+    if np.hypot(hits[0]["x"] - sx, hits[0]["y"] - sy) < STEADY_R * cameras.px_scale(camera):
         return None
     run = 1
     for a, b in zip(hits, hits[1:]):

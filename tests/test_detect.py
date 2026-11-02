@@ -115,6 +115,7 @@ def test_tracker_does_not_promote_a_two_window_blip():
     ((5.0, 4.0), (1600, 1500), {}, "outbound"),  # down-right, away from the Sun
     ((-3.0, -3.0), (1200, 1150), {}, "glare-zone"),  # ~250 px from the Sun
     ((-0.5, -4.0), (956, 1630), {}, "pylon"),  # 85 px left of the pylon axis, 670 px below the Sun, inbound
+    ((0.5, 4.0), (1130, 300), {}, "pylon"),  # above the Sun too (the arm is on top before the yaw flip and on CCOR-2)
     ((-0.5, -4.0), (1300, 1630), {}, None),  # same motion well clear of the pylon
     ((-5.0, -4.0), (1600, 1500), {"edge": 10.0}, "edge"),
     ((-5.0, -4.0), (1600, 1500), {"elong": 5.0}, "extended"),
@@ -285,3 +286,16 @@ def test_stacked_shape_is_round_for_a_comet_with_a_tail_and_long_for_a_sliding_r
         maps, times = _stack_of(draw)
         cut = B.Cutouts(maps, times, grid)
         assert lo <= B.stacked_elongation(cut, 100, 87, 2.0, 0.0) < hi
+
+
+def test_pixel_thresholds_scale_with_the_camera_plate_scale():
+    from kreutz import cameras
+
+    s = cameras.px_scale("ccor2")
+    assert 0.78 < s < 0.81 and cameras.px_scale("ccor1") == 1.0
+    # 300 px from the Sun is inside CCOR-1's glare zone (320) but outside CCOR-2's (320 * 0.8 = 255)
+    hits = [_peak(k, 1041 + 212 - 3 * k, 962 + 212 - 3 * k, -3, -3) for k in range(3)]
+    assert C.rejection(-3, -3, hits[-1].x, hits[-1].y, DRIFT, SUN, hits) == "glare-zone"
+    assert C.rejection(-3, -3, hits[-1].x, hits[-1].y, DRIFT, SUN, hits, scale=s) is None
+    tr = C.Tracker(scale=s)
+    assert tr.scale == s

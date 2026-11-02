@@ -23,7 +23,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .. import fetch
+from .. import cameras, fetch
 from ..reports import db
 from . import frames as A
 from . import stack as B
@@ -173,7 +173,7 @@ FLAG_RECURRING = False  # experiment: reject tracks repeating an earlier day's s
 
 
 def run_stage_c(camera, paths, metas, windows, envelopes, seed_cold: bool = SEED_COLD) -> list[Track]:
-    tr = Tracker()
+    tr = Tracker(scale=cameras.px_scale(camera))
     cold = 0
     for i in windows:
         mem = window_members(metas, i)

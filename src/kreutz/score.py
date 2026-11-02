@@ -165,7 +165,24 @@ def truths(con, camera: str, start: date, end: date) -> tuple[list[Truth], bool]
         if len(t) < 3:
             continue
         out.append(Truth(r[0], group, datetime.fromisoformat(r[1]), t, x, y, _CLAIM.get(r[2], r[2])))
+    # claims on the other CCOR camera, in our pixels, unless they are the same object as one above
+    for c in cross_reports(con, camera, lo, hi, min_positions=3):
+        if c.status in ("retracted",) or any(_same_object(c, o) for o in out):
+            continue
+        c.status = _CLAIM.get(c.status, c.status)
+        out.append(c)
     return out, True
+
+
+def _same_object(a: Truth, b: Truth) -> bool:
+    """Two truths describe one object when b's path passes within a's tolerance of
+    a's positions at a's times (at least MATCH_HITS of them)."""
+    n = 0
+    for ts, x, y in zip(a.times, a.xs, a.ys):
+        p = b.position(ts)
+        if p is not None and np.hypot(x - p[0], y - p[1]) <= max(a.tolerance, b.tolerance):
+            n += 1
+    return n >= MATCH_HITS
 
 
 def images_of_range(s: str, year: int | None = None) -> tuple[date, date] | None:

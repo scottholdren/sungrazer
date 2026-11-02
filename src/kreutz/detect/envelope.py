@@ -102,12 +102,13 @@ class Envelope:
     direction: ArcRange
     miss: tuple[float, float]  # px, margin included
     grid: VelocityGrid
+    camera: str = "ccor1"  # the camera whose pixels the envelope is in
 
     def check(self, x, y, vx, vy, sun_xy) -> str | None:
         """None if a track at (x, y) moving (vx, vy) fits, else why not."""
         if angle_of(vx, vy) not in self.direction:
             return "off-envelope"
-        if not self.miss[0] <= miss_distance(x, y, vx, vy, sun_xy or NOMINAL_SUN) <= self.miss[1]:
+        if not self.miss[0] <= miss_distance(x, y, vx, vy, sun_xy or nominal_sun(getattr(self, "camera", "ccor1"))) <= self.miss[1]:
             return "off-envelope"
         return None
 
@@ -119,43 +120,71 @@ class Envelope:
                 f"grid {self.grid.describe_box()}")
 
 
-def kreutz_tracks(con, camera: str, status: str) -> list[tuple]:
-    """(month, vx, vy, PA, direction, miss) per report: straight-line fit to the hunter's positions."""
+def nominal_sun(camera: str) -> tuple[float, float]:
+    from .. import cameras
+
+    return cameras.CAMERAS[camera].nominal_sun if camera in cameras.CAMERAS else NOMINAL_SUN
+
+
+def kreutz_tracks(con, camera: str, status: str, cross: bool = False) -> list[tuple]:
+    """(month, vx, vy, PA, direction, miss) per report: straight-line fit to the hunter's
+    positions. With `cross`, the other CCOR camera's reports instead, their positions
+    converted into this camera's pixels (solar.cross_positions, any frame of
+    either camera standing in for the WCS when none is near the time: the roll
+    drifts by a few degrees at most, within the angle margins)."""
+    from .. import solar
+
+    sun = nominal_sun(camera)
+    source = camera
+    if cross:
+        source = solar.other_ccor(camera)
+        if source is None:
+            return []
     out = []
     rows = con.execute("SELECT report_id FROM reports WHERE camera=? AND status=? AND comet_group='Kreutz'",
-                       (camera, status)).fetchall()
+                       (source, status)).fetchall()
     for (rid,) in rows:
         f = con.execute("SELECT frame_time, x_ul, y_ul FROM frames WHERE report_id=? AND x_ul IS NOT NULL "
                         "AND frame_time IS NOT NULL ORDER BY seq", (rid,)).fetchall()
         if len(f) < 3:
             continue
-        t = np.array([datetime.fromisoformat(r[0]).timestamp() for r in f]) / FRAME_SECONDS
+        t = np.array([datetime.fromisoformat(r[0]).timestamp() for r in f])
+        x, y = np.array([r[1] for r in f]), np.array([r[2] for r in f])
+        if cross:
+            t, x, y = solar.cross_positions(source, camera, t, x, y, fetch_missing=False, any_age=True)
+            if len(t) < 3:
+                continue
+        t = t / FRAME_SECONDS
         if np.ptp(t) == 0:
             continue
-        x, y = np.array([r[1] for r in f]), np.array([r[2] for r in f])
         px, py = np.polyfit(t, x, 1), np.polyfit(t, y, 1)
         if np.hypot(x - np.polyval(px, t), y - np.polyval(py, t)).max() > 5 or np.hypot(px[0], py[0]) > 30:
             continue  # typo'd times/positions; same filter as velocity.report_velocities
         vx, vy = float(px[0]), float(py[0])
-        pa = angle_of(x[0] - NOMINAL_SUN[0], y[0] - NOMINAL_SUN[1])
-        out.append((int(f[0][0][5:7]), vx, vy, pa, angle_of(vx, vy), miss_distance(x[0], y[0], vx, vy, NOMINAL_SUN)))
+        pa = angle_of(x[0] - sun[0], y[0] - sun[1])
+        out.append((int(f[0][0][5:7]), vx, vy, pa, angle_of(vx, vy), miss_distance(x[0], y[0], vx, vy, sun)))
     return out
 
 
 def for_month(con, camera: str, month: int) -> Envelope:
     """Confirmed tracks within +-1 month if there are enough; else this month's
     claims (widening to +-2 months). The geometry turns ~20-30 deg a month, so
-    same-month claims beat confirmations from further away."""
+    same-month claims beat confirmations from further away. A camera with too few
+    reports of its own (CCOR-2) borrows the other CCOR camera's, converted into
+    its pixels."""
     tracks = {st: kreutz_tracks(con, camera, st) for st in ("confirmed", "reported")}
-    for status, spread in (("confirmed", 0), ("confirmed", 1), ("reported", 0), ("reported", 1), ("reported", 2)):
-        months = sorted({(month - 1 + k) % 12 + 1 for k in range(-spread, spread + 1)})
-        s = np.array([t[1:] for t in tracks[status] if t[0] in months])
-        if len(s) >= MIN_SAMPLES:
-            return _build(month, status == "reported", months, s)
+    for use_cross in (False, True):
+        if use_cross:
+            tracks = {st: tracks[st] + kreutz_tracks(con, camera, st, cross=True) for st in tracks}
+        for status, spread in (("confirmed", 0), ("confirmed", 1), ("reported", 0), ("reported", 1), ("reported", 2)):
+            months = sorted({(month - 1 + k) % 12 + 1 for k in range(-spread, spread + 1)})
+            s = np.array([t[1:] for t in tracks[status] if t[0] in months])
+            if len(s) >= MIN_SAMPLES:
+                return _build(month, status == "reported", months, s, camera)
     raise SystemExit(f"no Kreutz {camera} tracks near month {month}; run `kreutz reports sync`")
 
 
-def _build(month, provisional, months, s) -> Envelope:
+def _build(month, provisional, months, s, camera: str = "ccor1") -> Envelope:
     trim = TRIM if provisional else None
     v = s[:, :2]
     lo, hi = (np.percentile(v, trim[0], axis=0), np.percentile(v, trim[1], axis=0)) if trim else (v.min(0), v.max(0))
@@ -166,4 +195,4 @@ def _build(month, provisional, months, s) -> Envelope:
     b = s[:, 4]
     blo, bhi = np.percentile(b, trim) if trim else (b.min(), b.max())
     return Envelope(month, provisional, months, s, ArcRange.of(s[:, 3], trim),
-                    (float(blo) - MISS_MARGIN, float(bhi) + MISS_MARGIN), grid)
+                    (float(blo) - MISS_MARGIN, float(bhi) + MISS_MARGIN), grid, camera)

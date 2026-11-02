@@ -54,13 +54,17 @@ def _wcs(path: str):
             return w, float(h["RSUN_ARC"]), int(h["NAXIS2"]), int(h["NAXIS1"])
 
 
-def frame_for(camera: str, t: datetime, fetch_missing: bool = True) -> Path:
+def frame_for(camera: str, t: datetime, fetch_missing: bool = True, any_age: bool = False) -> Path:
     """The frame on disk nearest t (within NEAR_H hours); if none and allowed, the
-    nearest in the camera's live listing is downloaded. Raises NoFrame."""
+    nearest in the camera's live listing is downloaded; with `any_age`, failing
+    both, the nearest frame on disk however old (the roll drifts a few degrees
+    over months: fine for the velocity envelope, not for matching). Raises NoFrame."""
     t = t.astimezone(timezone.utc)
     best = _nearest(fetch.local_frames(camera, (t - timedelta(hours=NEAR_H)).date(), (t + timedelta(hours=NEAR_H)).date()), t)
     if best is not None:
         return best
+    if any_age and not fetch_missing:
+        return _any_frame(camera, t)
     if fetch_missing:
         cam = cameras.get(camera)
         now = datetime.now(timezone.utc)
@@ -78,7 +82,21 @@ def frame_for(camera: str, t: datetime, fetch_missing: bool = True) -> Path:
             net.download(url, dest)
             if dest.exists():
                 return dest
+    if any_age:
+        return _any_frame(camera, t)
     raise NoFrame(f"{camera}: no frame within {NEAR_H:g} h of {t:%Y-%m-%d %H:%M}")
+
+
+@functools.lru_cache(maxsize=8)
+def _all_frames(camera: str) -> tuple:
+    return tuple(fetch.local_frames(camera))
+
+
+def _any_frame(camera: str, t: datetime) -> Path:
+    frames = _all_frames(camera)
+    if not frames:
+        raise NoFrame(f"{camera}: no frames on disk at all")
+    return min(frames, key=lambda p: abs(filename_time(p.name) - t))
 
 
 def _nearest(frames: list[Path], t: datetime) -> Path | None:
@@ -90,18 +108,18 @@ def _nearest(frames: list[Path], t: datetime) -> Path | None:
     return best
 
 
-def to_solar(camera: str, t: datetime, x: float, y: float, fetch_missing: bool = True) -> tuple[float, float]:
+def to_solar(camera: str, t: datetime, x: float, y: float, fetch_missing: bool = True, any_age: bool = False) -> tuple[float, float]:
     """Report pixel (upper-left origin, y down) -> (Tx, Ty) in solar radii as seen from that camera."""
-    w, rsun, h, _ = _wcs(str(frame_for(camera, t, fetch_missing)))
+    w, rsun, h, _ = _wcs(str(frame_for(camera, t, fetch_missing, any_age)))
     col, row = coords.report_to_fits(x, y, h)
     tx, ty = w.all_pix2world([[col, row]], 0)[0]
     tx, ty = (tx + 180) % 360 - 180, (ty + 180) % 360 - 180
     return tx * 3600 / rsun, ty * 3600 / rsun
 
 
-def from_solar(camera: str, t: datetime, rx: float, ry: float, fetch_missing: bool = True) -> tuple[float, float]:
+def from_solar(camera: str, t: datetime, rx: float, ry: float, fetch_missing: bool = True, any_age: bool = False) -> tuple[float, float]:
     """(Tx, Ty) in solar radii -> report pixel in that camera (may fall outside the frame)."""
-    w, rsun, h, _ = _wcs(str(frame_for(camera, t, fetch_missing)))
+    w, rsun, h, _ = _wcs(str(frame_for(camera, t, fetch_missing, any_age)))
     col, row = w.all_world2pix([[rx * rsun / 3600, ry * rsun / 3600]], 0)[0]
     return coords.fits_to_report(float(col), float(row), h)
 
@@ -110,7 +128,7 @@ def inside(camera: str, x: float, y: float, margin: float = 0.0) -> bool:
     return margin <= x < coords.CCOR_WIDTH - margin and margin <= y < coords.CCOR_HEIGHT - margin
 
 
-def cross_positions(src: str, dst: str, times, xs, ys, fetch_missing: bool = True):
+def cross_positions(src: str, dst: str, times, xs, ys, fetch_missing: bool = True, any_age: bool = False):
     """Positions reported on camera `src` expressed in camera `dst`'s report pixels at
     the same times. Returns (times, xs, ys) keeping only the positions that could
     be converted and land inside dst's frame; empty arrays if the WCS of either
@@ -119,8 +137,8 @@ def cross_positions(src: str, dst: str, times, xs, ys, fetch_missing: bool = Tru
     for ts, x, y in zip(times, xs, ys):
         t = datetime.fromtimestamp(float(ts), timezone.utc)
         try:
-            rx, ry = to_solar(src, t, float(x), float(y), fetch_missing)
-            px, py = from_solar(dst, t, rx, ry, fetch_missing)
+            rx, ry = to_solar(src, t, float(x), float(y), fetch_missing, any_age)
+            px, py = from_solar(dst, t, rx, ry, fetch_missing, any_age)
         except (NoFrame, KeyError, ValueError):
             continue
         if math.isfinite(px) and math.isfinite(py) and inside(dst, px, py):
