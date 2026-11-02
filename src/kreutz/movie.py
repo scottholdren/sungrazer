@@ -35,13 +35,16 @@ STACK = 8            # maps added along the motion (the detector stacks 8); 3 is
 MAX_FRAMES = 40
 LEAD_FRAMES = 4      # frames shown before the first hit
 RANGE_SIGMA = 10.0   # 255 on the PNG
-FULL_FRAMES = 16     # the full-field movie: the whole frame at half res, this many frames up to the newest hit
-FULL_RING = 10       # ring radius on it, px
-FIELD_VERSION = 3    # in the cache key: bump when the field rendering changes, or old frames are served
+FULL_FRAMES = 32     # the field movie: the frame at half res, this many frames up to the newest hit
+FULL_RING = 10       # marker size on it (crosshair tick length), px
+FIELD_VERSION = 4    # in the cache key: bump when the field rendering changes, or old frames are served
 FIELD_SUN_KEEP = 120 # half-res px around the Sun always in the field view (occulter and inner corona)
 FIELD_MARGIN = 50    # half-res px around the object's path
-FIELD_BG = 5         # the field is the frame minus the median of this many earlier frames
-FIELD_LO, FIELD_HI = -2.0, 8.0  # the field's linear scale in sigma of the frame's own noise (0 and 255 on the PNG)
+FIELD_BG_HOURS = 24  # the field's background: the pixelwise minimum of the good frames over this long before the
+FIELD_BG_STEP = 4    # first shown frame, every this many frames. The static corona and glare cancel; streamers
+#                      (which move) and stars stay, which is the look of the hunters' own field movies.
+FIELD_SOFT = 1.0     # Gaussian smoothing of the field, half-res px: noise becomes grain, stars and comet soft dots
+FIELD_LO, FIELD_HI = -1.0, 12.0  # the field's linear scale in sigma of the frame's own noise (0 and 255 on the PNG)
 
 
 def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = False) -> dict:
@@ -69,7 +72,7 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
     idx = FrameIndex(camera, datetime.fromtimestamp(t_show0).date() - timedelta(days=1),
                      datetime.fromtimestamp(t_last).date())
     good = [(p, tt.timestamp()) for p, tt in zip(idx.paths, idx.times)
-            if t_show0 - (max(stack, FIELD_BG) + 1) * FRAME_SECONDS <= tt.timestamp() <= t_last + 60
+            if t_show0 - (FIELD_BG_HOURS * 3600 if full else (stack + 1) * FRAME_SECONDS) - 60 <= tt.timestamp() <= t_last + 60
             and (m := A.load_meta(camera, p.name)) is not None and m.ok and A.sig_path(camera, p.name).exists()]
     shown = [g for g in good if g[1] >= t_show0 - 60]
     if not shown:
@@ -99,36 +102,34 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
 
     hit_times = set(np.round(t / 60).astype(int))
     if full:
-        # The field is the raw frame minus the median of the previous FIELD_BG frames
-        # (no stacking: shifting along one object's motion smears everything else),
-        # on a linear scale from FIELD_LO sigma of the frame's own noise, so the noise
-        # shows as texture rather than being cut to black.
-        # Cropped to the Sun (occulter and inner corona) plus the object's path with a
-        # margin, so the view is tight on the relevant area while keeping the corona.
+        # The field is the raw frame minus one fixed background, the pixelwise minimum
+        # of the good frames over the FIELD_BG_HOURS before the first shown frame: the
+        # static corona and glare cancel, streamers and stars stay. No stacking (shifting
+        # along one object's motion smears everything else). Divided by the frame's own
+        # noise per radius, smoothed by FIELD_SOFT px, on a linear scale from FIELD_LO
+        # sigma so the noise shows as grain rather than being cut to black. Cropped to
+        # the Sun (occulter and inner corona) plus the object's path with a margin.
         out_dir.mkdir(parents=True, exist_ok=True)
         frames, pngs, imgs = [], [], []
-        raws: dict[str, np.ndarray] = {}
         h, w = None, None
-
-        def raw(p: Path) -> np.ndarray:
-            if p.name not in raws:
-                raws[p.name] = _raw_half(p)
-                if len(raws) > FIELD_BG + 2:
-                    del raws[next(iter(raws))]
-            return raws[p.name]
+        bg_frames = [q for q, tq in good if tq < shown[0][1] - 60][::-1][::FIELD_BG_STEP][::-1]
+        if not bg_frames:
+            raise ValueError("no earlier frames for the background")
+        bg = None
+        for q in bg_frames:
+            a = _raw_half(q).astype(np.float32)
+            bg = a if bg is None else np.fmin(bg, a)  # fmin ignores NaN
 
         for k, (p, ts) in enumerate(shown):
-            earlier = [q for q, tq in good if tq < ts - 1][-FIELD_BG:]
-            if not earlier:
-                raise ValueError("no earlier frames for the background")
-            cur = raw(p)
-            with np.errstate(all="ignore"), warnings.catch_warnings():
-                warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN columns under the occulter
-                diff = cur - np.nanmedian(np.stack([raw(q) for q in earlier]), axis=0)
+            cur = _raw_half(p).astype(np.float32)
+            with np.errstate(all="ignore"):
+                diff = cur - bg
             ok = np.isfinite(diff)
             m = A.load_meta(camera, p.name)
             centre = (m.sun_xy[0] / 2, m.sun_xy[1] / 2) if m is not None and m.sun_xy else None
-            z = np.where(ok, diff / _radial_sigma(diff, ok, centre), FIELD_LO)
+            z = _soften(np.where(ok, diff / _radial_sigma(diff, ok, centre), 0.0), ok, FIELD_SOFT)
+            ok &= np.isfinite(z)
+            z = np.where(ok, z, FIELD_LO)
             img = (np.clip((z - FIELD_LO) / (FIELD_HI - FIELD_LO), 0, 1) * 255).astype(np.uint8)
             h, w = img.shape
             imgs.append((img, centre))
@@ -139,7 +140,7 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
                            "tail": round(float(np.percentile(z[ok], 99.9)), 1) if ok.any() else None,
                            "name": p.name[9:24], "t": datetime.fromtimestamp(ts).astimezone().isoformat(timespec="minutes"),
                            "x": round(px / 2, 1), "y": round(py / 2, 1),
-                           "hit": int(round(ts / 60)) in hit_times, "stacked": 1, "background": len(earlier)})
+                           "hit": int(round(ts / 60)) in hit_times, "stacked": 1, "background": len(bg_frames)})
         xs = [f["x"] for f in frames] + [c[0] for _, c in imgs if c]
         ys = [f["y"] for f in frames] + [c[1] for _, c in imgs if c]
         keep = [FIELD_MARGIN] * len(frames) + [FIELD_SUN_KEEP] * sum(1 for _, c in imgs if c)
@@ -149,7 +150,9 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
         y1 = int(np.clip(math.ceil(max(y + k for y, k in zip(ys, keep))), y0 + 1, h))
         for k, ((img, _), f) in enumerate(zip(imgs, frames)):
             fpng = out_dir / f"{key}_{k:02d}.png"
-            write_png(fpng, img[y0:y1, x0:x1])
+            tile = np.ascontiguousarray(img[y0:y1, x0:x1])
+            stamp(tile, f"{f['name'][:4]}-{f['name'][4:6]}-{f['name'][6:8]} {f['name'][9:11]}:{f['name'][11:13]} UTC")
+            write_png(fpng, tile)
             pngs.append(f"{camera}/movies/{fpng.name}")
             f["x"], f["y"] = round(f["x"] - x0, 1), round(f["y"] - y0, 1)
         for old in out_dir.glob(f"{d['id']}_*"):
@@ -199,6 +202,64 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
 
 
 RADIAL_STEP = 8  # px annuli for the field's noise estimate
+
+
+def _soften(z: np.ndarray, ok: np.ndarray, sigma: float) -> np.ndarray:
+    """Gaussian smoothing that ignores NaN/masked pixels (normalised by the smoothed
+    mask); pixels with too little valid support come back NaN."""
+    from scipy import ndimage
+
+    if sigma <= 0:
+        return z
+    f = ndimage.gaussian_filter(np.where(ok, z, 0.0), sigma)
+    n = ndimage.gaussian_filter(ok.astype(np.float32), sigma)
+    with np.errstate(all="ignore"):
+        return np.where(n > 0.3, f / n, np.nan)
+
+
+# A 5x7 bitmap font for the frame stamp: digits, '-', ':', space and 'UTC'.
+_FONT = {
+    "0": ["01110", "10001", "10011", "10101", "11001", "10001", "01110"],
+    "1": ["00100", "01100", "00100", "00100", "00100", "00100", "01110"],
+    "2": ["01110", "10001", "00001", "00010", "00100", "01000", "11111"],
+    "3": ["11111", "00010", "00100", "00010", "00001", "10001", "01110"],
+    "4": ["00010", "00110", "01010", "10010", "11111", "00010", "00010"],
+    "5": ["11111", "10000", "11110", "00001", "00001", "10001", "01110"],
+    "6": ["00110", "01000", "10000", "11110", "10001", "10001", "01110"],
+    "7": ["11111", "00001", "00010", "00100", "01000", "01000", "01000"],
+    "8": ["01110", "10001", "10001", "01110", "10001", "10001", "01110"],
+    "9": ["01110", "10001", "10001", "01111", "00001", "00010", "01100"],
+    "-": ["00000", "00000", "00000", "11111", "00000", "00000", "00000"],
+    ":": ["00000", "00100", "00000", "00000", "00000", "00100", "00000"],
+    " ": ["00000"] * 7,
+    "U": ["10001", "10001", "10001", "10001", "10001", "10001", "01110"],
+    "T": ["11111", "00100", "00100", "00100", "00100", "00100", "00100"],
+    "C": ["01110", "10001", "10000", "10000", "10000", "10001", "01110"],
+}
+STAMP_SCALE = 2
+
+
+def stamp(img: np.ndarray, text: str, x: int = 6, y: int = 6, scale: int = STAMP_SCALE) -> None:
+    """Write `text` into the top-left of a uint8 image in place: white glyphs on a
+    dark halo, so it reads on any background."""
+    cols = len(text) * 6 * scale
+    rows = 7 * scale
+    y1, x1 = min(y + rows, img.shape[0]), min(x + cols, img.shape[1])
+    if y1 <= y or x1 <= x:
+        return
+    glyphs = np.zeros((rows, cols), bool)
+    for i, ch in enumerate(text):
+        g = _FONT.get(ch, _FONT[" "])
+        for r, line in enumerate(g):
+            for c, bit in enumerate(line):
+                if bit == "1":
+                    glyphs[r * scale:(r + 1) * scale, (i * 6 + c) * scale:(i * 6 + c + 1) * scale] = True
+    from scipy import ndimage
+
+    halo = ndimage.binary_dilation(glyphs, iterations=scale)
+    region = img[y:y1, x:x1]
+    region[halo[:y1 - y, :x1 - x]] = 0
+    region[glyphs[:y1 - y, :x1 - x]] = 255
 
 
 def _radial_sigma(diff: np.ndarray, ok: np.ndarray, centre: tuple[float, float] | None) -> np.ndarray:

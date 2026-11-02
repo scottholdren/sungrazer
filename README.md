@@ -156,15 +156,21 @@ Full field: the "full field" button next to it asks `/api/movie` with
 (`FIELD_SUN_KEEP` = 120 half-res px: occulter and inner corona) plus the
 object's path with a `FIELD_MARGIN` of 50 px, so the view is tight on the
 relevant area but keeps the corona (one PNG per frame, the last `FULL_FRAMES`
-= 16 frames up to the newest hit; `crop` in the movie's JSON is the offset of
-the crop in the half-res frame): each raw frame minus the
-median of the `FIELD_BG` (5) frames before it, no stacking (shifting along one
+= 32 frames up to the newest hit; `crop` in the movie's JSON is the offset of
+the crop in the half-res frame): each raw frame minus one fixed background,
+the pixelwise minimum of the good frames over the `FIELD_BG_HOURS` (24) before
+the first shown frame, every `FIELD_BG_STEP` (4) frames. The static corona
+and glare cancel; streamers (which move over a day) and stars stay, which is
+the look of the hunters' own field movies. No stacking (shifting along one
 object's motion smears everything else; stacking stays in the zoomed patch,
-where it helps a faint comet show), on a linear scale from `FIELD_LO` (-2) to
-`FIELD_HI` (8) sigma of the frame's own noise so the noise shows as texture
-rather than being cut to black. Ring at the fitted position; click the picture
-for 1:1. Same speed and scrub controls; the black point slider goes below zero
-and defaults to -2 sigma here, 2 sigma for the patch.
+where it helps a faint comet show). Divided by the frame's own noise per
+radius, smoothed by `FIELD_SOFT` (1) px so the noise reads as grain and stars
+and comet as soft dots, on a linear scale from `FIELD_LO` (-1) to `FIELD_HI`
+(12) sigma. A timestamp is written into each frame's corner (`stamp`, a 5x7
+bitmap font). A crosshair with a gap marks the fitted position, yellow on a
+measured hit; click the picture for 1:1. Same scrub controls; the field plays
+at 6 frames/s by default, the black point slider goes below zero and defaults
+to -1 sigma here, 2 sigma for the patch.
 
 Movie: the detail view's "build hi-res movie" button asks `/api/movie` for a
 fixed patch of sky (significance maps, the last 8 or 3 frames added along the

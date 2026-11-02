@@ -420,10 +420,11 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
         assert movie.FIELD_MARGIN - 2 <= f["x"] <= fm["width"] - movie.FIELD_MARGIN + 2  # path inside, with its margin
         assert movie.FIELD_MARGIN - 2 <= f["y"] <= fm["height"] - movie.FIELD_MARGIN + 2
         y, x = int(round(f["y"])), int(round(f["x"]))
-        assert img[y - 2:y + 3, x - 2:x + 3].max() > 200, f"object missing from full frame {j}"
-        assert 30 < np.median(img) < 80  # zero sigma sits at (0 - lo) / (hi - lo): the noise is visible, not black
+        zero = (0 - movie.FIELD_LO) / (movie.FIELD_HI - movie.FIELD_LO) * 255  # where zero sigma sits on the PNG
+        assert img[y - 2:y + 3, x - 2:x + 3].max() > zero + 80, f"object missing from full frame {j}"
+        assert zero - 10 < np.median(img) < zero + 20  # the noise is visible as grain, not cut to black
         assert f["stacked"] == 1
-    assert fm["frames"][-1]["background"] == movie.FIELD_BG and fm["frames"][-1]["peak"] > 6
+    assert fm["frames"][-1]["background"] >= 1 and fm["frames"][-1]["peak"] > 4  # smoothed: the 12-sigma blob reads lower
     assert movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=8, full=True) == fm  # cached; stack ignored
     assert (tmp_path / "live" / "ccor1" / "movies" / "t1_4_s3.png").exists()  # both depths of the current size stay
     d["n_hits"] = 5

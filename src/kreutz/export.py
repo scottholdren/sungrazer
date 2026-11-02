@@ -29,7 +29,7 @@ from .inspect import read_png, write_png
 LANE = ("Kreutz comets in CCOR-1 arrive from the lower right, position angle -10 to -45 deg, "
         "and head within ~20 deg of the Sun")
 BLACK_SIGMA = 2.5  # the patch GIF's black point
-FIELD_BLACK_SIGMA = -2.0  # the field GIF's: below zero, so the noise stays as texture
+FIELD_BLACK_SIGMA = -1.0  # the field GIF's: below zero, so the noise stays as texture
 RING_R = 7         # half-res px
 
 
@@ -102,10 +102,12 @@ def write_field_gif(root: Path, fm: dict, out: Path) -> None:
         if b > 0:
             img = np.where(img <= b, 0, (img - b) * 255 / (255 - b))
         idx = gif.gray_to_index(img)
-        ring = np.abs(np.hypot(xx - f["x"], yy - f["y"]) - fm["ring_r"]) < 1.2
-        idx[ring] = gif.GREEN if f["hit"] else gif.YELLOW
+        r, g = fm["ring_r"], fm["ring_r"] * 0.45  # a crosshair with a gap, as on the page
+        dx, dy = np.abs(xx - f["x"]), np.abs(yy - f["y"])
+        cross = ((dy < 0.8) & (dx >= g) & (dx <= r)) | ((dx < 0.8) & (dy >= g) & (dy <= r))
+        idx[cross] = gif.YELLOW if f["hit"] else gif.GREEN
         frames.append(idx)
-    gif.write_gif(out, frames, delay_cs=50)
+    gif.write_gif(out, frames, delay_cs=15)
 
 
 CARD_W, CARD_H = 1000, 525  # the link-preview image: a crop of the newest full-field frame around the object
@@ -332,8 +334,9 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
     if "field.gif" in files:
         L += ["", "## Full field", "",
               "The Sun's surroundings and the object's path at half resolution, the last frames up to the newest hit: each frame minus the "
-              "median of the five before it, no stacking, on a linear scale from -2 sigma of the frame's noise "
-              "(so the noise shows as texture). For where the object sits in the corona and what else is moving; "
+              "minimum of the previous 24 hours (streamers and stars stay, the static corona and glare cancel), lightly smoothed, "
+              "no stacking, on a linear scale from -1 sigma of the frame's noise (so the noise shows as grain). The crosshair "
+              "follows the fitted path, yellow on a measured hit. For where the object sits in the corona and what else is moving; "
               "a faint object is easier to judge in the stacked patch above.", "",
               "![full field](field.gif)"]
     if "sheet.png" in files:
