@@ -515,8 +515,10 @@ def _last_full_sync() -> float:
 
 
 def _sync_reports(camera: str, since: date) -> bool:
-    """Sync this camera's reports plus LASCO C2/C3 (matched by time only), so
-    "unreported" means unreported on any Sungrazer camera."""
+    """Sync this camera's reports, the other CCOR camera's (matched in solar
+    coordinates) and LASCO C2/C3 (matched by time only), so "unreported" means
+    unreported on any Sungrazer camera."""
+    from . import solar
     from .reports import sync
 
     # its guard was armed a few seconds after the fetch's last cycle; don't lose a whole cycle over that
@@ -524,7 +526,7 @@ def _sync_reports(camera: str, since: date) -> bool:
     if 0 < remaining <= 60:
         time.sleep(remaining + 0.5)
     try:
-        sync.sync([camera, "c2", "c3"], since=since)
+        sync.sync([camera] + ([solar.other_ccor(camera)] if solar.other_ccor(camera) else []) + ["c2", "c3"], since=since)
         return True
     except SystemExit:
         pass
@@ -717,12 +719,14 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con) -> di
     }
     if rep is not None:
         rid = rep.report_ids[0]
-        row = con.execute("SELECT reporter FROM reports WHERE report_id=?", (rid,)).fetchone()
+        row = con.execute("SELECT reporter, camera FROM reports WHERE report_id=?", (rid,)).fetchone()
         lead_h = (_ts(found) + lat_s - rep.first_post.timestamp()) / 3600
+        rcam = (row["camera"] if row else None) or rep.camera
         out["report"] = {"id": rid, "reporter": row["reporter"] if row else rid, "status": rep.status,
                          "posted": rep.first_post.isoformat(timespec="minutes"),
                          "url": f"https://sungrazer.nrl.navy.mil/report/{rid.replace('_', '')}",
-                         "lead_h": round(lead_h, 1)}
+                         "lead_h": round(lead_h, 1), "camera": LABELS.get(rcam, rcam),
+                         "cross": rep.camera is not None}  # reported on the other CCOR camera, matched in solar coordinates
     out["lasco"] = lasco_report(con, first["frame_time"], last["frame_time"], found, lat_s)
     return out
 

@@ -44,6 +44,7 @@ from .reports import db
 _MON = {m: i for i, m in enumerate(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
                                     "Sep", "Oct", "Nov", "Dec"], 1)}
 MATCH_PX = 12.0
+CROSS_MATCH_PX = 40.0  # for a report on the other CCOR camera, converted through both WCS (2026-11-02: 10 px off)
 MATCH_HITS = 2
 MATCH_HOURS = 3.0
 THRESHOLDS = (3, 4, 5)
@@ -76,6 +77,8 @@ class Truth:
     ys: np.ndarray
     status: str
     group: str | None = None  # comet group from the confirmation list (Kreutz, Kracht, Meyer, NonGrp)
+    camera: str | None = None  # the camera the hunter reported on, when not the one being scored
+    tolerance: float = 12.0  # MATCH_PX; wider for positions converted from the other camera
     fit: tuple = field(init=False)
 
     def __post_init__(self):
@@ -195,7 +198,10 @@ def g1_visible_soho(con, start: date, end: date) -> list[tuple[str, date, date]]
 
 
 def other_reports(con, camera: str, start: date, end: date) -> list[Truth]:
-    """Every report with >= 2 positions (any status), to annotate unmatched tracks."""
+    """Every report with >= 2 positions (any status), to annotate unmatched tracks:
+    this camera's, then the other CCOR camera's converted into this camera's
+    pixels (solar.cross_positions), which carry the source camera and a wider
+    match tolerance."""
     lo, hi = (start - timedelta(days=1)).isoformat(), (end + timedelta(days=2)).isoformat()
     out = []
     for r in con.execute("SELECT report_id, report_timestamp, status FROM reports WHERE camera=? "
@@ -203,6 +209,30 @@ def other_reports(con, camera: str, start: date, end: date) -> list[Truth]:
         t, x, y = _positions(con, [r[0]])
         if len(t) >= 2:
             out.append(Truth(r[0], [r[0]], datetime.fromisoformat(r[1]), t, x, y, r[2]))
+    out += cross_reports(con, camera, lo, hi)
+    return out
+
+
+def cross_reports(con, camera: str, lo: str, hi: str, min_positions: int = 2) -> list[Truth]:
+    """Reports on the other CCOR camera with image dates in [lo, hi), as Truths in
+    this camera's pixels. Reports whose positions cannot be converted (no frame
+    of either camera near the time) or fall outside this camera's field are skipped."""
+    from . import solar
+
+    other = solar.other_ccor(camera)
+    if other is None:
+        return []
+    out = []
+    for r in con.execute("SELECT report_id, report_timestamp, status FROM reports WHERE camera=? "
+                         "AND image_date >= ? AND image_date < ? AND sighting_type != 'Retracting Report'",
+                         (other, lo, hi)):
+        t, x, y = _positions(con, [r[0]])
+        if len(t) < min_positions:
+            continue
+        t, x, y = solar.cross_positions(other, camera, t, x, y)
+        if len(t) >= min_positions:
+            out.append(Truth(r[0], [r[0]], datetime.fromisoformat(r[1]), t, x, y, r[2],
+                             camera=other, tolerance=CROSS_MATCH_PX))
     return out
 
 
@@ -210,7 +240,7 @@ def matches(track: dict, truth: Truth) -> bool:
     n = 0
     for h in track["hits"]:
         p = truth.position(datetime.fromisoformat(h["frame_time"]).timestamp())
-        if p is not None and np.hypot(h["x"] - p[0], h["y"] - p[1]) <= MATCH_PX:
+        if p is not None and np.hypot(h["x"] - p[0], h["y"] - p[1]) <= truth.tolerance:
             n += 1
     return n >= MATCH_HITS
 

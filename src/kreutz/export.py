@@ -318,9 +318,10 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
     rep = d.get("report")
     if rep:
         L.append(f"- Matches {rep['reporter']}'s {rep.get('camera', 'CCOR-1')} report `{rep['id']}` (posted {rep['posted']}, "
-                 + (f"we had it {-rep['lead_h']:.1f} h earlier" if rep["lead_h"] < 0 else f"posted {rep['lead_h']:.1f} h before our third hit") + ").")
+                 + (f"we had it {-rep['lead_h']:.1f} h earlier" if rep["lead_h"] < 0 else f"posted {rep['lead_h']:.1f} h before our third hit")
+                 + ("; matched through both cameras' WCS in solar coordinates" if rep.get("cross") else "") + ").")
     else:
-        L.append("- No CCOR-1 report matches it on the Sungrazer site.")
+        L.append("- No CCOR-1 or CCOR-2 report matches it on the Sungrazer site.")
     lab = d.get("label")
     if lab:
         L.append(f"- Owner's label: {lab['label']}.")

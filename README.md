@@ -70,10 +70,20 @@ at the minute within each 15-minute slot that minimises the wait after SWPC
 posts a frame, chosen from the publication log (Oct 2026: 2 min past the
 slot, expected wait 5.1 min); the 15-minute guard still rules.
 
-Reports: CCOR reports are matched by position; LASCO C2/C3 claims are synced
-60 days deep and matched by time only (a claim whose frames fall within 6 h of
-a track is shown as "reported on C3 (time only)"), so UNREPORTED means
-unreported on any Sungrazer camera. The listing is walked in full once a day.
+Reports: this camera's CCOR reports are matched by position (12 px). Reports
+on the other CCOR camera are synced too and matched in solar coordinates
+(`solar.py`): each reported pixel goes through that camera's WCS to
+helioprojective (Tx, Ty) in solar radii as seen by that observer, then through
+our camera's WCS into our pixels at the same time, and matches within 40 px
+(`CROSS_MATCH_PX`; the 2026-11-02 comet, reported on CCOR-2 by Zesheng Yang
+8 min before our first CCOR-1 hit, converts to 10 px of our track). Working in
+solar radii absorbs most of the GOES-19/L1 parallax for an object near the Sun.
+The WCS comes from the frame nearest the time on disk; for CCOR-2 the nearest
+frame in SWPC's live listing is fetched once and kept. Such a match shows as
+"reported by X on CCOR-2". LASCO C2/C3 claims are synced 60 days deep and
+matched by time only (a claim whose frames fall within 6 h of a track is shown
+as "reported on C3 (time only)"), so UNREPORTED means unreported on any
+Sungrazer camera. The listing is walked in full once a day.
 
 `kreutz serve` is a standard-library HTTP server for the single-page
 dashboard in `src/kreutz/web/`: a status line per camera, the current stage
