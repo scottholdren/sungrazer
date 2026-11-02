@@ -409,11 +409,16 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
     # the full field: one PNG per frame, the raw frame minus the median of the five before it, no stacking,
     # noise kept as texture (black point -2 sigma), ring in half-res px
     fm = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3, full=True)
-    assert len(fm["pngs"]) == len(fm["frames"]) == 1 + movie.LEAD_FRAMES + 3 and (fm["width"], fm["height"]) == (1024, 960)
+    assert len(fm["pngs"]) == len(fm["frames"]) == 1 + movie.LEAD_FRAMES + 3
+    # cropped to the Sun's surroundings plus the path with a margin, not the whole 1024 x 960 frame
+    x0, y0 = fm["crop"]
+    assert 0 < fm["width"] < 1024 and 0 < fm["height"] < 960 and x0 >= 0 and y0 >= 0
     assert fm["stack"] == 1 and (fm["lo_sigma"], fm["hi_sigma"]) == (movie.FIELD_LO, movie.FIELD_HI)
     for j, f in enumerate(fm["frames"]):
         img = _read_png(tmp_path / "live" / "ccor1" / "movies" / fm["pngs"][j].split("/")[-1])
-        assert img.shape == (960, 1024)
+        assert img.shape == (fm["height"], fm["width"])
+        assert movie.FIELD_MARGIN - 2 <= f["x"] <= fm["width"] - movie.FIELD_MARGIN + 2  # path inside, with its margin
+        assert movie.FIELD_MARGIN - 2 <= f["y"] <= fm["height"] - movie.FIELD_MARGIN + 2
         y, x = int(round(f["y"])), int(round(f["x"]))
         assert img[y - 2:y + 3, x - 2:x + 3].max() > 200, f"object missing from full frame {j}"
         assert 30 < np.median(img) < 80  # zero sigma sits at (0 - lo) / (hi - lo): the noise is visible, not black
@@ -455,7 +460,8 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
         html = export.write_page({"id": "t1"}, rec["text"], ["card.png"], "https://x.github.io/r/results/ccor1/live-finds/t1/")
         assert '<meta property="og:image" content="https://x.github.io/r/results/ccor1/live-finds/t1/card.png">' in html
         fg = urlopen(f"http://127.0.0.1:{port}/finds/ccor1/t1/field.gif").read()
-        assert fg[:6] == b"GIF89a" and fg[6:10] == b"\x00\x04\xc0\x03"  # 1024 x 960, little-endian
+        gw, gh = int.from_bytes(fg[6:8], "little"), int.from_bytes(fg[8:10], "little")
+        assert fg[:6] == b"GIF89a" and 0 < gw < 1024 and 0 < gh < 960  # the field's crop, not the whole frame
         assert fg.count(b"\x21\xF9\x04") == 1 + movie.LEAD_FRAMES + 3 and "![full field](field.gif)" in rec["text"]
         assert rec["url"] is None  # not a git checkout here
         assert "\n2130 1036 776\n" in rec["text"] and "origin upper left" in rec["text"] and "| ring | tail |" in rec["text"]

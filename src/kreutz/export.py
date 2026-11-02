@@ -118,19 +118,28 @@ def card(root: Path, fm: dict, out: Path, camera: str = "ccor1") -> None:
     occulter show) when it is on disk, else the significance map."""
     k = max((i for i, f in enumerate(fm["frames"]) if f["hit"]), default=len(fm["frames"]) - 1)
     f = fm["frames"][k]
+    cx, cy = f["x"], f["y"]  # relative to the movie's crop of the half-res frame
     img = _raw_half(camera, f["name"])
     if img is None:
         img = read_png(root / fm["pngs"][k]).astype(np.float32)
         b = BLACK_SIGMA / fm["range_sigma"] * 255
         img = np.where(img <= b, 0, (img - b) * 255 / (255 - b))
+    else:
+        cx, cy = cx + fm.get("crop", [0, 0])[0], cy + fm.get("crop", [0, 0])[1]
     h, w = img.shape
-    x0 = int(np.clip(round(f["x"] - CARD_W / 2), 0, max(w - CARD_W, 0)))
-    y0 = int(np.clip(round(f["y"] - CARD_H / 2), 0, max(h - CARD_H, 0)))
+    if h < CARD_H or w < CARD_W:  # a small source is centred on a dark card of the full size
+        pad = np.zeros((max(h, CARD_H), max(w, CARD_W)), img.dtype)
+        py, px = (pad.shape[0] - h) // 2, (pad.shape[1] - w) // 2
+        pad[py:py + h, px:px + w] = img
+        img, cx, cy = pad, cx + px, cy + py
+        h, w = img.shape
+    x0 = int(np.clip(round(cx - CARD_W / 2), 0, max(w - CARD_W, 0)))
+    y0 = int(np.clip(round(cy - CARD_H / 2), 0, max(h - CARD_H, 0)))
     crop = img[y0:y0 + CARD_H, x0:x0 + CARD_W]
     v = (crop / 255.0)[..., None]
     rgb = np.where(v < 0.5, _NAVY + (_BLUE - _NAVY) * (v / 0.5), _BLUE + (_WHITE - _BLUE) * ((v - 0.5) / 0.5))
     yy, xx = np.mgrid[0:crop.shape[0], 0:crop.shape[1]]
-    ring = np.abs(np.hypot(xx - (f["x"] - x0), yy - (f["y"] - y0)) - fm["ring_r"] * 1.6) < 1.6
+    ring = np.abs(np.hypot(xx - (cx - x0), yy - (cy - y0)) - fm["ring_r"] * 1.6) < 1.6
     rgb[ring] = (79, 211, 122)
     write_png(out, np.clip(rgb, 0, 255).astype(np.uint8))
 
@@ -322,7 +331,7 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
               "![movie](movie.gif)"]
     if "field.gif" in files:
         L += ["", "## Full field", "",
-              "The whole frame at half resolution, the last frames up to the newest hit: each frame minus the "
+              "The Sun's surroundings and the object's path at half resolution, the last frames up to the newest hit: each frame minus the "
               "median of the five before it, no stacking, on a linear scale from -2 sigma of the frame's noise "
               "(so the noise shows as texture). For where the object sits in the corona and what else is moving; "
               "a faint object is easier to judge in the stacked patch above.", "",

@@ -37,7 +37,9 @@ LEAD_FRAMES = 4      # frames shown before the first hit
 RANGE_SIGMA = 10.0   # 255 on the PNG
 FULL_FRAMES = 16     # the full-field movie: the whole frame at half res, this many frames up to the newest hit
 FULL_RING = 10       # ring radius on it, px
-FIELD_VERSION = 2    # in the cache key: bump when the field rendering changes, or old frames are served
+FIELD_VERSION = 3    # in the cache key: bump when the field rendering changes, or old frames are served
+FIELD_SUN_KEEP = 120 # half-res px around the Sun always in the field view (occulter and inner corona)
+FIELD_MARGIN = 50    # half-res px around the object's path
 FIELD_BG = 5         # the field is the frame minus the median of this many earlier frames
 FIELD_LO, FIELD_HI = -2.0, 8.0  # the field's linear scale in sigma of the frame's own noise (0 and 255 on the PNG)
 
@@ -101,9 +103,12 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
         # (no stacking: shifting along one object's motion smears everything else),
         # on a linear scale from FIELD_LO sigma of the frame's own noise, so the noise
         # shows as texture rather than being cut to black.
+        # Cropped to the Sun (occulter and inner corona) plus the object's path with a
+        # margin, so the view is tight on the relevant area while keeping the corona.
         out_dir.mkdir(parents=True, exist_ok=True)
-        frames, pngs = [], []
+        frames, pngs, imgs = [], [], []
         raws: dict[str, np.ndarray] = {}
+        h, w = None, None
 
         def raw(p: Path) -> np.ndarray:
             if p.name not in raws:
@@ -126,9 +131,7 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
             z = np.where(ok, diff / _radial_sigma(diff, ok, centre), FIELD_LO)
             img = (np.clip((z - FIELD_LO) / (FIELD_HI - FIELD_LO), 0, 1) * 255).astype(np.uint8)
             h, w = img.shape
-            fpng = out_dir / f"{key}_{k:02d}.png"
-            write_png(fpng, img)
-            pngs.append(f"{camera}/movies/{fpng.name}")
+            imgs.append((img, centre))
             px, py = np.polyval(fx, ts / FRAME_SECONDS), np.polyval(fy, ts / FRAME_SECONDS)
             ri, ci = int(round(py / 2)), int(round(px / 2))
             ring = z[max(ri - 3, 0):ri + 4, max(ci - 3, 0):ci + 4]
@@ -137,11 +140,23 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
                            "name": p.name[9:24], "t": datetime.fromtimestamp(ts).astimezone().isoformat(timespec="minutes"),
                            "x": round(px / 2, 1), "y": round(py / 2, 1),
                            "hit": int(round(ts / 60)) in hit_times, "stacked": 1, "background": len(earlier)})
+        xs = [f["x"] for f in frames] + [c[0] for _, c in imgs if c]
+        ys = [f["y"] for f in frames] + [c[1] for _, c in imgs if c]
+        keep = [FIELD_MARGIN] * len(frames) + [FIELD_SUN_KEEP] * sum(1 for _, c in imgs if c)
+        x0 = int(np.clip(math.floor(min(x - k for x, k in zip(xs, keep))), 0, w - 1))
+        x1 = int(np.clip(math.ceil(max(x + k for x, k in zip(xs, keep))), x0 + 1, w))
+        y0 = int(np.clip(math.floor(min(y - k for y, k in zip(ys, keep))), 0, h - 1))
+        y1 = int(np.clip(math.ceil(max(y + k for y, k in zip(ys, keep))), y0 + 1, h))
+        for k, ((img, _), f) in enumerate(zip(imgs, frames)):
+            fpng = out_dir / f"{key}_{k:02d}.png"
+            write_png(fpng, img[y0:y1, x0:x1])
+            pngs.append(f"{camera}/movies/{fpng.name}")
+            f["x"], f["y"] = round(f["x"] - x0, 1), round(f["y"] - y0, 1)
         for old in out_dir.glob(f"{d['id']}_*"):
             if not old.name.startswith(f"{d['id']}_{d['n_hits']}_"):
                 old.unlink()
-        meta = {"pngs": pngs, "width": w, "height": h, "zoom": 1, "stack": 1, "range_sigma": FIELD_HI,
-                "lo_sigma": FIELD_LO, "hi_sigma": FIELD_HI, "frames": frames, "ring_r": FULL_RING}
+        meta = {"pngs": pngs, "width": x1 - x0, "height": y1 - y0, "crop": [x0, y0], "zoom": 1, "stack": 1,
+                "range_sigma": FIELD_HI, "lo_sigma": FIELD_LO, "hi_sigma": FIELD_HI, "frames": frames, "ring_r": FULL_RING}
         js.write_text(json.dumps(meta))
         return meta
     ncol = math.ceil(math.sqrt(len(shown)))

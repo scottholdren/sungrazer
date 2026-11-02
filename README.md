@@ -152,8 +152,12 @@ previews with the object's own picture, where a link into the repo shows
 GitHub's card for the repo. Pages rebuilds a minute or two after each push.
 
 Full field: the "full field" button next to it asks `/api/movie` with
-`full=1` for the whole frame at half resolution (one PNG per frame, the last
-`FULL_FRAMES` = 16 frames up to the newest hit): each raw frame minus the
+`full=1` for the frame at half resolution, cropped to the Sun's surroundings
+(`FIELD_SUN_KEEP` = 120 half-res px: occulter and inner corona) plus the
+object's path with a `FIELD_MARGIN` of 50 px, so the view is tight on the
+relevant area but keeps the corona (one PNG per frame, the last `FULL_FRAMES`
+= 16 frames up to the newest hit; `crop` in the movie's JSON is the offset of
+the crop in the half-res frame): each raw frame minus the
 median of the `FIELD_BG` (5) frames before it, no stacking (shifting along one
 object's motion smears everything else; stacking stays in the zoomed patch,
 where it helps a faint comet show), on a linear scale from `FIELD_LO` (-2) to
