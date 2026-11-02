@@ -1,10 +1,10 @@
 # CCOR-1 candidate 20261102T1115_1748_1520
 
-**24 frames, 2026-11-02 11:15 to 17:00 UTC, peak 21 sigma, brightening.**
+**26 frames, 2026-11-02 11:15 to 17:30 UTC, peak 21 sigma, brightening.**
 
 - Detected by the kreutz shift-and-stack search (8 frames stacked along the fitted motion); status candidate, alert tier since 16:00 UTC.
 - Motion (-7.1, -3.8) px per 15-min frame, 8.1 px/frame.
-- Last position 755 px from the Sun at position angle -40 deg, heading 12 deg off the Sun direction (Kreutz comets in CCOR-1 arrive from the lower right, position angle -10 to -45 deg, and head within ~20 deg of the Sun).
+- Last position 739 px from the Sun at position angle -40 deg, heading 12 deg off the Sun direction (Kreutz comets in CCOR-1 arrive from the lower right, position angle -10 to -45 deg, and head within ~20 deg of the Sun).
 - No CCOR-1 report matches it on the Sungrazer site.
 
 ## Movie
@@ -15,7 +15,7 @@ A fixed patch of sky at 2x the camera's resolution: significance maps (stars and
 
 ## Full field
 
-The Sun's surroundings and the object's path at half resolution, the last frames up to the newest hit: each frame minus the minimum of the previous 24 hours (streamers and stars stay, the static corona and glare cancel), lightly smoothed, no stacking, on a linear scale from -1 sigma of the frame's noise (so the noise shows as grain). The crosshair follows the fitted path, yellow on a measured hit. For where the object sits in the corona and what else is moving; a faint object is easier to judge in the stacked patch above.
+The object's quadrant at half resolution, from just outside the occulter out to the field edge, the last frames up to the newest hit: each frame minus the minimum of the previous 24 hours (streamers and stars stay, the static corona and glare cancel), lightly smoothed, no stacking, on a linear scale from -1 sigma of the frame's noise (so the noise shows as grain). The crosshair follows the fitted path, yellow on a measured hit. For where the object sits in the corona and what else is moving; a faint object is easier to judge in the stacked patch above.
 
 ![full field](field.gif)
 
@@ -57,6 +57,8 @@ Top: raw frame. Middle: significance map of that frame. Bottom: the detector's v
 | 2026-11-02 | 1630 | 1598 | 1440 | 16.7 |
 | 2026-11-02 | 1645 | 1590 | 1436 | 20.6 |
 | 2026-11-02 | 1700 | 1582 | 1432 | 19.9 |
+| 2026-11-02 | 1715 | 1578 | 1428 | 15.7 |
+| 2026-11-02 | 1730 | 1568 | 1424 | 20.8 |
 
 Form layout (HHMM x y):
 
@@ -85,6 +87,8 @@ Form layout (HHMM x y):
 1630 1598 1440
 1645 1590 1436
 1700 1582 1432
+1715 1578 1428
+1730 1568 1424
 ```
 
 ## Movie frames
@@ -93,33 +97,35 @@ Sigma inside the ring on the fitted position vs the brightest 0.1% of the whole 
 
 | frame | ring | tail | |
 |---|---|---|---|
-| 20261102T101525 | 10.1 | 5.3 |  |
-| 20261102T103025 | 8.5 | 5.3 |  |
-| 20261102T104525 | 8.7 | 5.1 |  |
-| 20261102T110025 | 7.8 | 5.2 |  |
-| 20261102T111525 | 8.4 | 5.3 | hit |
-| 20261102T113025 | 10.5 | 5.0 | hit |
-| 20261102T114525 | 10.5 | 5.2 | hit |
-| 20261102T120025 | 9.0 | 5.3 | hit |
-| 20261102T121525 | 9.7 | 5.1 | hit |
-| 20261102T123025 | 9.6 | 5.0 | hit |
-| 20261102T124525 | 9.7 | 5.5 | hit |
-| 20261102T130025 | 12.9 | 5.4 | hit |
-| 20261102T131525 | 12.0 | 5.2 | hit |
-| 20261102T133025 | 12.6 | 5.3 | hit |
-| 20261102T134525 | 14.7 | 5.2 | hit |
-| 20261102T140025 | 13.4 | 5.4 | hit |
-| 20261102T141525 | 16.0 | 5.5 | hit |
-| 20261102T143025 | 11.3 | 5.3 | hit |
-| 20261102T144525 | 14.4 | 5.5 | hit |
-| 20261102T150025 | 13.7 | 5.3 | hit |
-| 20261102T151525 | 16.0 | 5.6 | hit |
-| 20261102T153025 | 15.5 | 5.3 | hit |
-| 20261102T154525 | 18.9 | 5.6 | hit |
-| 20261102T160025 | 20.3 | 5.2 | hit |
-| 20261102T161525 | 20.0 | 5.2 | hit |
-| 20261102T163025 | 22.1 | 5.1 | hit |
-| 20261102T164525 | 17.5 | 5.3 | hit |
-| 20261102T170025 | 19.6 | 5.3 | hit |
+| 20261102T101525 | 7.7 | 5.3 |  |
+| 20261102T103025 | 10.2 | 5.2 |  |
+| 20261102T104525 | 7.6 | 5.2 |  |
+| 20261102T110025 | 9.4 | 5.1 |  |
+| 20261102T111525 | 8.2 | 5.4 | hit |
+| 20261102T113025 | 7.8 | 5.3 | hit |
+| 20261102T114525 | 11.0 | 5.2 | hit |
+| 20261102T120025 | 9.7 | 5.3 | hit |
+| 20261102T121525 | 10.6 | 5.2 | hit |
+| 20261102T123025 | 9.8 | 5.3 | hit |
+| 20261102T124525 | 11.1 | 5.2 | hit |
+| 20261102T130025 | 9.9 | 5.4 | hit |
+| 20261102T131525 | 13.1 | 5.2 | hit |
+| 20261102T133025 | 11.0 | 5.1 | hit |
+| 20261102T134525 | 14.0 | 5.2 | hit |
+| 20261102T140025 | 15.9 | 5.3 | hit |
+| 20261102T141525 | 13.5 | 5.5 | hit |
+| 20261102T143025 | 15.3 | 5.4 | hit |
+| 20261102T144525 | 12.5 | 5.4 | hit |
+| 20261102T150025 | 14.3 | 5.6 | hit |
+| 20261102T151525 | 15.4 | 5.4 | hit |
+| 20261102T153025 | 15.4 | 5.5 | hit |
+| 20261102T154525 | 17.2 | 5.2 | hit |
+| 20261102T160025 | 21.6 | 5.2 | hit |
+| 20261102T161525 | 20.7 | 5.4 | hit |
+| 20261102T163025 | 21.8 | 5.2 | hit |
+| 20261102T164525 | 23.2 | 5.3 | hit |
+| 20261102T170025 | 18.4 | 5.2 | hit |
+| 20261102T171525 | 21.8 | 5.3 | hit |
+| 20261102T173025 | 21.0 | 5.4 | hit |
 
-*Written 2026-11-02 17:48 UTC.*
+*Written 2026-11-02 17:55 UTC.*
