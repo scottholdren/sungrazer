@@ -11,6 +11,8 @@ Restart=always
 RestartSec=60
 Nice=5
 Environment=PYTHONUNBUFFERED=1
+# stage A backfill workers (~0.9 GB each); two watchers share a 3.9 GB VM
+Environment=KREUTZ_WORKERS=2
 
 [Install]
 WantedBy=multi-user.target

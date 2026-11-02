@@ -36,8 +36,12 @@ HISTORY = timedelta(hours=10)  # 16 background + 8 star frames + slack for gaps
 
 
 def _workers(n: int | None, cap: int) -> int:
-    # one core left for the fetcher/server; stage A needs ~0.8 GB per worker
-    return max(1, min(n or (os.cpu_count() or 2) - 1, cap))
+    # one core left for the fetcher/server; stage A needs ~0.9 GB per worker, so on a
+    # small host running two watchers $KREUTZ_WORKERS caps it (the 3.9 GB VM: 2;
+    # three workers beside the other camera's resident watcher got OOM-killed, 2026-11-02)
+    env = os.environ.get("KREUTZ_WORKERS")
+    n = n or (int(env) if env and env.isdigit() else 0) or (os.cpu_count() or 2) - 1
+    return max(1, min(n, cap))
 
 
 def frame_list(camera: str, start: date, end: date) -> list[Path]:

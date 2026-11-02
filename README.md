@@ -210,7 +210,10 @@ takes either side. CCOR-2 has no Earth transits (it sits at L1).
 
 Deployment: `deploy/` has systemd units (`kreutz-watch@ccor1`,
 `kreutz-watch@ccor2`, `kreutz-serve`) that run as the repo owner with
-`Restart=always`. To deploy a
+`Restart=always`. Stage A's backfill runs `$KREUTZ_WORKERS` processes
+(default: cores minus one, at most 6); each needs ~0.9 GB, so the unit sets 2
+for the 3.9 GB VM where two watchers share memory with each other's resident
+stage A (~0.9 GB apiece). To deploy a
 change without sudo: `git pull`, then `kill $(systemctl show -p MainPID
 --value kreutz-watch@ccor1)` while the watcher is idle; it comes back in 60 s
 and waits for the next poll slot. Logs: `journalctl -u kreutz-watch@ccor1`.
