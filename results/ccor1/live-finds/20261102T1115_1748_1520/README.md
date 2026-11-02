@@ -15,7 +15,7 @@ A fixed patch of sky at 2x the camera's resolution: significance maps (stars and
 
 ## Full field
 
-The whole frame at half resolution, the last frames up to the newest hit: each frame minus the median of the five before it, no stacking, on a linear scale from -2 sigma of the frame's noise (so the noise shows as texture). For where the object sits in the corona and what else is moving; a faint object is easier to judge in the stacked patch above.
+The Sun's surroundings and the object's path at half resolution, the last frames up to the newest hit: each frame minus the median of the five before it, no stacking, on a linear scale from -2 sigma of the frame's noise (so the noise shows as texture). For where the object sits in the corona and what else is moving; a faint object is easier to judge in the stacked patch above.
 
 ![full field](field.gif)
 
@@ -119,4 +119,4 @@ Sigma inside the ring on the fitted position vs the brightest 0.1% of the whole 
 | 20261102T163025 | 19.5 | 5.3 | hit |
 | 20261102T164525 | 20.3 | 5.2 | hit |
 
-*Written 2026-11-02 17:20 UTC.*
+*Written 2026-11-02 17:32 UTC.*
