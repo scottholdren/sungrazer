@@ -37,7 +37,7 @@ LEAD_FRAMES = 4      # frames shown before the first hit
 RANGE_SIGMA = 10.0   # 255 on the PNG
 FULL_FRAMES = 32     # the field movie: the frame at half res, this many frames up to the newest hit
 FULL_RING = 10       # marker size on it (crosshair tick length), px
-FIELD_VERSION = 5    # in the cache key: bump when the field rendering changes, or old frames are served
+FIELD_VERSION = 6    # in the cache key: bump when the field rendering changes, or old frames are served
 FIELD_SUN_CLEAR = 100  # half-res px: the field view's corner nearest the Sun sits this far from it on each axis,
 #                        just outside the occulter (the hunters' framing: glare and arm out, streamer bases in)
 FIELD_MAX = 640      # half-res px: the view runs from that corner out to the field edge, at most this far
@@ -46,7 +46,7 @@ FIELD_BG_HOURS = 24  # the field's background: the pixelwise minimum of the good
 FIELD_BG_STEP = 4    # first shown frame, every this many frames. The static corona and glare cancel; streamers
 #                      (which move) and stars stay, which is the look of the hunters' own field movies.
 FIELD_SOFT = 1.0     # Gaussian smoothing of the field, half-res px: noise becomes grain, stars and comet soft dots
-FIELD_LO, FIELD_HI = -1.0, 12.0  # the field's linear scale in sigma of the frame's own noise (0 and 255 on the PNG)
+FIELD_LO, FIELD_HI = -2.0, 10.0  # the field's linear scale in sigma of the frame's own noise (0 and 255 on the PNG)
 
 
 def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = False) -> dict:

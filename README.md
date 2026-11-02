@@ -168,12 +168,12 @@ the look of the hunters' own field movies. No stacking (shifting along one
 object's motion smears everything else; stacking stays in the zoomed patch,
 where it helps a faint comet show). Divided by the frame's own noise per
 radius, smoothed by `FIELD_SOFT` (1) px so the noise reads as grain and stars
-and comet as soft dots, on a linear scale from `FIELD_LO` (-1) to `FIELD_HI`
-(12) sigma. A timestamp is written into each frame's corner (`stamp`, a 5x7
+and comet as soft dots, on a linear scale from `FIELD_LO` (-2) to `FIELD_HI`
+(10) sigma. A timestamp is written into each frame's corner (`stamp`, a 5x7
 bitmap font). A crosshair with a gap marks the fitted position, yellow on a
 measured hit; click the picture for 1:1. Same scrub controls; the field plays
 at 6 frames/s by default, the black point slider goes below zero and defaults
-to -1 sigma here, 2 sigma for the patch.
+to -2 sigma here, 2 sigma for the patch.
 
 Movie: the detail view's "build hi-res movie" button asks `/api/movie` for a
 fixed patch of sky (significance maps, the last 8 or 3 frames added along the

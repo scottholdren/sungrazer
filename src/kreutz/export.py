@@ -29,7 +29,7 @@ from .inspect import read_png, write_png
 LANE = ("Kreutz comets in CCOR-1 arrive from the lower right, position angle -10 to -45 deg, "
         "and head within ~20 deg of the Sun")
 BLACK_SIGMA = 2.5  # the patch GIF's black point
-FIELD_BLACK_SIGMA = -1.0  # the field GIF's: below zero, so the noise stays as texture
+FIELD_BLACK_SIGMA = -2.0  # the field GIF's: below zero, so the noise stays as texture
 RING_R = 7         # half-res px
 
 
@@ -335,7 +335,7 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
         L += ["", "## Full field", "",
               "The object's quadrant at half resolution, from just outside the occulter out to the field edge, the last frames up to the newest hit: each frame minus the "
               "minimum of the previous 24 hours (streamers and stars stay, the static corona and glare cancel), lightly smoothed, "
-              "no stacking, on a linear scale from -1 sigma of the frame's noise (so the noise shows as grain). The crosshair "
+              "no stacking, on a linear scale from -2 sigma of the frame's noise (so the noise shows as grain). The crosshair "
               "follows the fitted path, yellow on a measured hit. For where the object sits in the corona and what else is moving; "
               "a faint object is easier to judge in the stacked patch above.", "",
               "![full field](field.gif)"]
