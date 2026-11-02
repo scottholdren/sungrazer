@@ -152,10 +152,13 @@ previews with the object's own picture, where a link into the repo shows
 GitHub's card for the repo. Pages rebuilds a minute or two after each push.
 
 Full field: the "full field" button next to it asks `/api/movie` with
-`full=1` for the frame at half resolution, cropped to the Sun's surroundings
-(`FIELD_SUN_KEEP` = 120 half-res px: occulter and inner corona) plus the
-object's path with a `FIELD_MARGIN` of 50 px, so the view is tight on the
-relevant area but keeps the corona (one PNG per frame, the last `FULL_FRAMES`
+`full=1` for the frame at half resolution, cropped the way the hunters frame
+their movies: the object's quadrant, its corner nearest the Sun
+`FIELD_SUN_CLEAR` (100) half-res px from the Sun on each axis, just outside
+the occulter so the glare and the arm stay out and the streamer bases show,
+running out to the field edge on the object's side (at most `FIELD_MAX` = 640
+px) and always holding the fitted path with a `FIELD_MARGIN` of 50 px
+(`_field_crop`; one PNG per frame, the last `FULL_FRAMES`
 = 32 frames up to the newest hit; `crop` in the movie's JSON is the offset of
 the crop in the half-res frame): each raw frame minus one fixed background,
 the pixelwise minimum of the good frames over the `FIELD_BG_HOURS` (24) before

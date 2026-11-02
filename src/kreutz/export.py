@@ -333,7 +333,7 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
               "![movie](movie.gif)"]
     if "field.gif" in files:
         L += ["", "## Full field", "",
-              "The Sun's surroundings and the object's path at half resolution, the last frames up to the newest hit: each frame minus the "
+              "The object's quadrant at half resolution, from just outside the occulter out to the field edge, the last frames up to the newest hit: each frame minus the "
               "minimum of the previous 24 hours (streamers and stars stay, the static corona and glare cancel), lightly smoothed, "
               "no stacking, on a linear scale from -1 sigma of the frame's noise (so the noise shows as grain). The crosshair "
               "follows the fitted path, yellow on a measured hit. For where the object sits in the corona and what else is moving; "

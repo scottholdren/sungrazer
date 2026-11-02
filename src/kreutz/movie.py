@@ -37,9 +37,11 @@ LEAD_FRAMES = 4      # frames shown before the first hit
 RANGE_SIGMA = 10.0   # 255 on the PNG
 FULL_FRAMES = 32     # the field movie: the frame at half res, this many frames up to the newest hit
 FULL_RING = 10       # marker size on it (crosshair tick length), px
-FIELD_VERSION = 4    # in the cache key: bump when the field rendering changes, or old frames are served
-FIELD_SUN_KEEP = 120 # half-res px around the Sun always in the field view (occulter and inner corona)
-FIELD_MARGIN = 50    # half-res px around the object's path
+FIELD_VERSION = 5    # in the cache key: bump when the field rendering changes, or old frames are served
+FIELD_SUN_CLEAR = 100  # half-res px: the field view's corner nearest the Sun sits this far from it on each axis,
+#                        just outside the occulter (the hunters' framing: glare and arm out, streamer bases in)
+FIELD_MAX = 640      # half-res px: the view runs from that corner out to the field edge, at most this far
+FIELD_MARGIN = 50    # half-res px around the object's path (always inside the view)
 FIELD_BG_HOURS = 24  # the field's background: the pixelwise minimum of the good frames over this long before the
 FIELD_BG_STEP = 4    # first shown frame, every this many frames. The static corona and glare cancel; streamers
 #                      (which move) and stars stay, which is the look of the hunters' own field movies.
@@ -108,7 +110,7 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
         # along one object's motion smears everything else). Divided by the frame's own
         # noise per radius, smoothed by FIELD_SOFT px, on a linear scale from FIELD_LO
         # sigma so the noise shows as grain rather than being cut to black. Cropped to
-        # the Sun (occulter and inner corona) plus the object's path with a margin.
+        # the object's quadrant, from just outside the occulter out to the field edge.
         out_dir.mkdir(parents=True, exist_ok=True)
         frames, pngs, imgs = [], [], []
         h, w = None, None
@@ -141,13 +143,8 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
                            "name": p.name[9:24], "t": datetime.fromtimestamp(ts).astimezone().isoformat(timespec="minutes"),
                            "x": round(px / 2, 1), "y": round(py / 2, 1),
                            "hit": int(round(ts / 60)) in hit_times, "stacked": 1, "background": len(bg_frames)})
-        xs = [f["x"] for f in frames] + [c[0] for _, c in imgs if c]
-        ys = [f["y"] for f in frames] + [c[1] for _, c in imgs if c]
-        keep = [FIELD_MARGIN] * len(frames) + [FIELD_SUN_KEEP] * sum(1 for _, c in imgs if c)
-        x0 = int(np.clip(math.floor(min(x - k for x, k in zip(xs, keep))), 0, w - 1))
-        x1 = int(np.clip(math.ceil(max(x + k for x, k in zip(xs, keep))), x0 + 1, w))
-        y0 = int(np.clip(math.floor(min(y - k for y, k in zip(ys, keep))), 0, h - 1))
-        y1 = int(np.clip(math.ceil(max(y + k for y, k in zip(ys, keep))), y0 + 1, h))
+        x0, x1, y0, y1 = _field_crop([f["x"] for f in frames], [f["y"] for f in frames],
+                                      next((c for _, c in imgs if c), None), w, h)
         for k, ((img, _), f) in enumerate(zip(imgs, frames)):
             fpng = out_dir / f"{key}_{k:02d}.png"
             tile = np.ascontiguousarray(img[y0:y1, x0:x1])
@@ -202,6 +199,38 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
 
 
 RADIAL_STEP = 8  # px annuli for the field's noise estimate
+
+
+def _field_crop(xs: list[float], ys: list[float], sun: tuple[float, float] | None, w: int, h: int) -> tuple[int, int, int, int]:
+    """The field view's crop (x0, x1, y0, y1) in half-res px: the quadrant the object
+    is in, as the hunters frame their movies. The corner nearest the Sun sits
+    FIELD_SUN_CLEAR px from it on each axis, just outside the occulter, so the
+    glare and the arm stay out and the streamer bases show; the view runs out to
+    the field edge on the object's side, at most FIELD_MAX px, and always holds
+    the fitted path with FIELD_MARGIN around it. Without a Sun position: the
+    path with its margin."""
+    lo_x, hi_x = min(xs) - FIELD_MARGIN, max(xs) + FIELD_MARGIN
+    lo_y, hi_y = min(ys) - FIELD_MARGIN, max(ys) + FIELD_MARGIN
+    if sun is not None:
+        sx, sy = sun
+        ox, oy = float(np.mean(xs)), float(np.mean(ys))
+        if ox >= sx:
+            lo_x = min(lo_x, sx + FIELD_SUN_CLEAR)
+            hi_x = max(hi_x, min(w, lo_x + FIELD_MAX))
+        else:
+            hi_x = max(hi_x, sx - FIELD_SUN_CLEAR)
+            lo_x = min(lo_x, max(0, hi_x - FIELD_MAX))
+        if oy >= sy:
+            lo_y = min(lo_y, sy + FIELD_SUN_CLEAR)
+            hi_y = max(hi_y, min(h, lo_y + FIELD_MAX))
+        else:
+            hi_y = max(hi_y, sy - FIELD_SUN_CLEAR)
+            lo_y = min(lo_y, max(0, hi_y - FIELD_MAX))
+    x0 = int(np.clip(math.floor(lo_x), 0, w - 1))
+    x1 = int(np.clip(math.ceil(hi_x), x0 + 1, w))
+    y0 = int(np.clip(math.floor(lo_y), 0, h - 1))
+    y1 = int(np.clip(math.ceil(hi_y), y0 + 1, h))
+    return x0, x1, y0, y1
 
 
 def _soften(z: np.ndarray, ok: np.ndarray, sigma: float) -> np.ndarray:
