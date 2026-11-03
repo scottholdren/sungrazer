@@ -86,6 +86,10 @@ DEFECT_PERSIST = 0.6  # in this fraction of the frames
 DEFECT_MARGIN = 1  # px the mask is grown by (the shift is fractional; the pipeline interpolates)
 FLAT_MAX_DEV = 0.15  # the gain map is used only within this of 1; beyond it is rim, edge or defect
 DEFECT_SIG_GUARD = 3  # px around a defect blanked in the significance map (the point filter spreads it that far).
+DEFECT_BIG_PX = 5  # a defect blob of at least this many px (a mote, not a pixel) gets the wider guard:
+DEFECT_BIG_GUARD = 10  # a mote's shadow is cast by sunlight, so it moves with the pointing rather than
+#                        sitting on its detector pixels; only its core is persistent in detector coordinates
+#                        (2026-11-03: 7 px of a 15 px disc) and the rest wandered out of a 3 px guard.
 #                       The raw pixels stay: a wandering defect is at a different place in every background frame,
 #                       so the median background and the star model are immune, and NaN holes would cost a
 #                       6-16 px edge guard each.
@@ -342,6 +346,17 @@ def _small_blobs(mask: np.ndarray, max_blob: int | None = None) -> np.ndarray:
     return keep[lab]
 
 
+def big_defects(defects: np.ndarray) -> np.ndarray:
+    """The defect blobs of at least DEFECT_BIG_PX px (motes), which get the wider guard."""
+    lab, n = ndimage.label(defects)
+    if not n:
+        return np.zeros_like(defects)
+    sizes = np.bincount(lab.ravel())
+    keep = sizes >= DEFECT_BIG_PX
+    keep[0] = False
+    return keep[lab]
+
+
 def defect_mask(defects: np.ndarray, sign, header) -> np.ndarray | None:
     """The defect map placed onto this frame (its shift applied), grown by DEFECT_MARGIN."""
     shift = shift_of(header)
@@ -465,7 +480,7 @@ class StageA:
         self.withdrawable: tuple[str, float, bool] | None = None  # (name, time, meta written) of the last accepted frame
         self.evicted: tuple[Frame | None, _Diff | None] = (None, None)  # what that frame pushed out of the buffers
         self.withdrawn: list[str] = []
-        self.defects: tuple[np.ndarray, list, np.ndarray] | None | bool = False  # False = not looked up yet
+        self.defects: tuple | None | bool = False  # (defects, sign, flat, big) once looked up; None = camera without shift
 
     def predict_earth(self, t: float) -> bool:
         return any(abs(t - 86400 - e) <= EARTH_PREDICT_S for e in self.earth_times)
@@ -475,13 +490,15 @@ class StageA:
         # Exact zeros are pipeline fill (blobs along the occulter rim and field edge), not sky.
         f.data[f.data == 0] = np.nan
         if self.defects is False:
-            self.defects = load_defects(self.camera, log=self.log) if shift_of(f.header) else None
+            loaded = load_defects(self.camera, log=self.log) if shift_of(f.header) else None
+            self.defects = (*loaded, big_defects(loaded[0])) if loaded else None
         if self.defects:
-            defects, sign, flat = self.defects
+            defects, sign, flat, big = self.defects
             g = flat_on_frame(flat, sign, f.header)
             if g is not None:
                 f.data = f.data / g  # the detector's gain pattern, which wanders with the shift
             f.defects = defect_mask(defects, sign, f.header)
+            f.defects_big = defect_mask(big, sign, f.header)
         t = f.time.timestamp()
         q = frame_quality(f.header, f.data)
         earth = is_earth(f.header)
@@ -628,6 +645,8 @@ def _finish(camera: str, cur: _Diff, prev: list[_Diff], dump: bool, log) -> None
     sig[ndimage.binary_dilation(invalid, iterations=EDGE_GUARD_BY_CAMERA.get(camera, EDGE_GUARD))] = np.nan
     if f.defects is not None:
         sig[ndimage.binary_dilation(f.defects, iterations=DEFECT_SIG_GUARD)] = np.nan
+    if f.defects_big is not None and f.defects_big.any():
+        sig[ndimage.binary_dilation(f.defects_big, iterations=DEFECT_BIG_GUARD)] = np.nan
     sig = np.clip(sig, -SIG_CLIP, SIG_CLIP)
     small = downsample(sig)
     out = sig_path(camera, f.path.name)

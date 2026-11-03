@@ -75,6 +75,7 @@ class Frame:
     time: datetime  # exposure start, UTC
     camera: str
     defects: np.ndarray | None = None  # detector defects placed on this frame (detect.frames), blanked in the significance map
+    defects_big: np.ndarray | None = None  # the mote-sized ones, blanked with a wider guard
 
 
 def image_hdu_index(hdul) -> int:
