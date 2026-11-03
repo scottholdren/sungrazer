@@ -234,16 +234,21 @@ async function setLabel(cam, id, label) {
 }
 
 async function openDetail(cam, id) {
-  const c = STATE.cameras.find(c => c.camera === cam);
-  let t = c.tracks.concat(c.rejected).find(t => t.id === id);
+  let c = STATE.cameras.find(c => c.camera === cam);
+  let t = c ? c.tracks.concat(c.rejected).find(t => t.id === id) : null;
   if (!t) {  // it has left the dashboard: the held or archived copy
     try {
       const r = await fetch(`/api/track?camera=${encodeURIComponent(cam)}&id=${encodeURIComponent(id)}`, {cache:'no-store'});
-      if (r.status === 404) { alert(`${id}: the watcher has no record of it any more. Followed and rejected tracks are archived when they leave; a spark keeps only its two hits for six hours (none before 2026-11-01 13:20 UTC).`); return; }
+      if (r.status === 404) {
+        alert(c ? `${id}: the watcher has no record of it any more. Followed and rejected tracks are archived when they leave; a spark keeps only its two hits for six hours (none before 2026-11-01 13:20 UTC).`
+                : `${id}: ${cam.toUpperCase()} has no state right now (its watcher is rebuilding from scratch), so this log line points at a track that no longer exists. Its new tracks appear after its next cycle.`);
+        return;
+      }
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
       t = await r.json();
     } catch (e) { alert(`could not load ${id}: ${e.message}`); return; }
   }
+  if (!c) c = {camera: cam, label: cam.toUpperCase(), sheet: STATE.cameras[0].sheet, latest: null, tracks: [], rejected: []};
   OPEN = {cam, id}; ANIM.frame = 0; ANIM.playing = true;
   fillDetail({...t, cam:c}, true);
   $('#detail').classList.add('open');
