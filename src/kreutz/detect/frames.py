@@ -319,10 +319,18 @@ def load_defects(camera: str, log=print) -> tuple[np.ndarray, list] | None:
         js.write_text(json.dumps({"sign": None, "frames": 0}))
         return None
     defects, info = built
-    tmp = p.with_suffix(".npy.tmp")
+    # Several stage A workers may build it at once: each writes its own temporary
+    # file, and whoever renames second just keeps the first one's (same input).
+    import os
+
+    tmp = p.with_name(f"defects.{os.getpid()}.tmp")
     with open(tmp, "wb") as fh:  # a handle, or np.save appends .npy to the name
         np.save(fh, defects)
-    tmp.replace(p)
+    try:
+        tmp.replace(p)
+    except FileNotFoundError:
+        if not p.exists():
+            raise
     js.write_text(json.dumps(info))
     log(f"{camera}: defect map from {info['frames']} frames: {info['pixels']} px, shift sign {info['sign']} "
         f"(by sign {info['pixels_by_sign']})")
