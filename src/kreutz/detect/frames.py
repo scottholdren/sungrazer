@@ -90,8 +90,10 @@ DEFECT_SIG_GUARD = 3  # px around a defect blanked in the significance map (the 
 #                       so the median background and the star model are immune, and NaN holes would cost a
 #                       6-16 px edge guard each.
 DEFECT_SMOOTH = 6  # px, the local level
-DEFECT_MAX_BLOB = 100  # px: larger connected "defects" are the occulter rim and field edge, where the local
-#                        level is meaningless; those regions are masked and guarded on their own already
+DEFECT_MAX_BLOB = 3000  # px: dead-pixel clusters, warm pixels and dust motes (a mote's shadow is a 12-16 px disc,
+#                         ~150 px, 25-30% deep; three of them alerted at 1-2 px/frame on 2026-11-03). Larger
+#                         connected "defects" (9,000 px and up) are the occulter rim and field edge, where the
+#                         local level is meaningless; those regions are masked and guarded on their own already
 
 
 def derived_dir(camera: str) -> Path:
