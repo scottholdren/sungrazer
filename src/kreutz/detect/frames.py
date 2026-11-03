@@ -81,6 +81,8 @@ DEFECT_LOW, DEFECT_HIGH = 0.75, 1.3  # pixel / local smooth level outside this i
 DEFECT_PERSIST = 0.6  # in this fraction of the frames
 DEFECT_MARGIN = 2  # px the mask is grown by (the shift is fractional; the pipeline interpolates)
 DEFECT_SMOOTH = 6  # px, the local level
+DEFECT_MAX_BLOB = 100  # px: larger connected "defects" are the occulter rim and field edge, where the local
+#                        level is meaningless; those regions are masked and guarded on their own already
 
 
 def derived_dir(camera: str) -> Path:
@@ -264,10 +266,23 @@ def build_defect_map(frames: list[Path], log=print) -> tuple[np.ndarray, dict] |
         n += 1
     if n < 8:
         return None
-    persistent = [c >= DEFECT_PERSIST * n for c in counts]
+    persistent = [_small_blobs(c >= DEFECT_PERSIST * n) for c in counts]
     k = int(np.argmax([int(m.sum()) for m in persistent]))
     return persistent[k], {"frames": n, "sign": list(signs[k]), "pixels": int(persistent[k].sum()),
                            "pixels_by_sign": [int(m.sum()) for m in persistent]}
+
+
+def _small_blobs(mask: np.ndarray) -> np.ndarray:
+    """Only the connected components of at most DEFECT_MAX_BLOB px: dead-pixel
+    clusters and dust, not the occulter rim or the field edge (2026-11-03: 36,000
+    of 47,000 flagged px sat in four blobs on the rim and edge)."""
+    lab, n = ndimage.label(mask)
+    if not n:
+        return mask
+    sizes = np.bincount(lab.ravel())
+    keep = sizes <= DEFECT_MAX_BLOB
+    keep[0] = False
+    return keep[lab]
 
 
 def defect_mask(defects: np.ndarray, sign, header) -> np.ndarray | None:
