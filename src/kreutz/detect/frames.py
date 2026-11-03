@@ -84,6 +84,7 @@ DEFECT_LOW, DEFECT_HIGH = 0.95, 1.05  # pixel / local smooth level outside this 
 #                                       0.8-1%, so 5% is ~6 sigma, and such a pixel already reads 8 sigma in the maps
 DEFECT_PERSIST = 0.6  # in this fraction of the frames
 DEFECT_MARGIN = 1  # px the mask is grown by (the shift is fractional; the pipeline interpolates)
+FLAT_MAX_DEV = 0.15  # the gain map is used only within this of 1; beyond it is rim, edge or defect
 DEFECT_SIG_GUARD = 3  # px around a defect blanked in the significance map (the point filter spreads it that far).
 #                       The raw pixels stay: a wandering defect is at a different place in every background frame,
 #                       so the median background and the star model are immune, and NaN holes would cost a
@@ -285,7 +286,11 @@ def build_defect_map(frames: list[Path], log=print) -> tuple[np.ndarray, np.ndar
     # ndimage.shift has no float16 path: shift in float32, stack in float16 (40 frames = 300 MB)
     flat = np.median(np.stack([_unshift(r.astype(np.float32), shift, sign, 1.0).astype(np.float16) for r, shift in ratios]),
                      axis=0).astype(np.float32)
-    flat = np.clip(np.where(np.isfinite(flat), flat, 1.0), 0.5, 2.0)
+    flat = np.where(np.isfinite(flat), flat, 1.0)
+    # A gain pattern is a few percent. Larger "deviations" are the occulter rim, the
+    # field edge and defects, where the local level means nothing: left at 1, or
+    # dividing by them would amplify noise there (2026-11-03: 64,000 such px).
+    flat[np.abs(flat - 1) > FLAT_MAX_DEV] = 1.0
     flat[persistent[k]] = 1.0  # defects are blanked, not corrected
     return persistent[k], flat, {"frames": n, "sign": list(sign), "pixels": int(persistent[k].sum()),
                                  "pixels_by_sign": [int(m.sum()) for m in persistent],
