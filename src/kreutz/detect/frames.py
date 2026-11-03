@@ -58,6 +58,9 @@ MIN_STAR_FRAMES = 4
 STAR_MASK_RADIUS = 4
 STAR_MASK_SIGMA = 8.0
 EDGE_GUARD = 6  # px next to NaN regions dropped from the significance map (DoG surround reaches in)
+# CCOR-2's field edge glows further in: >8-sigma pixels per 10k ran 535/183/35/21 in the 0-5/5-10/10-15/15-20 px
+# bands from the edge (CCOR-1: 294/17/0.8/0.3), and tracks were born on the corner's bright boundary (2026-11-03).
+EDGE_GUARD_BY_CAMERA = {"ccor2": 16}
 SIG_CLIP = 50.0
 MOON_RATIO = 1.3  # pixel > 1.3x background ...
 MOON_MIN_AREA = 2000  # ... over this many connected px = the Moon (disc ~7000 px); masked
@@ -77,9 +80,14 @@ WARM_BG_SPAN = 24  # 15-min slots (6 h) the 16 background frames may span
 # persistently far from their local level after the shift is undone), and every
 # frame has the map shifted back onto it and masked before anything else.
 DEFECT_FRAMES = 40
-DEFECT_LOW, DEFECT_HIGH = 0.75, 1.3  # pixel / local smooth level outside this is a defect
+DEFECT_LOW, DEFECT_HIGH = 0.95, 1.05  # pixel / local smooth level outside this is a defect: the ratio's scatter is
+#                                       0.8-1%, so 5% is ~6 sigma, and such a pixel already reads 8 sigma in the maps
 DEFECT_PERSIST = 0.6  # in this fraction of the frames
-DEFECT_MARGIN = 2  # px the mask is grown by (the shift is fractional; the pipeline interpolates)
+DEFECT_MARGIN = 1  # px the mask is grown by (the shift is fractional; the pipeline interpolates)
+DEFECT_SIG_GUARD = 3  # px around a defect blanked in the significance map (the point filter spreads it that far).
+#                       The raw pixels stay: a wandering defect is at a different place in every background frame,
+#                       so the median background and the star model are immune, and NaN holes would cost a
+#                       6-16 px edge guard each.
 DEFECT_SMOOTH = 6  # px, the local level
 DEFECT_MAX_BLOB = 100  # px: larger connected "defects" are the occulter rim and field edge, where the local
 #                        level is meaningless; those regions are masked and guarded on their own already
@@ -413,9 +421,7 @@ class StageA:
         if self.defects is False:
             self.defects = load_defects(self.camera, log=self.log) if shift_of(f.header) else None
         if self.defects:
-            dm = defect_mask(self.defects[0], self.defects[1], f.header)
-            if dm is not None:
-                f.data[dm] = np.nan
+            f.defects = defect_mask(self.defects[0], self.defects[1], f.header)
         t = f.time.timestamp()
         q = frame_quality(f.header, f.data)
         earth = is_earth(f.header)
@@ -559,7 +565,9 @@ def _finish(camera: str, cur: _Diff, prev: list[_Diff], dump: bool, log) -> None
         log(f"  {f.path.name}: {problems[-1]}")
     sig = significance(resid)
     invalid = ~np.isfinite(cur.diff)
-    sig[ndimage.binary_dilation(invalid, iterations=EDGE_GUARD)] = np.nan
+    sig[ndimage.binary_dilation(invalid, iterations=EDGE_GUARD_BY_CAMERA.get(camera, EDGE_GUARD))] = np.nan
+    if f.defects is not None:
+        sig[ndimage.binary_dilation(f.defects, iterations=DEFECT_SIG_GUARD)] = np.nan
     sig = np.clip(sig, -SIG_CLIP, SIG_CLIP)
     small = downsample(sig)
     out = sig_path(camera, f.path.name)

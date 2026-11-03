@@ -215,10 +215,16 @@ pipeline shifts every image to centre the Sun (`SHIFT_X`/`SHIFT_Y` in the
 header, fractional pixels), so detector defects wander across the frames by a
 few px over hours and the 16-frame background cannot remove them; stage A
 builds a defect map in detector coordinates from 40 raw frames (pixels
-persistently outside 0.75-1.3x their local level once the shift is undone;
-the shift's sign convention is found by trying all four) and masks it, grown
-by 2 px, on every frame (`frames.load_defects`). Its `OFFSUNDR` is not arcsec
-(~1.8e5 on every frame), so that test is CCOR-1 only.
+persistently outside 0.95-1.05x their local level once the shift is undone,
+the ratio's scatter being under 1%; connected blobs over 100 px are the rim
+and field edge and are dropped; the shift's sign convention is found by
+trying all four) and blanks it, grown by 3 px, in every frame's significance
+map (`frames.load_defects`). The raw pixels are left alone: a wandering
+defect is somewhere else in every background frame, so the median background
+and the star model are immune, and NaN holes would each cost an edge guard.
+Its field edge glows further in than CCOR-1's, so its edge guard is 16 px
+(`EDGE_GUARD_BY_CAMERA`) against 6. Its `OFFSUNDR` is not arcsec (~1.8e5 on
+every frame), so that test is CCOR-1 only.
 
 Deployment: `deploy/` has systemd units (`kreutz-watch@ccor1`,
 `kreutz-watch@ccor2`, `kreutz-serve`) that run as the repo owner with

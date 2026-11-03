@@ -74,6 +74,7 @@ class Frame:
     header: fits.Header
     time: datetime  # exposure start, UTC
     camera: str
+    defects: np.ndarray | None = None  # detector defects placed on this frame (detect.frames), blanked in the significance map
 
 
 def image_hdu_index(hdul) -> int:
