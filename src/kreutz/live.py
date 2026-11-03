@@ -981,8 +981,17 @@ def _link_cameras(cams: list[dict]) -> None:
             truth = score.Truth(ta["id"], [ta["id"]], datetime.now(timezone.utc), t, x, y, "track", tolerance=score.CROSS_MATCH_PX)
             for tb in by[b]["tracks"]:
                 if score.matches({"hits": [{"frame_time": h["t"], "x": h["x"], "y": h["y"]} for h in tb["hits"]]}, truth):
-                    ta["same_as"] = {"camera": b, "label": by[b]["label"], "id": tb["id"]}
-                    tb["same_as"] = {"camera": a, "label": by[a]["label"], "id": ta["id"]}
+                    # one card per object: the camera that saw it first keeps the card, the
+                    # other camera's track becomes its twin (shown on the card, not listed)
+                    first, second = (ta, tb) if ta["first_seen"] <= tb["first_seen"] else (tb, ta)
+                    cam_first, cam_second = (a, b) if first is ta else (b, a)
+                    first["same_as"] = {"camera": cam_second, "label": by[cam_second]["label"], "id": second["id"],
+                                        "n_hits": second["n_hits"], "best_sig": second["best_sig"], "tier": second.get("tier"),
+                                        "first_seen": second["first_seen"], "last_seen": second["last_seen"]}
+                    second["same_as"] = {"camera": cam_first, "label": by[cam_first]["label"], "id": first["id"],
+                                         "n_hits": first["n_hits"], "best_sig": first["best_sig"], "tier": first.get("tier"),
+                                         "first_seen": first["first_seen"], "last_seen": first["last_seen"]}
+                    second["twin_of"] = {"camera": cam_first, "id": first["id"]}
                     break
 
 

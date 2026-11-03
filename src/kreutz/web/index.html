@@ -146,7 +146,7 @@ function render() {
   const show = cams.filter(c => FILTER === 'all' || c.label === FILTER);
   const all = show.flatMap(c => c.tracks.map(t => ({...t, cam:c})));
   const rank = {alert: 0, watch: 1, steady: 2};
-  const tracks = all.filter(t => !t.group || t.group === t.id)
+  const tracks = all.filter(t => (!t.group || t.group === t.id) && !t.twin_of)  // one card per object: a twin seen later from the other camera rides on the first camera's card
     .sort((a,b) => ((rank[a.tier] ?? 2) - (rank[b.tier] ?? 2)) || b.last_seen.localeCompare(a.last_seen));
   const top = t => t.tier || lab(t) === 'comet';  // your comet label keeps it up here until you clear it
   const tiered = tracks.filter(top).sort((a,b) => lrank(a) - lrank(b));
@@ -189,7 +189,7 @@ function badges(t) {
     else if (r.alert_lead_h != null) b.push(`<span class="b red">loss: reported ${hrs(r.alert_lead_h)} before our alert${r.lead_h < 0 ? ` (following ${hrs(r.lead_h)} before it)` : ''}</span>`);
     else b.push(`<span class="b red">loss: reported, never alerted here${r.lead_h < 0 ? ` (following ${hrs(r.lead_h)} before it)` : ''}</span>`);
   } else b.push(`<span class="b amber">UNREPORTED on ${esc(t.cam.label)}</span>`);
-  if (t.same_as) b.push(`<span class="b green"><a href="#" onclick="event.stopPropagation();openDetail('${esc(t.same_as.camera)}','${esc(t.same_as.id)}');return false" style="color:inherit">same object on ${esc(t.same_as.label)}: ${esc(t.same_as.id)}</a></span>`);
+  if (t.same_as) b.push(`<span class="b green"><a href="#" onclick="event.stopPropagation();openDetail('${esc(t.same_as.camera)}','${esc(t.same_as.id)}');return false" style="color:inherit">${t.twin_of ? 'twin of' : 'also on'} ${esc(t.same_as.label)}: ${esc(t.same_as.id)} (${n(t.same_as.n_hits, 'hit')}, ${t.same_as.best_sig}σ${t.same_as.tier ? ', ' + esc(t.same_as.tier) : ''}, first seen ${fmt(t.same_as.first_seen)})</a></span>`);
   const l = t.lasco;
   if (l && t.tier) b.push(`<span class="b outline dim"><a href="${esc(l.url)}" target="_blank" onclick="event.stopPropagation()" style="color:inherit">a ${esc(l.camera)} claim by ${esc(l.reporter)} (${fmt(l.posted)}) overlaps in time; position not checked</a></span>`);
   if (t.label) b.push(`<span class="b ${t.label.label === 'comet' ? 'green' : t.label.label === 'noise' ? 'outline dim' : 'outline'}">you: ${esc(t.label.label)}${t.label.contradicted ? ' — contradicted: ' + esc(t.label.contradicted.why) : ''}</span>`);
