@@ -86,7 +86,8 @@ DEFECT_PERSIST = 0.6  # in this fraction of the frames
 DEFECT_MARGIN = 1  # px the mask is grown by (the shift is fractional; the pipeline interpolates)
 FLAT_MAX_DEV = 0.15  # the gain map is used only within this of 1; beyond it is rim, edge or defect
 DEFECT_SIG_GUARD = 3  # px around a defect blanked in the significance map (the point filter spreads it that far).
-DEFECT_BIG_PX = 5  # a defect blob of at least this many px (a mote, not a pixel) gets the wider guard:
+DEFECT_DARK = 0.9  # a defect darker than this (a shadow or a dead cluster, never a comet) gets the wider guard, as does
+DEFECT_BIG_PX = 5  # a defect blob of at least this many px (a mote, not a pixel):
 DEFECT_BIG_GUARD = 10  # a mote's shadow is cast by sunlight, so it moves with the pointing rather than
 #                        sitting on its detector pixels; only its core is persistent in detector coordinates
 #                        (2026-11-03: 7 px of a 15 px disc) and the rest wandered out of a 3 px guard.
@@ -256,7 +257,7 @@ def _unshift(a: np.ndarray, shift: tuple[float, float], sign: tuple[int, int], c
     return ndimage.shift(a, (-sign[1] * sy, -sign[0] * sx), order=0, cval=cval, prefilter=False)
 
 
-def build_defect_map(frames: list[Path], log=print) -> tuple[np.ndarray, np.ndarray, dict] | None:
+def build_defect_map(frames: list[Path], log=print) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict] | None:
     """Defect map and gain map (flat) in detector coordinates from raw frames whose
     headers carry the shift, and how they were built. The sign convention of
     SHIFT_X/Y is not documented, so all four are tried and the one under which the
@@ -301,12 +302,14 @@ def build_defect_map(frames: list[Path], log=print) -> tuple[np.ndarray, np.ndar
     flat = np.median(np.stack([_unshift(r.astype(np.float32), shift, sign, 1.0).astype(np.float16) for r, shift in ratios]),
                      axis=0).astype(np.float32)
     flat = np.where(np.isfinite(flat), flat, 1.0)
+    # Dark defects (motes' shadows, dead clusters) and mote-sized blobs get the wide guard
+    wide = persistent[k] & ((flat < DEFECT_DARK) | big_defects(persistent[k]))
     # A gain pattern is a few percent. Larger "deviations" are the occulter rim, the
     # field edge and defects, where the local level means nothing: left at 1, or
     # dividing by them would amplify noise there (2026-11-03: 64,000 such px).
     flat[np.abs(flat - 1) > FLAT_MAX_DEV] = 1.0
     flat[persistent[k]] = 1.0  # defects are blanked, not corrected
-    return persistent[k], flat, {"frames": n, "sign": list(sign), "pixels": int(persistent[k].sum()),
+    return persistent[k], flat, wide, {"frames": n, "sign": list(sign), "pixels": int(persistent[k].sum()), "wide_pixels": int(wide.sum()),
                                  "pixels_by_sign": [int(m.sum()) for m in persistent],
                                  "small_px_by_sign": [int(m.sum()) for m in small],
                                  "flat_dev_pct": [round(float(np.percentile(np.abs(flat - 1), q)) * 100, 2) for q in (50, 90, 99)]}
@@ -386,7 +389,7 @@ def _save_atomic(p: Path, a: np.ndarray) -> None:
             raise
 
 
-def load_defects(camera: str, log=print) -> tuple[np.ndarray, list, np.ndarray] | None:
+def load_defects(camera: str, log=print) -> tuple[np.ndarray, list, np.ndarray, np.ndarray] | None:
     """The camera's cached (defect map, shift sign, gain map), building them from the
     newest DEFECT_FRAMES raw frames on disk when there are none. None for a camera
     whose headers carry no shift (CCOR-1: its defects and gain pattern stay put and
@@ -394,11 +397,12 @@ def load_defects(camera: str, log=print) -> tuple[np.ndarray, list, np.ndarray] 
     p = defect_path(camera)
     js = p.with_suffix(".json")
     fp = p.with_name("flat.npy")
-    if p.exists() and js.exists() and fp.exists():
+    wp = p.with_name("wide.npy")
+    if p.exists() and js.exists() and fp.exists() and wp.exists():
         info = json.loads(js.read_text())
         if info.get("sign") is None:
             return None
-        return np.load(p), info["sign"], np.load(fp)
+        return np.load(p), info["sign"], np.load(fp), np.load(wp)
     from .. import fetch
 
     frames = fetch.local_frames(camera)[-DEFECT_FRAMES:]
@@ -407,13 +411,14 @@ def load_defects(camera: str, log=print) -> tuple[np.ndarray, list, np.ndarray] 
     if built is None:
         js.write_text(json.dumps({"sign": None, "frames": 0}))
         return None
-    defects, flat, info = built
+    defects, flat, wide, info = built
     _save_atomic(p, defects)
     _save_atomic(fp, flat)
+    _save_atomic(wp, wide)
     js.write_text(json.dumps(info))
-    log(f"{camera}: defect map from {info['frames']} frames: {info['pixels']} px, shift sign {info['sign']} "
-        f"(by sign {info['pixels_by_sign']}); gain map deviation 50/90/99%: {info['flat_dev_pct']}")
-    return defects, info["sign"], flat
+    log(f"{camera}: defect map from {info['frames']} frames: {info['pixels']} px ({info['wide_pixels']} dark or mote-sized), "
+        f"shift sign {info['sign']} (by sign {info['pixels_by_sign']}); gain map deviation 50/90/99%: {info['flat_dev_pct']}")
+    return defects, info["sign"], flat, wide
 
 
 class _Diff:
@@ -490,8 +495,7 @@ class StageA:
         # Exact zeros are pipeline fill (blobs along the occulter rim and field edge), not sky.
         f.data[f.data == 0] = np.nan
         if self.defects is False:
-            loaded = load_defects(self.camera, log=self.log) if shift_of(f.header) else None
-            self.defects = (*loaded, big_defects(loaded[0])) if loaded else None
+            self.defects = load_defects(self.camera, log=self.log) if shift_of(f.header) else None
         if self.defects:
             defects, sign, flat, big = self.defects
             g = flat_on_frame(flat, sign, f.header)

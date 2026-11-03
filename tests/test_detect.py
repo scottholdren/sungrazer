@@ -327,7 +327,7 @@ def test_detector_defects_follow_the_pipelines_shift(tmp_path, monkeypatch):
         name = f"CCOR2_1A_20261102T{10 + k // 4:02d}{(k % 4) * 15:02d}14_V00_NC.fits"
         pyfits.PrimaryHDU(img, header=h).writeto(day / name)
         names.append(name)
-    defects, sign, flat = A.load_defects("ccor2", log=lambda *_: None)
+    defects, sign, flat, wide = A.load_defects("ccor2", log=lambda *_: None)
     assert sign == [1, 1] and 4 <= defects.sum() <= 8
     assert 1.025 < np.median(flat[r0 + 40:r0 + 44, c0 + 40:c0 + 44]) < 1.055  # the gain block, in detector coordinates
     assert abs(np.median(flat) - 1) < 0.005 and (flat[r0:r0 + 3, c0:c0 + 2] == 1).all()  # defects are not "corrected"
@@ -337,6 +337,7 @@ def test_detector_defects_follow_the_pipelines_shift(tmp_path, monkeypatch):
     assert 1.02 < g[r0 + 40 + int(round(sy)) + 1, c0 + 40 + int(round(sx)) + 1] < 1.06  # placed back onto the frame
     assert defects[r0:r0 + 3, c0:c0 + 2].all()
     assert A.defect_path("ccor2").exists()
+    assert wide[r0:r0 + 3, c0:c0 + 2].all() and wide.sum() == defects.sum()  # the dark cluster takes the wide guard
     for k, (sx, sy) in enumerate(shifts):
         h = pyfits.getheader(day / names[k])
         m = A.defect_mask(defects, sign, h)
