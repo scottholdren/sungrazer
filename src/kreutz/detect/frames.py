@@ -90,6 +90,8 @@ DEFECT_SIG_GUARD = 3  # px around a defect blanked in the significance map (the 
 #                       so the median background and the star model are immune, and NaN holes would cost a
 #                       6-16 px edge guard each.
 DEFECT_SMOOTH = 6  # px, the local level
+DEFECT_SIGN_BLOB = 100  # px: blobs this small (sharp clusters) decide the shift's sign
+DEFECT_FILL = 0.4  # larger blobs must fill this much of their bounding box (a disc, not an arc)
 DEFECT_MAX_BLOB = 3000  # px: dead-pixel clusters, warm pixels and dust motes (a mote's shadow is a 12-16 px disc,
 #                         ~150 px, 25-30% deep; three of them alerted at 1-2 px/frame on 2026-11-03). Larger
 #                         connected "defects" (9,000 px and up) are the occulter rim and field edge, where the
@@ -282,9 +284,15 @@ def build_defect_map(frames: list[Path], log=print) -> tuple[np.ndarray, np.ndar
     n = len(ratios)
     if n < 8:
         return None
-    persistent = [_small_blobs(c >= DEFECT_PERSIST * n) for c in counts]
-    k = int(np.argmax([int(m.sum()) for m in persistent]))
+    # The sign is decided on the sharp, small defects alone (clusters of a few px):
+    # they are what moves when the shift is undone the wrong way. Dust motes and the
+    # rim's fragments barely care, and with them in the vote all four signs came
+    # out even (2026-11-03: 21-26k px each) and the wrong one won.
+    masks = [c >= DEFECT_PERSIST * n for c in counts]
+    small = [_small_blobs(m, DEFECT_SIGN_BLOB) for m in masks]
+    k = int(np.argmax([int(m.sum()) for m in small]))
     sign = signs[k]
+    persistent = [_small_blobs(m) for m in masks]
     # ndimage.shift has no float16 path: shift in float32, stack in float16 (40 frames = 300 MB)
     flat = np.median(np.stack([_unshift(r.astype(np.float32), shift, sign, 1.0).astype(np.float16) for r, shift in ratios]),
                      axis=0).astype(np.float32)
@@ -296,6 +304,7 @@ def build_defect_map(frames: list[Path], log=print) -> tuple[np.ndarray, np.ndar
     flat[persistent[k]] = 1.0  # defects are blanked, not corrected
     return persistent[k], flat, {"frames": n, "sign": list(sign), "pixels": int(persistent[k].sum()),
                                  "pixels_by_sign": [int(m.sum()) for m in persistent],
+                                 "small_px_by_sign": [int(m.sum()) for m in small],
                                  "flat_dev_pct": [round(float(np.percentile(np.abs(flat - 1), q)) * 100, 2) for q in (50, 90, 99)]}
 
 
@@ -308,16 +317,28 @@ def flat_on_frame(flat: np.ndarray, sign, header) -> np.ndarray | None:
     return ndimage.shift(flat, (sign[1] * sy, sign[0] * sx), order=1, cval=1.0, prefilter=False)
 
 
-def _small_blobs(mask: np.ndarray) -> np.ndarray:
-    """Only the connected components of at most DEFECT_MAX_BLOB px: dead-pixel
-    clusters and dust, not the occulter rim or the field edge (2026-11-03: 36,000
-    of 47,000 flagged px sat in four blobs on the rim and edge)."""
+def _small_blobs(mask: np.ndarray, max_blob: int | None = None) -> np.ndarray:
+    """Only the connected components of at most `max_blob` px (DEFECT_MAX_BLOB):
+    dead-pixel clusters, warm pixels and dust motes, not the occulter rim or the
+    field edge (2026-11-03: 36,000 of 47,000 flagged px sat in four blobs on the
+    rim and edge). Blobs over DEFECT_SIGN_BLOB px must also be compact (fill at
+    least DEFECT_FILL of their bounding box): a mote is a disc, a rim fragment a
+    thin arc."""
+    max_blob = DEFECT_MAX_BLOB if max_blob is None else max_blob
     lab, n = ndimage.label(mask)
     if not n:
         return mask
     sizes = np.bincount(lab.ravel())
-    keep = sizes <= DEFECT_MAX_BLOB
+    keep = sizes <= max_blob
     keep[0] = False
+    big = np.nonzero(keep & (sizes > DEFECT_SIGN_BLOB))[0]
+    if len(big):
+        for i, sl in zip(big, (ndimage.find_objects(lab, max_label=int(big.max()))[j - 1] for j in big)):
+            if sl is None:
+                continue
+            h, w = sl[0].stop - sl[0].start, sl[1].stop - sl[1].start
+            if sizes[i] < DEFECT_FILL * h * w:
+                keep[i] = False
     return keep[lab]
 
 
