@@ -321,13 +321,20 @@ def test_detector_defects_follow_the_pipelines_shift(tmp_path, monkeypatch):
         img = 1e-10 * (1 + 0.02 * rng.normal(size=(200, 240))).astype(np.float32)
         rr, cc = r0 + int(round(sy)), c0 + int(round(sx))  # registered = detector + shift
         img[rr:rr + 3, cc:cc + 2] *= 0.45
+        img[rr + 40:rr + 44, cc + 40:cc + 44] *= 1.04  # a block of warm pixels: gain, not a defect
         h = pyfits.Header()
         h["SHIFT_X"], h["SHIFT_Y"], h["INSTRUME"] = sx, sy, "CCOR2"
         name = f"CCOR2_1A_20261102T{10 + k // 4:02d}{(k % 4) * 15:02d}14_V00_NC.fits"
         pyfits.PrimaryHDU(img, header=h).writeto(day / name)
         names.append(name)
-    defects, sign = A.load_defects("ccor2", log=lambda *_: None)
+    defects, sign, flat = A.load_defects("ccor2", log=lambda *_: None)
     assert sign == [1, 1] and 4 <= defects.sum() <= 8
+    assert 1.025 < np.median(flat[r0 + 40:r0 + 44, c0 + 40:c0 + 44]) < 1.055  # the gain block, in detector coordinates
+    assert abs(np.median(flat) - 1) < 0.005 and (flat[r0:r0 + 3, c0:c0 + 2] == 1).all()  # defects are not "corrected"
+    h = pyfits.getheader(day / names[0])
+    g = A.flat_on_frame(flat, sign, h)
+    sx, sy = shifts[0]
+    assert 1.02 < g[r0 + 40 + int(round(sy)) + 1, c0 + 40 + int(round(sx)) + 1] < 1.06  # placed back onto the frame
     assert defects[r0:r0 + 3, c0:c0 + 2].all()
     assert A.defect_path("ccor2").exists()
     for k, (sx, sy) in enumerate(shifts):

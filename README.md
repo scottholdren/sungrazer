@@ -222,6 +222,12 @@ trying all four) and blanks it, grown by 3 px, in every frame's significance
 map (`frames.load_defects`). The raw pixels are left alone: a wandering
 defect is somewhere else in every background frame, so the median background
 and the star model are immune, and NaN holes would each cost an edge guard.
+The same build gives a gain map (`flat.npy`): the median, in detector
+coordinates, of each pixel's ratio to its local level. Level 1A is not
+flat-fielded, and the detector's pixel-to-pixel gain pattern wanders with the
+shift like the defects do; 65% of CCOR-2's 8-sigma map pixels sat where that
+pattern deviates over 2%, against 7% of random pixels. Every frame is divided
+by the gain map placed onto it (bilinear) before anything else.
 Its field edge glows further in than CCOR-1's, so its edge guard is 16 px
 (`EDGE_GUARD_BY_CAMERA`) against 6. Its `OFFSUNDR` is not arcsec (~1.8e5 on
 every frame), so that test is CCOR-1 only.
