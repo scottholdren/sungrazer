@@ -184,8 +184,12 @@ function badges(t) {
   else b.push(`<span class="b amber">candidate, ${n(t.n_hits, 'frame')} measured</span>`);
   if (r) {
     b.push(`<span class="b blue"><a href="${esc(r.url)}" target="_blank" onclick="event.stopPropagation()">reported by ${esc(r.reporter)} ${fmt(r.posted)}${r.cross ? ` on ${esc(r.camera)}` : ''}</a></span>`);
-    b.push(r.lead_h < 0 ? `<span class="b green">found here ${hrs(r.lead_h)} before the report</span>` : `<span class="b">reported ${hrs(r.lead_h)} before we found it</span>`);
+    // the discovery clock is the alert: following it earlier does not count
+    if (r.alert_lead_h != null && r.alert_lead_h < 0) b.push(`<span class="b green">alerted here ${hrs(r.alert_lead_h)} before the report</span>`);
+    else if (r.alert_lead_h != null) b.push(`<span class="b red">loss: reported ${hrs(r.alert_lead_h)} before our alert${r.lead_h < 0 ? ` (following ${hrs(r.lead_h)} before it)` : ''}</span>`);
+    else b.push(`<span class="b red">loss: reported, never alerted here${r.lead_h < 0 ? ` (following ${hrs(r.lead_h)} before it)` : ''}</span>`);
   } else b.push(`<span class="b amber">UNREPORTED on ${esc(t.cam.label)}</span>`);
+  if (t.same_as) b.push(`<span class="b green"><a href="#" onclick="event.stopPropagation();openDetail('${esc(t.same_as.camera)}','${esc(t.same_as.id)}');return false" style="color:inherit">same object on ${esc(t.same_as.label)}: ${esc(t.same_as.id)}</a></span>`);
   const l = t.lasco;
   if (l && t.tier) b.push(`<span class="b outline dim"><a href="${esc(l.url)}" target="_blank" onclick="event.stopPropagation()" style="color:inherit">a ${esc(l.camera)} claim by ${esc(l.reporter)} (${fmt(l.posted)}) overlaps in time; position not checked</a></span>`);
   if (t.label) b.push(`<span class="b ${t.label.label === 'comet' ? 'green' : t.label.label === 'noise' ? 'outline dim' : 'outline'}">you: ${esc(t.label.label)}${t.label.contradicted ? ' — contradicted: ' + esc(t.label.contradicted.why) : ''}</span>`);
@@ -262,7 +266,7 @@ function fillDetail(t, fresh) {
     $('#panel').dataset.id = t.id;
     $('#panel').innerHTML = `<span class="close" onclick="closeDetail()">✕</span><h3>${t.id}</h3><div class="badges">${badges(t)}</div>
       <div class="labels">${labelButtons(t)}</div>
-      <div class="meta">status <b>${esc(t.status)}</b> · at 3/4/5 hits: ${esc(sa)} · velocity (${t.velocity[0]}, ${t.velocity[1]}) px/frame · ${n(t.n_hits, 'hit')}, ${t.missing} missing${pieceOf}</div>${piecesLine}
+      <div class="meta">following since <b>${t.following_at ? fmt(t.following_at) : '-'}</b> · alert <b>${t.alert_at ? fmt(t.alert_at) : 'not yet'}</b> · status <b>${esc(t.status)}</b> · at 3/4/5 hits: ${esc(sa)} · velocity (${t.velocity[0]}, ${t.velocity[1]}) px/frame · ${n(t.n_hits, 'hit')}, ${t.missing} missing${pieceOf}</div>${piecesLine}
       <div class="anim"><div><canvas id="cv" width="${tile*2}" height="${tile*6+16}"></canvas>
         <div class="ctl"><button onclick="ANIM.playing=!ANIM.playing">play/pause</button><button onclick="step(-1)">◀</button><button onclick="step(1)">▶</button>
         <input id="scrub" type="range" min="0" max="${Math.max((t.columns||[]).length-1,0)}" value="0" oninput="ANIM.frame=+this.value;ANIM.playing=false;draw()"> <span id="flabel" class="dim"></span></div>

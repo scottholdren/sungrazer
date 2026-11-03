@@ -88,9 +88,13 @@ Sungrazer camera. The listing is walked in full once a day.
 `kreutz serve` is a standard-library HTTP server for the single-page
 dashboard in `src/kreutz/web/`: a status line per camera, the current stage
 with progress and the last five events (full log expandable), the tracks
-being followed (with any matching report and the lead time including our
-latency), a collapsed list of recently rejected tracks, and a detail view that
-animates the track's frames. The page polls `/api/state` every minute and
+being followed (with any matching report and the lead time, including our
+latency, measured from our **alert**: a report posted before the alert is a
+loss however long the track was being followed; the detail view shows both
+escalation times, following and alert), a collapsed list of recently rejected
+tracks, and a detail view that animates the track's frames. A track seen from
+both CCOR cameras carries a "same object on CCOR-2/CCOR-1" link (its last
+hits converted through both WCS land on the other camera's track). The page polls `/api/state` every minute and
 `/api/activity` every 3 s.
 
 Alert tiers (`live.TIERS`, chosen from real-time operating-point tables in
@@ -206,7 +210,15 @@ by `cameras.px_scale`; the nominal Sun position is per camera; the velocity
 envelope borrows the other camera's Kreutz reports, converted through both
 WCS (`solar.py`), when a camera has too few of its own; the arm is above the
 Sun on CCOR-2 (and on CCOR-1 before the 2026 yaw flip), so the `pylon` rule
-takes either side. CCOR-2 has no Earth transits (it sits at L1).
+takes either side. CCOR-2 has no Earth transits (it sits at L1). Its level-1A
+pipeline shifts every image to centre the Sun (`SHIFT_X`/`SHIFT_Y` in the
+header, fractional pixels), so detector defects wander across the frames by a
+few px over hours and the 16-frame background cannot remove them; stage A
+builds a defect map in detector coordinates from 40 raw frames (pixels
+persistently outside 0.75-1.3x their local level once the shift is undone;
+the shift's sign convention is found by trying all four) and masks it, grown
+by 2 px, on every frame (`frames.load_defects`). Its `OFFSUNDR` is not arcsec
+(~1.8e5 on every frame), so that test is CCOR-1 only.
 
 Deployment: `deploy/` has systemd units (`kreutz-watch@ccor1`,
 `kreutz-watch@ccor2`, `kreutz-serve`) that run as the repo owner with
@@ -496,7 +508,7 @@ A candidate track is rejected (kept in the output, marked `rejected:<rule>`) if:
 
 | rule | test | why |
 |---|---|---|
-| `stationary` | speed < 1 px/frame | Things that don't move relative to the Sun are residual background (glare, hot pixels, slowly changing corona). Slowest confirmed comet: 3 px/frame. |
+| `stationary` | speed < 2 px/frame | Things that don't move relative to the Sun are residual background (glare, hot pixels, slowly changing corona). Slowest confirmed comet: 3 px/frame. |
 | `star-drift` | velocity within 1.5 px/frame of the measured star drift | Imperfectly subtracted stars move together at the drift velocity. |
 | `outbound` | moving away from the Sun (cos of angle to the Sun direction < 0) | Kreutz comets are seen falling inward. Cost: 6 of 106 confirmed CCOR-1 reports moved away from the Sun: 5 Kracht II / non-group, 1 Kreutz moving nearly sideways. |
 | `off-envelope` | direction of motion, or signed miss distance of the path from the Sun, outside this month's Kreutz envelope (+15°, +80 px margins) | All Kreutz comets share one orbit, so in a given month they arrive from one side on nearly parallel paths; the side rotates through the year (Mar: from the left moving right; Jul: lower right moving up-left; Oct: right moving left). Things entering from anywhere else are not Kreutz comets: in Oct 2026 that included tracks entering at the left edge moving right. Built from confirmed reports (±1 month) where they exist; NRL has posted no confirmations since Aug 2025, so Oct–Jan use that month's pending hunter claims trimmed to the 10–90th percentiles, marked PROVISIONAL in the output. Cost: comets of other groups (Kracht, Meyer, non-group: 10 of 116 confirmed CCOR-1 reports). |

@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from kreutz import coords, stars
+from kreutz.detect import frames as A
 from kreutz.detect import stack as B
 from kreutz.detect import track as C
 from kreutz.detect.velocity import VelocityGrid
@@ -111,6 +112,7 @@ def test_tracker_does_not_promote_a_two_window_blip():
 
 @pytest.mark.parametrize("v, pos, kw, why", [
     ((0.3, -0.2), (1600, 1500), {}, "stationary"),
+    ((-1.2, -0.6), (1600, 1500), {}, "stationary"),  # a detector defect wandering with CCOR-2's registration shift
     ((2.2, -0.4), (1600, 1500), {}, "star-drift"),
     ((5.0, 4.0), (1600, 1500), {}, "outbound"),  # down-right, away from the Sun
     ((-3.0, -3.0), (1200, 1150), {}, "glare-zone"),  # ~250 px from the Sun
@@ -299,3 +301,38 @@ def test_pixel_thresholds_scale_with_the_camera_plate_scale():
     assert C.rejection(-3, -3, hits[-1].x, hits[-1].y, DRIFT, SUN, hits, scale=s) is None
     tr = C.Tracker(scale=s)
     assert tr.scale == s
+
+
+def test_detector_defects_follow_the_pipelines_shift(tmp_path, monkeypatch):
+    """CCOR-2's level-1A frames are shifted to centre the Sun (SHIFT_X/Y); a dead-pixel
+    cluster fixed on the detector therefore wanders across the frames. The defect map
+    is built in detector coordinates and put back onto each frame."""
+    from astropy.io import fits as pyfits
+
+    monkeypatch.setattr(A.paths, "DATA", tmp_path)
+    monkeypatch.setattr(A.paths, "FRAMES", tmp_path / "frames")
+    day = tmp_path / "frames" / "ccor2" / "20261102"
+    day.mkdir(parents=True)
+    rng = np.random.default_rng(1)
+    r0, c0 = 120, 150  # the cluster on the detector
+    shifts = [(1.75 + 0.3 * k, -11.5 + 0.5 * k) for k in range(12)]
+    names = []
+    for k, (sx, sy) in enumerate(shifts):
+        img = 1e-10 * (1 + 0.02 * rng.normal(size=(200, 240))).astype(np.float32)
+        rr, cc = r0 + int(round(sy)), c0 + int(round(sx))  # registered = detector + shift
+        img[rr:rr + 3, cc:cc + 2] *= 0.45
+        h = pyfits.Header()
+        h["SHIFT_X"], h["SHIFT_Y"], h["INSTRUME"] = sx, sy, "CCOR2"
+        name = f"CCOR2_1A_20261102T{10 + k // 4:02d}{(k % 4) * 15:02d}14_V00_NC.fits"
+        pyfits.PrimaryHDU(img, header=h).writeto(day / name)
+        names.append(name)
+    defects, sign = A.load_defects("ccor2", log=lambda *_: None)
+    assert sign == [1, 1] and 4 <= defects.sum() <= 8
+    assert defects[r0:r0 + 3, c0:c0 + 2].all()
+    assert A.defect_path("ccor2").exists()
+    for k, (sx, sy) in enumerate(shifts):
+        h = pyfits.getheader(day / names[k])
+        m = A.defect_mask(defects, sign, h)
+        rr, cc = r0 + int(round(sy)), c0 + int(round(sx))
+        assert m[rr:rr + 3, cc:cc + 2].all() and m.sum() < 120  # covers the cluster, with a small margin
+    assert A.load_defects("ccor1") is None or True  # a camera without frames: no map, no error

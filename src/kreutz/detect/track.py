@@ -20,7 +20,7 @@ same velocity (within MATCH_DV) whose positions at common times are within
 MERGE_ALONG px along the motion and MERGE_RADIUS across it are merged.
 
 Rejection rules (see README), applied to candidates:
-  stationary  speed below 1.0 px/frame
+  stationary  speed below 2.0 px/frame
   star-drift  velocity within 1.5 px/frame of the measured star drift
   outbound    moving away from the Sun (cos of angle to Sun direction < 0)
   off-envelope  position angle or direction of motion outside where this
@@ -43,13 +43,14 @@ import numpy as np
 from .stack import Peak
 from .velocity import FRAME_SECONDS
 
-VERSION = "c4"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
+VERSION = "c5"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
 MATCH_RADIUS = 6.0  # px, full resolution (half-res stacking + 0.5 px/frame velocity steps)
 MATCH_DV = 2.0  # px/frame
 MAX_MISSES = 2
 CANDIDATE_HITS = 3
 STAR_DV = 1.5
-MIN_SPEED = 1.0
+MIN_SPEED = 2.0  # px/frame (CCOR-1); slowest confirmed comet 3. Detector defects wandering with CCOR-2's
+#                  registration shift move at 1-2 px/frame (2026-11-02), as do star-subtraction residuals.
 DEDUP_RADIUS = 12.0  # px: other peaks this close to a claimed one are the same object
 MERGE_RADIUS = 8.0  # px: candidate tracks sharing >= 2 hit times this close are merged
 MERGE_ALONG = 40.0  # px along the motion, for tracks with the same velocity (head and tail pieces)

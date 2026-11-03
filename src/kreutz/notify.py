@@ -41,9 +41,12 @@ def _mark_posted(track_id: str) -> None:
 
 def alert_text(d: dict, label: str, dashboard: str | None) -> str:
     r = d.get("report")
-    rep = (f"already reported by {r['reporter']} ({r['lead_h']:+.1f} h)" if r
-           else f"UNREPORTED on {label}" + (f"; a {d['lasco']['camera']} claim by {d['lasco']['reporter']} overlaps in time"
-                                             if d.get("lasco") else ""))
+    if r:  # a report already on the site when we alert is a loss, whatever the following time
+        al = r.get("alert_lead_h")
+        rep = f"already reported by {r['reporter']}" + (f" ({al:+.1f} h relative to this alert)" if al is not None else "")
+    else:
+        rep = f"UNREPORTED on {label}" + (f"; a {d['lasco']['camera']} claim by {d['lasco']['reporter']} overlaps in time"
+                                          if d.get("lasco") else "")
     lines = [f"**ALERT** {label} `{d['id']}` — {rep}",
              f"{d['n_hits']} hits, best {d['best_sig']}σ, at ({d['x']}, {d['y']}) moving ({d['velocity'][0]}, {d['velocity'][1]}) px/frame"
              f" · first seen {d['first_seen'][5:16].replace('T', ' ')} UTC · last {d['last_seen'][5:16].replace('T', ' ')} UTC"]

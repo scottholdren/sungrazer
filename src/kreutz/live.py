@@ -703,8 +703,10 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con, camer
         at = _steady_at(hits, t.get("sun_xy"), camera)
         if at is not None:
             tier, tier_at = "steady", at
+    alert_at = _fires_at(hits, *TIERS["alert"])
     out = {
         "tier": tier, "tier_at": tier_at,
+        "following_at": found, "alert_at": alert_at,  # the two escalation times: candidate (3 hits) and alert
         "id": track_key(t), "live": live, "status": t["status"], "status_at": t["status_at"],
         "reached": t["reached"], "merged": t["merged"],
         "n_hits": len(hits), "missing": max(span_frames - len(hits), 0),
@@ -720,11 +722,15 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con, camer
         rid = rep.report_ids[0]
         row = con.execute("SELECT reporter, camera FROM reports WHERE report_id=?", (rid,)).fetchone()
         lead_h = (_ts(found) + lat_s - rep.first_post.timestamp()) / 3600
+        # The discovery clock is the alert: a report posted before our alert is a loss,
+        # however early the track was being followed. None = never alerted.
+        alert_lead_h = (_ts(alert_at) + lat_s - rep.first_post.timestamp()) / 3600 if alert_at else None
         rcam = (row["camera"] if row else None) or rep.camera
         out["report"] = {"id": rid, "reporter": row["reporter"] if row else rid, "status": rep.status,
                          "posted": rep.first_post.isoformat(timespec="minutes"),
                          "url": f"https://sungrazer.nrl.navy.mil/report/{rid.replace('_', '')}",
-                         "lead_h": round(lead_h, 1), "camera": LABELS.get(rcam, rcam),
+                         "lead_h": round(lead_h, 1), "alert_lead_h": None if alert_lead_h is None else round(alert_lead_h, 1),
+                         "camera": LABELS.get(rcam, rcam),
                          "cross": rep.camera is not None}  # reported on the other CCOR camera, matched in solar coordinates
     out["lasco"] = lasco_report(con, first["frame_time"], last["frame_time"], found, lat_s)
     return out
@@ -949,7 +955,35 @@ def merged_state() -> dict:
             # a track only the comet label was holding leaves as soon as the label is cleared
             s["tracks"] = [t for t in s["tracks"] if not t.get("held") or (t["label"] or {}).get("label") == "comet"]
             cams.append(s)
+    _link_cameras(cams)
     return {"now": datetime.now(timezone.utc).isoformat(timespec="seconds"), "cameras": cams}
+
+
+def _link_cameras(cams: list[dict]) -> None:
+    """Mark tracks that are one object seen from both CCOR cameras: a track's last
+    three hits, converted through both WCS into the other camera's pixels, land
+    within CROSS_MATCH_PX of that camera's track at the same times (same_as)."""
+    from . import solar
+
+    by = {s["camera"]: s for s in cams}
+    for a, b in (("ccor1", "ccor2"),):
+        if a not in by or b not in by:
+            continue
+        for ta in by[a]["tracks"]:
+            try:
+                hits = ta["hits"][-3:]
+                t, x, y = solar.cross_positions(a, b, [_ts(h["t"]) for h in hits], [h["x"] for h in hits], [h["y"] for h in hits],
+                                                fetch_missing=False)
+            except Exception:  # noqa: BLE001 - no WCS at hand: no link
+                continue
+            if len(t) < 2:
+                continue
+            truth = score.Truth(ta["id"], [ta["id"]], datetime.now(timezone.utc), t, x, y, "track", tolerance=score.CROSS_MATCH_PX)
+            for tb in by[b]["tracks"]:
+                if score.matches({"hits": [{"frame_time": h["t"], "x": h["x"], "y": h["y"]} for h in tb["hits"]]}, truth):
+                    ta["same_as"] = {"camera": b, "label": by[b]["label"], "id": tb["id"]}
+                    tb["same_as"] = {"camera": a, "label": by[a]["label"], "id": ta["id"]}
+                    break
 
 
 # --- labels: the owner's eye, kept for training; the tracker never reads them -----

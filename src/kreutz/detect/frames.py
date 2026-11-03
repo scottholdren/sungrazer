@@ -68,6 +68,20 @@ EARTH_GUARD = 1  # frames on each side of an Earth-in-field / eclipse frame also
 WARM_STAR_FRAMES = 6  # of STAR_FRAMES
 WARM_BG_SPAN = 24  # 15-min slots (6 h) the 16 background frames may span
 
+# Detector defects. CCOR-2's level-1A pipeline shifts each image to centre the Sun
+# (header SHIFT_X/SHIFT_Y, fractional pixels), so dead-pixel clusters and dust fixed
+# on the detector wander across the registered frames by a few px over hours: the
+# 16-frame background does not remove them and they came out as 20-50 sigma "movers"
+# at 1-2 px/frame (2026-11-02). A camera whose headers carry the shift gets a defect
+# map in detector coordinates, built once from DEFECT_FRAMES raw frames (pixels
+# persistently far from their local level after the shift is undone), and every
+# frame has the map shifted back onto it and masked before anything else.
+DEFECT_FRAMES = 40
+DEFECT_LOW, DEFECT_HIGH = 0.75, 1.3  # pixel / local smooth level outside this is a defect
+DEFECT_PERSIST = 0.6  # in this fraction of the frames
+DEFECT_MARGIN = 2  # px the mask is grown by (the shift is fractional; the pipeline interpolates)
+DEFECT_SMOOTH = 6  # px, the local level
+
 
 def derived_dir(camera: str) -> Path:
     return paths.DATA / "derived" / camera / VERSION
@@ -198,6 +212,108 @@ class _Pointing:
         return jump
 
 
+def shift_of(header) -> tuple[float, float] | None:
+    """The registration shift the pipeline applied to this frame (x, y px), if recorded."""
+    if "SHIFT_X" in header and "SHIFT_Y" in header:
+        try:
+            return float(header["SHIFT_X"]), float(header["SHIFT_Y"])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _level_ratio(data: np.ndarray) -> np.ndarray:
+    """Each pixel over its local smooth level; 1 where there is no data."""
+    ok = np.isfinite(data) & (data > 0)
+    f = ndimage.gaussian_filter(np.where(ok, data, 0.0), DEFECT_SMOOTH)
+    n = ndimage.gaussian_filter(ok.astype(np.float32), DEFECT_SMOOTH)
+    with np.errstate(all="ignore"):
+        return np.where(ok & (n > 0.5), data / (f / n), 1.0).astype(np.float32)
+
+
+def _unshift(a: np.ndarray, shift: tuple[float, float], sign: tuple[int, int], cval) -> np.ndarray:
+    """Move a frame-coordinate array back to detector coordinates (nearest pixel)."""
+    sx, sy = shift
+    return ndimage.shift(a, (-sign[1] * sy, -sign[0] * sx), order=0, cval=cval, prefilter=False)
+
+
+def build_defect_map(frames: list[Path], log=print) -> tuple[np.ndarray, dict] | None:
+    """Defect map in detector coordinates from raw frames whose headers carry the
+    shift, and how it was built. The sign convention of SHIFT_X/Y is not documented,
+    so all four are tried and the one under which the most pixels stay defective
+    frame after frame wins (a real defect is sharp only when the shift is undone
+    the right way). None if fewer than 8 frames carry a shift."""
+    signs = [(1, 1), (-1, -1), (1, -1), (-1, 1)]
+    counts = None
+    n = 0
+    for p in frames:
+        try:
+            f = read_frame(p, check_orientation=False)
+        except Exception as e:  # noqa: BLE001
+            log(f"defect map: skipping {p.name}: {e}")
+            continue
+        shift = shift_of(f.header)
+        if shift is None:
+            continue
+        r = _level_ratio(f.data)
+        bad = ((r < DEFECT_LOW) | (r > DEFECT_HIGH)).astype(np.uint8)
+        if counts is None:
+            counts = [np.zeros(bad.shape, np.uint16) for _ in signs]
+        for k, s in enumerate(signs):
+            counts[k] += _unshift(bad, shift, s, 0)
+        n += 1
+    if n < 8:
+        return None
+    persistent = [c >= DEFECT_PERSIST * n for c in counts]
+    k = int(np.argmax([int(m.sum()) for m in persistent]))
+    return persistent[k], {"frames": n, "sign": list(signs[k]), "pixels": int(persistent[k].sum()),
+                           "pixels_by_sign": [int(m.sum()) for m in persistent]}
+
+
+def defect_mask(defects: np.ndarray, sign, header) -> np.ndarray | None:
+    """The defect map placed onto this frame (its shift applied), grown by DEFECT_MARGIN."""
+    shift = shift_of(header)
+    if shift is None:
+        return None
+    sx, sy = shift
+    m = ndimage.shift(defects.astype(np.uint8), (sign[1] * sy, sign[0] * sx), order=0, cval=0, prefilter=False) > 0
+    return ndimage.binary_dilation(m, iterations=DEFECT_MARGIN) if DEFECT_MARGIN else m
+
+
+def defect_path(camera: str) -> Path:
+    return derived_dir(camera) / "defects.npy"
+
+
+def load_defects(camera: str, log=print) -> tuple[np.ndarray, list] | None:
+    """The camera's cached defect map and shift sign, building it from the newest
+    DEFECT_FRAMES raw frames on disk when there is none. None for a camera whose
+    headers carry no shift (CCOR-1: its defects stay put and cancel in the background)."""
+    p = defect_path(camera)
+    js = p.with_suffix(".json")
+    if p.exists() and js.exists():
+        info = json.loads(js.read_text())
+        if info.get("sign") is None:
+            return None
+        return np.load(p), info["sign"]
+    from .. import fetch
+
+    frames = fetch.local_frames(camera)[-DEFECT_FRAMES:]
+    built = build_defect_map(frames, log=log)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if built is None:
+        js.write_text(json.dumps({"sign": None, "frames": 0}))
+        return None
+    defects, info = built
+    tmp = p.with_suffix(".npy.tmp")
+    with open(tmp, "wb") as fh:  # a handle, or np.save appends .npy to the name
+        np.save(fh, defects)
+    tmp.replace(p)
+    js.write_text(json.dumps(info))
+    log(f"{camera}: defect map from {info['frames']} frames: {info['pixels']} px, shift sign {info['sign']} "
+        f"(by sign {info['pixels_by_sign']})")
+    return defects, info["sign"]
+
+
 class _Diff:
     """A background-subtracted frame plus its point-source catalogue."""
 
@@ -262,6 +378,7 @@ class StageA:
         self.withdrawable: tuple[str, float, bool] | None = None  # (name, time, meta written) of the last accepted frame
         self.evicted: tuple[Frame | None, _Diff | None] = (None, None)  # what that frame pushed out of the buffers
         self.withdrawn: list[str] = []
+        self.defects: tuple[np.ndarray, list] | None | bool = False  # False = not looked up yet
 
     def predict_earth(self, t: float) -> bool:
         return any(abs(t - 86400 - e) <= EARTH_PREDICT_S for e in self.earth_times)
@@ -270,6 +387,12 @@ class StageA:
         f = read_frame(p)
         # Exact zeros are pipeline fill (blobs along the occulter rim and field edge), not sky.
         f.data[f.data == 0] = np.nan
+        if self.defects is False:
+            self.defects = load_defects(self.camera, log=self.log) if shift_of(f.header) else None
+        if self.defects:
+            dm = defect_mask(self.defects[0], self.defects[1], f.header)
+            if dm is not None:
+                f.data[dm] = np.nan
         t = f.time.timestamp()
         q = frame_quality(f.header, f.data)
         earth = is_earth(f.header)

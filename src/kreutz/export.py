@@ -317,8 +317,12 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
         L.append(f"- Last position {r:.0f} px from the Sun at position angle {pa:.0f} deg, heading {head:.0f} deg off the Sun direction ({LANE}).")
     rep = d.get("report")
     if rep:
-        L.append(f"- Matches {rep['reporter']}'s {rep.get('camera', 'CCOR-1')} report `{rep['id']}` (posted {rep['posted']}, "
-                 + (f"we had it {-rep['lead_h']:.1f} h earlier" if rep["lead_h"] < 0 else f"posted {rep['lead_h']:.1f} h before our third hit")
+        al = rep.get("alert_lead_h")
+        verdict = (f"our alert came {-al:.1f} h before it" if al is not None and al < 0
+                   else f"it came {al:.1f} h before our alert" if al is not None
+                   else "we never alerted on it")
+        L.append(f"- Matches {rep['reporter']}'s {rep.get('camera', 'CCOR-1')} report `{rep['id']}` (posted {rep['posted']}; {verdict}; "
+                 + (f"we were following it {-rep['lead_h']:.1f} h before the post" if rep["lead_h"] < 0 else f"posted {rep['lead_h']:.1f} h before our third hit")
                  + ("; matched through both cameras' WCS in solar coordinates" if rep.get("cross") else "") + ").")
     else:
         L.append("- No CCOR-1 or CCOR-2 report matches it on the Sungrazer site.")
