@@ -24,6 +24,7 @@ class Camera:
     live_index: str  # SWPC JSON listing of recent frames
     plate_scale: float  # arcsec per full-res pixel (CDELT, 2026-11-02 headers)
     nominal_sun: tuple[float, float]  # Sun centre in report px when no frame is at hand (true centre within ~35 px)
+    field_radius: float | None = None  # px from nominal_sun beyond which the significance map is blanked (vignetting rim)
 
 
 CAMERAS = {
@@ -44,6 +45,11 @@ CAMERAS = {
         live_index=f"{SWPC_BASE}/products/ccor2/fits.json",
         plate_scale=24.27,
         nominal_sun=(1018.5, 994.0),  # CRPIX (1019.5, 926.0) 1-based, rows flipped for display
+        # The vignetting rim: raw pixels start dropping out at ~1075 px from the Sun and the NaN guard reaches
+        # in to ~1068, but the ring from 1050 px outward runs 100-300 >8-sigma map pixels per 10k against ~1
+        # inside, and a 3-hit track was born on it at 1064 px (2026-11-04). The registration shift moves the
+        # rim by at most ~6 px (SHIFT_X -7.5..3, SHIFT_Y -16.75..-10.75 over 2026-10-29..11-04).
+        field_radius=1000.0,
     ),
 }
 

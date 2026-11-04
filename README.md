@@ -229,8 +229,13 @@ shift like the defects do; 65% of CCOR-2's 8-sigma map pixels sat where that
 pattern deviates over 2%, against 7% of random pixels. Every frame is divided
 by the gain map placed onto it (bilinear) before anything else.
 Its field edge glows further in than CCOR-1's, so its edge guard is 16 px
-(`EDGE_GUARD_BY_CAMERA`) against 6. Its `OFFSUNDR` is not arcsec (~1.8e5 on
-every frame), so that test is CCOR-1 only.
+(`EDGE_GUARD_BY_CAMERA`) against 6, and because its rim is a ragged scatter of
+dropped pixels rather than a solid NaN border (the guard stops ~5 px short of
+the dropouts while the glow ridge runs 20-50 px further in, with 100-300
+8-sigma pixels per 10k against ~1 inside), the map is also blanked beyond
+`field_radius` = 1000 px from the nominal Sun (about 25 solar radii; a
+3-hit track was born on the ridge at 1064 px on 2026-11-04). Its `OFFSUNDR`
+is not arcsec (~1.8e5 on every frame), so that test is CCOR-1 only.
 
 Deployment: `deploy/` has systemd units (`kreutz-watch@ccor1`,
 `kreutz-watch@ccor2`, `kreutz-serve`) that run as the repo owner with

@@ -48,7 +48,7 @@ from pathlib import Path
 import numpy as np
 from scipy import ndimage
 
-from .. import coords, paths, stars
+from .. import cameras, coords, paths, stars
 from ..fitsio import Frame, frame_quality, read_frame
 
 VERSION = "a4"
@@ -61,6 +61,9 @@ EDGE_GUARD = 6  # px next to NaN regions dropped from the significance map (DoG 
 # CCOR-2's field edge glows further in: >8-sigma pixels per 10k ran 535/183/35/21 in the 0-5/5-10/10-15/15-20 px
 # bands from the edge (CCOR-1: 294/17/0.8/0.3), and tracks were born on the corner's bright boundary (2026-11-03).
 EDGE_GUARD_BY_CAMERA = {"ccor2": 16}
+# A camera with `field_radius` set (cameras.py) also has the map blanked outside that radius from the nominal Sun:
+# CCOR-2's rim is a ragged scatter of NaN pixels, not a solid border, so the dilated guard stops ~5 px short of
+# where the raw dropouts begin while the glow ridge runs 20-50 px further in.
 SIG_CLIP = 50.0
 MOON_RATIO = 1.3  # pixel > 1.3x background ...
 MOON_MIN_AREA = 2000  # ... over this many connected px = the Moon (disc ~7000 px); masked
@@ -167,6 +170,24 @@ def nanmedian_stack(arrs: list[np.ndarray]) -> np.ndarray:
 def significance(a: np.ndarray) -> np.ndarray:
     d = stars.dog(a)
     return d / stars.robust_noise(d)
+
+
+_OUTSIDE: dict[tuple, np.ndarray] = {}
+
+
+def outside_field(shape: tuple[int, int], camera: str) -> np.ndarray | None:
+    """Full-res mask of the pixels beyond the camera's `field_radius` from its
+    nominal Sun (report coordinates: y runs up, so the Sun's row is H-1-y), or
+    None when the camera has no such radius. Cached per shape."""
+    cam = cameras.get(camera)
+    if cam.field_radius is None:
+        return None
+    key = (shape, camera)
+    if key not in _OUTSIDE:
+        rows, cols = np.ogrid[: shape[0], : shape[1]]
+        sx, sy = cam.nominal_sun
+        _OUTSIDE[key] = (cols - sx) ** 2 + (rows - (shape[0] - 1 - sy)) ** 2 > cam.field_radius ** 2
+    return _OUTSIDE[key]
 
 
 def downsample(sig: np.ndarray) -> np.ndarray:
@@ -647,6 +668,9 @@ def _finish(camera: str, cur: _Diff, prev: list[_Diff], dump: bool, log) -> None
     sig = significance(resid)
     invalid = ~np.isfinite(cur.diff)
     sig[ndimage.binary_dilation(invalid, iterations=EDGE_GUARD_BY_CAMERA.get(camera, EDGE_GUARD))] = np.nan
+    outside = outside_field(sig.shape, camera)
+    if outside is not None:
+        sig[outside] = np.nan
     if f.defects is not None:
         sig[ndimage.binary_dilation(f.defects, iterations=DEFECT_SIG_GUARD)] = np.nan
     if f.defects_big is not None and f.defects_big.any():

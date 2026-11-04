@@ -83,6 +83,16 @@ def test_edge_distance_counts_array_border_and_ignores_small_holes():
     assert B.edge_distance(big)[50, 30] <= 11
 
 
+def test_ccor2_map_is_blanked_beyond_the_field_radius():
+    # 20261104T0500_1642_1856 (2026-11-04): three 10-sigma hits on the vignetting rim, 1064 px from the Sun.
+    m = A.outside_field((1920, 2048), "ccor2")
+    assert m[1919 - 1856, 1642]  # report (1642, 1856) is outside
+    assert not m[1919 - 994, 1018]  # the Sun is inside
+    assert not m[1919 - 200, 1018]  # 794 px above the Sun is inside
+    assert m[1919 - 994, 2047]  # 1029 px beside the Sun is outside
+    assert A.outside_field((1920, 2048), "ccor1") is None
+
+
 def _peak(t, x, y, vx, vy, sig=10.0, edge=200.0, elong=1.0):
     return B.Peak(t * 900.0, x, y, vx, vy, sig, edge, elong)
 
