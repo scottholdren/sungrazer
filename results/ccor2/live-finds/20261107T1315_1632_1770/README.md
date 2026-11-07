@@ -143,4 +143,4 @@ Sigma inside the ring on the fitted position vs the brightest 0.1% of the whole 
 | 20261107T203014 | 233.1 | 8.4 | hit |
 | 20261107T204514 | 251.7 | 7.0 | hit |
 
-*Written 2026-11-07 21:18 UTC.*
+*Written 2026-11-07 21:21 UTC.*
