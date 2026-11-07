@@ -26,8 +26,11 @@ import numpy as np
 from . import gif, movie, paths
 from .inspect import read_png, write_png
 
-LANE = ("Kreutz comets in CCOR-1 arrive from the lower right, position angle -10 to -45 deg, "
-        "and head within ~20 deg of the Sun")
+LANE = {"ccor1": ("Kreutz comets in CCOR-1 arrive from the lower right, position angle -10 to -45 deg, "
+                  "and head within ~20 deg of the Sun"),
+        "ccor2": ("the two Kreutz comets seen in CCOR-2 so far, 2026-11-02 and 11-07, arrived from the lower right, "
+                  "position angle -45 to -55 deg, heading within ~10 deg of the Sun")}
+LABEL = {"ccor1": "CCOR-1", "ccor2": "CCOR-2"}
 BLACK_SIGMA = 2.5  # the patch GIF's black point
 FIELD_BLACK_SIGMA = -2.0  # the field GIF's: below zero, so the noise stays as texture
 RING_R = 7         # half-res px
@@ -61,10 +64,11 @@ def export_track(camera: str, d: dict, latest: dict | None, root: Path, publish_
     (out / "README.md").write_text(text)
     files.insert(0, "README.md")
     page = page_url(out)
-    (out / "index.html").write_text(write_page(d, text, files, page))
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    (out / "index.html").write_text(write_page(d, text, files, page, stamp))
     files.insert(1, "index.html")
     repo = publish(out, d["id"]) if publish_it else None
-    return {"text": text, "url": page if repo else None, "repo_url": repo,
+    return {"text": text, "url": page if repo else None, "repo_url": repo, "stamp": stamp,
             "files": [{"name": f, "url": f"finds/{camera}/{d['id']}/{f}"} for f in files]}
 
 
@@ -189,14 +193,17 @@ def page_url(folder: Path) -> str | None:
     return f"https://{owner}.github.io/{repo}/{folder.relative_to(paths.ROOT).as_posix()}/"
 
 
-def write_page(d: dict, text: str, files: list[str], page: str | None) -> str:
+def write_page(d: dict, text: str, files: list[str], page: str | None, stamp: str = "") -> str:
     """index.html for the package: the note as HTML plus Open Graph tags so a posted
-    link previews with the object's own picture."""
+    link previews with the object's own picture. `stamp` (the export time) goes in a
+    meta tag so the dashboard can tell this version from a cached earlier one: GitHub
+    Pages serves everything with max-age=600."""
     title = text.splitlines()[0].lstrip("# ").strip()
     summary = next((ln.strip("* ").strip() for ln in text.splitlines() if ln.startswith("**")), "")
     og = [f'<meta property="og:title" content="{_esc(title)}">',
           f'<meta property="og:description" content="{_esc(summary)}">',
-          '<meta property="og:type" content="article">', '<meta name="twitter:card" content="summary_large_image">']
+          '<meta property="og:type" content="article">', '<meta name="twitter:card" content="summary_large_image">',
+          f'<meta name="kreutz-export" content="{_esc(stamp)}">']
     if page:
         og.append(f'<meta property="og:url" content="{_esc(page)}">')
         if "card.png" in files:
@@ -302,7 +309,7 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
     vx, vy = d["velocity"]
     sigs = [h["sig"] for h in hits]
     trend = ("brightening" if sigs[-1] > sigs[0] * 1.3 else "fading" if sigs[-1] < sigs[0] / 1.3 else "steady")
-    L = [f"# CCOR-1 candidate {d['id']}", "",
+    L = [f"# {LABEL.get(camera, camera)} candidate {d['id']}", "",
          f"**{d['n_hits']} frames, {span} UTC, peak {max(sigs):.0f} sigma, {trend}.**", "",
          f"- Detected by the kreutz shift-and-stack search (8 frames stacked along the fitted motion); "
          f"status {d['status']}" + (f", {d['tier']} tier since {datetime.fromisoformat(d['tier_at']):%H:%M} UTC" if d.get("tier") else "") + ".",
@@ -314,7 +321,7 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
         v = math.hypot(vx, vy)
         head = math.degrees(math.acos(max(-1.0, min(1.0, (vx * (sx - x) + vy * (sy - y)) / (r * v + 1e-9))))) if v else float("nan")
         pa = math.degrees(math.atan2(-(y - sy), x - sx))
-        L.append(f"- Last position {r:.0f} px from the Sun at position angle {pa:.0f} deg, heading {head:.0f} deg off the Sun direction ({LANE}).")
+        L.append(f"- Last position {r:.0f} px from the Sun at position angle {pa:.0f} deg, heading {head:.0f} deg off the Sun direction ({LANE.get(camera, LANE['ccor1'])}).")
     rep = d.get("report")
     if rep:
         al = rep.get("alert_lead_h")

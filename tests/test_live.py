@@ -472,8 +472,13 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
         c = urlopen(f"http://127.0.0.1:{port}/finds/ccor1/t1/card.png").read()
         assert c[:8] == b"\x89PNG\r\n\x1a\n" and c[16:24] == (1000).to_bytes(4, "big") + (525).to_bytes(4, "big") and c[25] == 2  # RGB
         from kreutz import export
-        html = export.write_page({"id": "t1"}, rec["text"], ["card.png"], "https://x.github.io/r/results/ccor1/live-finds/t1/")
+        html = export.write_page({"id": "t1"}, rec["text"], ["card.png"], "https://x.github.io/r/results/ccor1/live-finds/t1/", "20261107T212800Z")
         assert '<meta property="og:image" content="https://x.github.io/r/results/ccor1/live-finds/t1/card.png">' in html
+        assert '<meta name="kreutz-export" content="20261107T212800Z">' in html  # the dashboard waits for this version
+        assert len(rec["stamp"]) == 16 and f'content="{rec["stamp"]}"' in page
+        # the note names the camera it came from (a CCOR-2 package read "CCOR-1 candidate" on 2026-11-07)
+        assert export.note("ccor2", d, {"sun_xy": [1018.5, 994.0]}, None).startswith("# CCOR-2 candidate t1") \
+            and "seen in CCOR-2" in export.note("ccor2", d, {"sun_xy": [1018.5, 994.0]}, None)
         fg = urlopen(f"http://127.0.0.1:{port}/finds/ccor1/t1/field.gif").read()
         gw, gh = int.from_bytes(fg[6:8], "little"), int.from_bytes(fg[8:10], "little")
         assert fg[:6] == b"GIF89a" and 0 < gw < 1024 and 0 < gh < 960  # the field's crop, not the whole frame

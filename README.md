@@ -166,8 +166,12 @@ by pushes that touch `results/`), so the link to share is
 previews with the object's own picture, where a link into the repo shows
 GitHub's card for the repo. The deploy takes about a minute and is visible
 in the Actions tab; the legacy branch build it replaced had no status and
-sat in "building" for minutes on 2026-11-07. The dashboard polls the card
-until the page answers.
+sat in "building" for minutes on 2026-11-07. Pages serves everything with
+`max-age=600`, so a plain reload can show the previous version for ten
+minutes: each package's `index.html` carries its export time in a
+`kreutz-export` meta tag, the dashboard opens the link with `?v=<that stamp>`
+(Pages ignores the query; the copied link stays clean) and polls the page
+until that very version answers.
 
 Full field: the "full field" button next to it asks `/api/movie` with
 `full=1` for the frame at half resolution, cropped the way the hunters frame
