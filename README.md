@@ -171,7 +171,11 @@ sat in "building" for minutes on 2026-11-07. Pages serves everything with
 minutes: each package's `index.html` carries its export time in a
 `kreutz-export` meta tag, the dashboard opens the link with `?v=<that stamp>`
 (Pages ignores the query; the copied link stays clean) and polls the page
-until that very version answers.
+until that very version answers. GitHub's Pages backend sometimes sits on
+a deploy for minutes (one hung for ten on 2026-11-07 after others took 21 s),
+so a newer push cancels an older deploy still in progress, a deploy gives up
+after five minutes, and the dashboard offers the README on GitHub, which
+renders the moment the push lands, as the link to read meanwhile.
 
 Full field: the "full field" button next to it asks `/api/movie` with
 `full=1` for the frame at half resolution, cropped the way the hunters frame

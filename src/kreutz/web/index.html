@@ -319,7 +319,7 @@ function draw() {
   const l = $('#flabel'); if (l) l.textContent = `${j+1}/${ANIM.cols.length}  ${ANIM.cols[j] || ''}`;
 }
 let EXPORT = null;  // the last export's record (url, text, files)
-function waitForPages(url, stamp) {
+function waitForPages(url, stamp, repoUrl) {
   // The pages workflow deploys the push in about half a minute. Until then the link answers 404
   // (a new package) or serves the previous version, and GitHub Pages sends max-age=600, so a plain
   // reload can show the old copy for 10 minutes: hence the ?v= on the link. The page carries its
@@ -335,9 +335,11 @@ function waitForPages(url, stamp) {
     } catch (e) { ok = false; }
     if (ok) el.innerHTML = '<span class="b green">this version is live</span>';
     else if (++n < 40) setTimeout(probe, 15000);
-    else el.innerHTML = '<span class="warn">still not live after 10 minutes: check the pages workflow under Actions on GitHub</span>';
+    else el.innerHTML = `<span class="warn">still not live after 10 minutes: check the pages workflow under Actions on GitHub${now}</span>`;
   };
-  el.innerHTML = '<span class="b amber">deploying (about half a minute); until then the link shows the previous version or a 404</span>';
+  // GitHub renders the pushed README at once, so that link is the one to read while Pages catches up.
+  const now = repoUrl ? ` · <a href="${esc(repoUrl)}" target="_blank" style="color:#9ecbff">read it on GitHub now</a>` : '';
+  el.innerHTML = `<span class="b amber">deploying (about half a minute, sometimes much longer); until then the link shows the previous version or a 404</span>${now}`;
   probe();
 }
 function copyLink(btn) {
@@ -379,7 +381,7 @@ async function exportTrack(camera, id) {
     const fresh = rec.url ? `${rec.url}?v=${encodeURIComponent(rec.stamp || '')}` : '';
     $('#exfiles').innerHTML = (rec.url ? `<div><b>share this link:</b> <a href="${esc(fresh)}" target="_blank" style="color:#9ecbff">${esc(rec.url)}</a> <button onclick="copyLink(this)">copy link</button> <span id="exlive"></span> <span class="dim">(its own page with a preview picture · <a href="${esc(rec.repo_url)}" target="_blank" style="color:inherit">the files on GitHub</a>)</span></div>` : '<div class="warn">not pushed to GitHub (this host cannot push); the files below are local to the dashboard</div>')
       + '<div class="dim">files: ' + rec.files.map(f => `<a href="${esc(f.url)}" target="_blank" style="color:#fff">${esc(f.name)}</a>`).join(' · ') + '</div>';
-    if (rec.url) waitForPages(rec.url, rec.stamp || '');
+    if (rec.url) waitForPages(rec.url, rec.stamp || '', rec.repo_url);
     $('#extext').value = (rec.url ? rec.url + '\n\n' : '') + rec.text;
     $('#exbox').style.display = '';
     btn.textContent = 'export again'; btn.disabled = false;
