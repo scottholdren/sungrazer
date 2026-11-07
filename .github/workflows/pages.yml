@@ -1,0 +1,42 @@
+# Publishes results/ to GitHub Pages through Actions instead of the legacy branch build.
+# The legacy build has no status to watch and sat in "building" for minutes on
+# 2026-11-07 while a hunter's package waited; this deploys in about a minute and
+# shows up in the Actions tab. Only results/ is served: the site is the packages.
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["results/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: results
+      - uses: actions/configure-pages@v5
+      - name: Assemble the site
+        run: |
+          mkdir -p site
+          cp -r results site/
+          touch site/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

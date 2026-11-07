@@ -159,11 +159,15 @@ is still a live watch stays by its own rules.
 The export also writes it as `field.gif` (3-map stack, black point, ring)
 with its own section in the note, plus `card.png` (a colour crop of the
 newest hit frame around the object) and `index.html` (the note as HTML with
-Open Graph tags pointing at the card). GitHub Pages serves the repo from
-`main` (`.nojekyll` at the root), so the link to share is
+Open Graph tags pointing at the card). GitHub Pages serves `results/` from
+`main` through the `pages` workflow (`.github/workflows/pages.yml`, triggered
+by pushes that touch `results/`), so the link to share is
 `https://<owner>.github.io/<repo>/results/<camera>/live-finds/<id>/`: it
 previews with the object's own picture, where a link into the repo shows
-GitHub's card for the repo. Pages rebuilds a minute or two after each push.
+GitHub's card for the repo. The deploy takes about a minute and is visible
+in the Actions tab; the legacy branch build it replaced had no status and
+sat in "building" for minutes on 2026-11-07. The dashboard polls the card
+until the page answers.
 
 Full field: the "full field" button next to it asks `/api/movie` with
 `full=1` for the frame at half resolution, cropped the way the hunters frame
