@@ -693,6 +693,11 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con, camer
     span_frames = round((_ts(last["frame_time"]) - _ts(first["frame_time"])) / 900) + 1
     rep = next((r for r in reports if score.matches(t, r)), None)
     found = t["reached"].get("3") or first["frame_time"]
+    if len(hits) >= 3 and _ts(hits[2]["frame_time"]) < _ts(found):
+        # A merge: the surviving piece's own third hit came after an earlier piece already had three.
+        # The alert time below is read off the merged hits, so the following time must be too, or
+        # the card says we alerted before we were following (20261107T1315_1632_1770, 13 pieces).
+        found = hits[2]["frame_time"]
     tier, tier_at = None, None
     for name, (k, s) in TIERS.items():
         at = _fires_at(hits, k, s)

@@ -28,6 +28,20 @@ def test_track_key_is_stable_and_readable():
     assert live.track_key(t) == "20261023T1045_1933_1347"
 
 
+def test_merged_track_is_following_no_later_than_its_alert():
+    # 20261107T1315_1632_1770: the surviving piece's third hit (reached["3"]) came 75 min after an
+    # earlier piece already had four, so the card read "alert 14:00, following since 15:15".
+    from kreutz.reports import db
+
+    t0 = datetime(2026, 11, 7, 13, 15, 14, tzinfo=timezone.utc)
+    t = _track(t0, 8)
+    t["merged"] = 2
+    t["reached"]["3"] = t["hits"][5]["frame_time"]
+    d = live._track_summary(t, [], 0.0, db.connect(":memory:"), "ccor2")
+    assert d["following_at"] == t["hits"][2]["frame_time"]
+    assert live._ts(d["following_at"]) <= live._ts(d["alert_at"])
+
+
 def test_summary_matches_report_and_computes_lead(tmp_path):
     t0 = datetime(2026, 10, 23, 10, 45, 25, tzinfo=timezone.utc)
     t = _track(t0, 6)
