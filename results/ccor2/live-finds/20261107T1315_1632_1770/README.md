@@ -1,11 +1,11 @@
-# CCOR-1 candidate 20261107T1315_1632_1770
+# CCOR-2 candidate 20261107T1315_1632_1770
 
-**31 frames, 2026-11-07 13:15 to 20:45 UTC, peak 248 sigma, brightening.**
+**32 frames, 2026-11-07 13:15 to 21:00 UTC, peak 248 sigma, brightening.**
 
 - Detected by the kreutz shift-and-stack search (8 frames stacked along the fitted motion); status candidate, alert tier since 14:00 UTC.
 - Motion (-4.1, -4.1) px per 15-min frame, 5.8 px/frame.
-- Last position 830 px from the Sun at position angle -53 deg, heading 8 deg off the Sun direction (Kreutz comets in CCOR-1 arrive from the lower right, position angle -10 to -45 deg, and head within ~20 deg of the Sun).
-- Matches Chuck Fields's CCOR-2 report `report_cf_20261107120006` (posted 2026-11-07T17:00+00:00; our alert came 2.6 h before it; we were following it 1.4 h before the post).
+- Last position 825 px from the Sun at position angle -53 deg, heading 8 deg off the Sun direction (the two Kreutz comets seen in CCOR-2 so far, 2026-11-02 and 11-07, arrived from the lower right, position angle -45 to -55 deg, heading within ~10 deg of the Sun).
+- Matches Chuck Fields's CCOR-2 report `report_cf_20261107120006` (posted 2026-11-07T17:00+00:00; our alert came 2.6 h before it; we were following it 2.9 h before the post).
 
 ## Movie
 
@@ -64,6 +64,7 @@ Top: raw frame. Middle: significance map of that frame. Bottom: the detector's v
 | 2026-11-07 | 2015 | 1516 | 1654 | 237.3 |
 | 2026-11-07 | 2030 | 1512 | 1650 | 244.0 |
 | 2026-11-07 | 2045 | 1508 | 1646 | 247.6 |
+| 2026-11-07 | 2100 | 1504 | 1642 | 242.9 |
 
 Form layout (HHMM x y):
 
@@ -99,6 +100,7 @@ Form layout (HHMM x y):
 2015 1516 1654
 2030 1512 1650
 2045 1508 1646
+2100 1504 1642
 ```
 
 ## Movie frames
@@ -107,40 +109,41 @@ Sigma inside the ring on the fitted position vs the brightest 0.1% of the whole 
 
 | frame | ring | tail | |
 |---|---|---|---|
-| 20261107T121514 | 0.0 | 5.0 |  |
-| 20261107T123014 | 0.0 | 5.0 |  |
-| 20261107T124514 | 2.4 | 5.0 |  |
-| 20261107T130014 | 12.5 | 5.5 |  |
-| 20261107T131514 | 26.0 | 5.7 | hit |
-| 20261107T133014 | 26.5 | 6.0 | hit |
-| 20261107T134514 | 32.2 | 6.3 | hit |
-| 20261107T140014 | 47.5 | 6.5 | hit |
-| 20261107T141514 | 64.5 | 5.8 | hit |
-| 20261107T143014 | 79.6 | 6.3 | hit |
-| 20261107T144514 | 97.3 | 6.2 | hit |
-| 20261107T150014 | 105.2 | 6.2 | hit |
-| 20261107T151514 | 114.4 | 6.0 | hit |
-| 20261107T153014 | 123.6 | 6.0 | hit |
-| 20261107T154514 | 124.3 | 6.3 | hit |
-| 20261107T160014 | 122.0 | 6.9 | hit |
-| 20261107T161514 | 128.0 | 6.0 | hit |
-| 20261107T163014 | 144.3 | 6.1 | hit |
-| 20261107T164514 | 158.8 | 7.1 | hit |
-| 20261107T170014 | 172.0 | 6.9 | hit |
-| 20261107T171514 | 175.8 | 7.4 | hit |
-| 20261107T173014 | 177.6 | 7.7 | hit |
-| 20261107T174514 | 170.9 | 6.3 | hit |
-| 20261107T180014 | 161.5 | 5.7 | hit |
-| 20261107T181514 | 170.3 | 6.5 | hit |
+| 20261107T121514 | 0.0 | 5.1 |  |
+| 20261107T123014 | 0.0 | 5.1 |  |
+| 20261107T124514 | 2.4 | 5.2 |  |
+| 20261107T130014 | 12.5 | 5.4 |  |
+| 20261107T131514 | 26.0 | 5.6 | hit |
+| 20261107T133014 | 29.2 | 6.3 | hit |
+| 20261107T134514 | 30.9 | 6.4 | hit |
+| 20261107T140014 | 40.3 | 6.4 | hit |
+| 20261107T141514 | 58.4 | 5.9 | hit |
+| 20261107T143014 | 76.9 | 6.9 | hit |
+| 20261107T144514 | 94.6 | 6.6 | hit |
+| 20261107T150014 | 103.5 | 6.5 | hit |
+| 20261107T151514 | 113.9 | 6.2 | hit |
+| 20261107T153014 | 125.3 | 5.9 | hit |
+| 20261107T154514 | 130.1 | 6.4 | hit |
+| 20261107T160014 | 126.7 | 6.6 | hit |
+| 20261107T161514 | 122.1 | 6.3 | hit |
+| 20261107T163014 | 128.7 | 6.2 | hit |
+| 20261107T164514 | 145.0 | 6.3 | hit |
+| 20261107T170014 | 160.6 | 6.8 | hit |
+| 20261107T171514 | 164.4 | 6.6 | hit |
+| 20261107T173014 | 168.5 | 7.5 | hit |
+| 20261107T174514 | 166.6 | 6.9 | hit |
+| 20261107T180014 | 154.7 | 5.7 | hit |
+| 20261107T181514 | 161.2 | 5.8 | hit |
 | 20261107T183014 | 169.4 | 6.1 | hit |
-| 20261107T184514 | 168.2 | 5.9 | hit |
-| 20261107T190014 | 164.0 | 5.8 | hit |
-| 20261107T191514 | 160.2 | 6.0 | hit |
-| 20261107T193014 | 162.8 | 6.6 | hit |
-| 20261107T194514 | 175.3 | 6.8 | hit |
-| 20261107T200014 | 194.0 | 6.7 | hit |
-| 20261107T201514 | 211.6 | 7.0 | hit |
-| 20261107T203014 | 233.1 | 8.4 | hit |
-| 20261107T204514 | 251.7 | 7.0 | hit |
+| 20261107T184514 | 171.4 | 6.1 | hit |
+| 20261107T190014 | 170.7 | 6.1 | hit |
+| 20261107T191514 | 163.1 | 5.9 | hit |
+| 20261107T193014 | 168.0 | 6.5 | hit |
+| 20261107T194514 | 182.5 | 6.5 | hit |
+| 20261107T200014 | 196.5 | 6.6 | hit |
+| 20261107T201514 | 199.6 | 7.0 | hit |
+| 20261107T203014 | 217.6 | 7.1 | hit |
+| 20261107T204514 | 238.5 | 6.4 | hit |
+| 20261107T210014 | 262.3 | 7.2 | hit |
 
-*Written 2026-11-07 21:24 UTC.*
+*Written 2026-11-07 21:25 UTC.*
