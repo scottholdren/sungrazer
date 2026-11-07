@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import math
 import os
-import re
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -24,7 +23,7 @@ from pathlib import Path
 import numpy as np
 
 from . import gif, movie, paths
-from .inspect import read_png, write_png
+from .inspect import read_png
 
 LANE = {"ccor1": ("Kreutz comets in CCOR-1 arrive from the lower right, position angle -10 to -45 deg, "
                   "and head within ~20 deg of the Sun"),
@@ -56,19 +55,13 @@ def export_track(camera: str, d: dict, latest: dict | None, root: Path, publish_
         fm = movie.movie(camera, d, root / camera / "movies", stack=3, full=True)
         write_field_gif(root, fm, out / "field.gif")
         files.append("field.gif")
-        card(root, fm, out / "card.png", camera)
-        files.append("card.png")
     except Exception as e:
         print(f"full-field gif for {d['id']} failed: {e}", flush=True)
     text = note(camera, d, latest, mv, files)
     (out / "README.md").write_text(text)
     files.insert(0, "README.md")
-    page = page_url(out)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    (out / "index.html").write_text(write_page(d, text, files, page, stamp))
-    files.insert(1, "index.html")
-    repo = publish(out, d["id"]) if publish_it else None
-    return {"text": text, "url": page if repo else None, "repo_url": repo, "stamp": stamp,
+    url = publish(out, d["id"]) if publish_it else None
+    return {"text": text, "url": url,
             "files": [{"name": f, "url": f"finds/{camera}/{d['id']}/{f}"} for f in files]}
 
 
@@ -112,167 +105,6 @@ def write_field_gif(root: Path, fm: dict, out: Path) -> None:
         idx[cross] = gif.YELLOW if f["hit"] else gif.GREEN
         frames.append(idx)
     gif.write_gif(out, frames, delay_cs=15)
-
-
-CARD_W, CARD_H = 1000, 525  # the link-preview image: a crop of the newest full-field frame around the object
-_NAVY, _BLUE, _WHITE = np.array([6, 10, 28]), np.array([38, 92, 205]), np.array([255, 255, 255])
-
-
-def card(root: Path, fm: dict, out: Path, camera: str = "ccor1") -> None:
-    """A colour crop around the object on the newest hit frame, ring on, for link
-    previews: the raw coronagraph frame (radially flattened, so streamers and the
-    occulter show) when it is on disk, else the significance map."""
-    k = max((i for i, f in enumerate(fm["frames"]) if f["hit"]), default=len(fm["frames"]) - 1)
-    f = fm["frames"][k]
-    cx, cy = f["x"], f["y"]  # relative to the movie's crop of the half-res frame
-    img = _raw_half(camera, f["name"])
-    if img is None:
-        img = read_png(root / fm["pngs"][k]).astype(np.float32)
-        b = BLACK_SIGMA / fm["range_sigma"] * 255
-        img = np.where(img <= b, 0, (img - b) * 255 / (255 - b))
-    else:
-        cx, cy = cx + fm.get("crop", [0, 0])[0], cy + fm.get("crop", [0, 0])[1]
-    h, w = img.shape
-    if h < CARD_H or w < CARD_W:  # a small source is centred on a dark card of the full size
-        pad = np.zeros((max(h, CARD_H), max(w, CARD_W)), img.dtype)
-        py, px = (pad.shape[0] - h) // 2, (pad.shape[1] - w) // 2
-        pad[py:py + h, px:px + w] = img
-        img, cx, cy = pad, cx + px, cy + py
-        h, w = img.shape
-    x0 = int(np.clip(round(cx - CARD_W / 2), 0, max(w - CARD_W, 0)))
-    y0 = int(np.clip(round(cy - CARD_H / 2), 0, max(h - CARD_H, 0)))
-    crop = img[y0:y0 + CARD_H, x0:x0 + CARD_W]
-    v = (crop / 255.0)[..., None]
-    rgb = np.where(v < 0.5, _NAVY + (_BLUE - _NAVY) * (v / 0.5), _BLUE + (_WHITE - _BLUE) * ((v - 0.5) / 0.5))
-    yy, xx = np.mgrid[0:crop.shape[0], 0:crop.shape[1]]
-    ring = np.abs(np.hypot(xx - (cx - x0), yy - (cy - y0)) - fm["ring_r"] * 1.6) < 1.6
-    rgb[ring] = (79, 211, 122)
-    write_png(out, np.clip(rgb, 0, 255).astype(np.uint8))
-
-
-def _raw_half(camera: str, name: str) -> np.ndarray | None:
-    """The raw frame `name` (YYYYMMDDTHHMMSS) at half resolution, display-stretched,
-    row 0 at the top; None if it is not on disk or unreadable."""
-    from .fitsio import read_frame_cached
-    from .inspect import stretch
-
-    hits = sorted(paths.frame_dir(camera, name[:8]).glob(f"*{name}*.fits*"))
-    if not hits:
-        return None
-    try:
-        d = read_frame_cached(hits[0]).data.astype(np.float64)
-        h, w = (d.shape[0] // 2) * 2, (d.shape[1] // 2) * 2
-        with np.errstate(all="ignore"):
-            small = np.nanmean(d[:h, :w].reshape(h // 2, 2, w // 2, 2), axis=(1, 3))
-        return stretch(small).astype(np.float32)
-    except Exception as e:
-        print(f"card: raw frame {name} unreadable ({e}); using the significance map", flush=True)
-        return None
-
-
-def _repo_slug() -> str | None:
-    """owner/repo from the origin remote, or None outside a checkout with a GitHub remote."""
-    if not (paths.ROOT / ".git").exists():
-        return None
-    try:
-        remote = subprocess.run(["git", "-C", str(paths.ROOT), "remote", "get-url", "origin"], check=True,
-                                capture_output=True, text=True, timeout=30).stdout.strip()
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return None
-    m = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", remote)
-    return f"{m[1]}/{m[2]}" if m else None
-
-
-def page_url(folder: Path) -> str | None:
-    """Where GitHub Pages serves this folder's index.html (the link to share: it carries
-    its own preview image, where a link into the repo shows the repo's card)."""
-    slug = _repo_slug()
-    if not slug:
-        return None
-    owner, repo = slug.split("/")
-    return f"https://{owner}.github.io/{repo}/{folder.relative_to(paths.ROOT).as_posix()}/"
-
-
-def write_page(d: dict, text: str, files: list[str], page: str | None, stamp: str = "") -> str:
-    """index.html for the package: the note as HTML plus Open Graph tags so a posted
-    link previews with the object's own picture. `stamp` (the export time) goes in a
-    meta tag so the dashboard can tell this version from a cached earlier one: GitHub
-    Pages serves everything with max-age=600."""
-    title = text.splitlines()[0].lstrip("# ").strip()
-    summary = next((ln.strip("* ").strip() for ln in text.splitlines() if ln.startswith("**")), "")
-    og = [f'<meta property="og:title" content="{_esc(title)}">',
-          f'<meta property="og:description" content="{_esc(summary)}">',
-          '<meta property="og:type" content="article">', '<meta name="twitter:card" content="summary_large_image">',
-          f'<meta name="kreutz-export" content="{_esc(stamp)}">']
-    if page:
-        og.append(f'<meta property="og:url" content="{_esc(page)}">')
-        if "card.png" in files:
-            og += [f'<meta property="og:image" content="{_esc(page)}card.png">',
-                   f'<meta property="og:image:width" content="{CARD_W}">', f'<meta property="og:image:height" content="{CARD_H}">',
-                   f'<meta name="twitter:image" content="{_esc(page)}card.png">']
-    css = ("body{background:#0b0e14;color:#e6e6e6;font:15px/1.5 system-ui,sans-serif;max-width:980px;margin:0 auto;padding:16px}"
-           "img{max-width:100%;height:auto;display:block;margin:8px 0}table{border-collapse:collapse;font-size:14px}"
-           "th,td{border-bottom:1px solid #2a3140;padding:3px 10px;text-align:left}pre{background:#141a25;padding:10px;overflow:auto}"
-           "a{color:#9ecbff}h1{font-size:22px}h2{font-size:17px;margin-top:28px;color:#9ecbff}code{background:#141a25;padding:0 4px}")
-    return ("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-            f"<title>{_esc(title)}</title>\n" + "\n".join(og) + f"\n<style>{css}</style></head>\n<body>\n{_md_html(text)}\n</body></html>\n")
-
-
-def _esc(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-
-
-def _inline(s: str) -> str:
-    s = _esc(s)
-    s = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r'<img alt="\1" src="\2">', s)
-    s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', s)
-    s = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
-    s = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<i>\1</i>", s)
-    return re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
-
-
-def _md_html(text: str) -> str:
-    """The subset of Markdown the note uses: headings, paragraphs, bullets, tables,
-    fenced code, images, links, bold, italics, inline code."""
-    out, para, items, rows, code = [], [], [], [], None
-
-    def flush():
-        nonlocal para, items, rows
-        if para:
-            out.append(f"<p>{_inline(' '.join(para))}</p>"); para = []
-        if items:
-            out.append("<ul>" + "".join(f"<li>{_inline(i)}</li>" for i in items) + "</ul>"); items = []
-        if rows:
-            head, body = rows[0], [r for r in rows[1:] if not re.fullmatch(r"[\s|:-]+", r)]
-            cells = lambda r: [c.strip() for c in r.strip().strip("|").split("|")]
-            out.append("<table><tr>" + "".join(f"<th>{_inline(c)}</th>" for c in cells(head)) + "</tr>"
-                       + "".join("<tr>" + "".join(f"<td>{_inline(c)}</td>" for c in cells(r)) + "</tr>" for r in body) + "</table>")
-            rows = []
-
-    for ln in text.splitlines():
-        if code is not None:
-            if ln.startswith("```"):
-                out.append(f"<pre>{_esc(chr(10).join(code))}</pre>"); code = None
-            else:
-                code.append(ln)
-            continue
-        if ln.startswith("```"):
-            flush(); code = []
-        elif ln.startswith("#"):
-            flush(); level = len(ln) - len(ln.lstrip("#")); out.append(f"<h{level}>{_inline(ln.lstrip('# '))}</h{level}>")
-        elif ln.startswith("- "):
-            if para or rows: flush()
-            items.append(ln[2:])
-        elif ln.startswith("|"):
-            if para or items: flush()
-            rows.append(ln)
-        elif not ln.strip():
-            flush()
-        else:
-            if items or rows: flush()
-            para.append(ln)
-    flush()
-    return "\n".join(out)
 
 
 def publish(folder: Path, tid: str) -> str | None:

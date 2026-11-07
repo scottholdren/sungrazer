@@ -157,25 +157,11 @@ tracker's own pruning: the watcher keeps a copy of its last summary in
 is still a live watch stays by its own rules.
 
 The export also writes it as `field.gif` (3-map stack, black point, ring)
-with its own section in the note, plus `card.png` (a colour crop of the
-newest hit frame around the object) and `index.html` (the note as HTML with
-Open Graph tags pointing at the card). GitHub Pages serves `results/` from
-`main` through the `pages` workflow (`.github/workflows/pages.yml`, triggered
-by pushes that touch `results/`), so the link to share is
-`https://<owner>.github.io/<repo>/results/<camera>/live-finds/<id>/`: it
-previews with the object's own picture, where a link into the repo shows
-GitHub's card for the repo. The deploy takes about a minute and is visible
-in the Actions tab; the legacy branch build it replaced had no status and
-sat in "building" for minutes on 2026-11-07. Pages serves everything with
-`max-age=600`, so a plain reload can show the previous version for ten
-minutes: each package's `index.html` carries its export time in a
-`kreutz-export` meta tag, the dashboard opens the link with `?v=<that stamp>`
-(Pages ignores the query; the copied link stays clean) and polls the page
-until that very version answers. GitHub's Pages backend sometimes sits on
-a deploy for minutes (one hung for ten on 2026-11-07 after others took 21 s),
-so a newer push cancels an older deploy still in progress, a deploy gives up
-after five minutes, and the dashboard offers the README on GitHub, which
-renders the moment the push lands, as the link to read meanwhile.
+with its own section in the note. The link to share is the package's
+`README.md` on GitHub, which renders the moment the push lands. (A GitHub
+Pages copy with its own link preview was tried from 2026-10-31 to 11-07 and
+dropped: the Pages build, legacy or through Actions, sat for minutes at
+GitHub's end and served stale copies for ten more.)
 
 Full field: the "full field" button next to it asks `/api/movie` with
 `full=1` for the frame at half resolution, cropped the way the hunters frame

@@ -464,18 +464,9 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
         req = Request(f"http://127.0.0.1:{port}/api/export", data=json.dumps({"camera": "ccor1", "id": "t1"}).encode(),
                       headers={"Content-Type": "application/json"}, method="POST")
         rec = json.loads(urlopen(req).read())
-        assert [f["name"] for f in rec["files"]] == ["README.md", "index.html", "movie.gif", "field.gif", "card.png"]  # no sheet/thumb here
-        page = urlopen(f"http://127.0.0.1:{port}/finds/ccor1/t1/index.html").read().decode()
-        assert "<title>CCOR-1 candidate t1</title>" in page and '<img alt="movie" src="movie.gif">' in page
-        assert "og:image" not in page  # no GitHub remote in this fixture: no page URL, so no absolute image URL
-        assert "<table><tr><th>date</th>" in page and "<pre>" in page and "<h2>Positions</h2>" in page
-        c = urlopen(f"http://127.0.0.1:{port}/finds/ccor1/t1/card.png").read()
-        assert c[:8] == b"\x89PNG\r\n\x1a\n" and c[16:24] == (1000).to_bytes(4, "big") + (525).to_bytes(4, "big") and c[25] == 2  # RGB
+        assert [f["name"] for f in rec["files"]] == ["README.md", "movie.gif", "field.gif"]  # no sheet/thumb here
+        assert rec["text"].startswith("# CCOR-1 candidate t1")
         from kreutz import export
-        html = export.write_page({"id": "t1"}, rec["text"], ["card.png"], "https://x.github.io/r/results/ccor1/live-finds/t1/", "20261107T212800Z")
-        assert '<meta property="og:image" content="https://x.github.io/r/results/ccor1/live-finds/t1/card.png">' in html
-        assert '<meta name="kreutz-export" content="20261107T212800Z">' in html  # the dashboard waits for this version
-        assert len(rec["stamp"]) == 16 and f'content="{rec["stamp"]}"' in page
         # the note names the camera it came from (a CCOR-2 package read "CCOR-1 candidate" on 2026-11-07)
         assert export.note("ccor2", d, {"sun_xy": [1018.5, 994.0]}, None).startswith("# CCOR-2 candidate t1") \
             and "seen in CCOR-2" in export.note("ccor2", d, {"sun_xy": [1018.5, 994.0]}, None)
