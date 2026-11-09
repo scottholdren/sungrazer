@@ -748,6 +748,11 @@ def test_missed_report_is_laid_over_our_frames_with_a_reason(tmp_path, monkeypat
     (arch / "x.json").write_text(json.dumps(on_it))
     assert live.missed_reports("ccor1", [truth], [], [], metas, range(14), 0.0, con) == []
     (arch / "x.json").unlink()
+    # ... and when the tracker has a candidate on it that the dashboard no longer shows; a rejected one is the reason
+    raw = {"id": 7, "status": "candidate", "hits": [{"frame_time": h["t"], "x": h["x"], "y": h["y"] + 2} for h in d["hits"][2:6]]}
+    assert live.missed_reports("ccor1", [truth], [], [], metas, range(14), 0.0, con, every=[raw]) == []
+    (d3,) = live.missed_reports("ccor1", [truth], [], [], metas, range(14), 0.0, con, every=[dict(raw, status="rejected:outbound")])
+    assert d3["missed"]["why"] == f"our track {live.track_key(raw)} of it was rejected as outbound"
     truth.camera = "ccor2"  # reported on the other camera: that watcher's to list
     assert live.missed_reports("ccor1", [truth], [], [], metas, range(14), 0.0, con) == []
     truth.camera, truth.status = None, "retracted"

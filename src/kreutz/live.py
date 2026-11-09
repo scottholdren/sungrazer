@@ -213,8 +213,10 @@ class Watcher:
 
         act.now("state", "matching tracks against hunter reports")
         others = other_tracks(camera, metas, windows, tracks)
+        # every candidate of the tracked span, shown or not: what answers for a report older than the dashboard's window
+        every = [detect.track_dict(t, camera) for t in self.tracker.done + self.tracker.active if t.candidate] if self.tracker else []
         state = build_state(camera, [detect.track_dict(t, camera) for t in tracks] + others, open_chains, metas, windows,
-                            last_window, con, now, sparks=sparks_)
+                            last_window, con, now, sparks=sparks_, every=every + others)
         # A reported object is followed like an alerted one: the tracker keeps its open piece through
         # STICKY_MISSES frames without a hit (the alert tier it recognises by itself).
         reported = {(h["t"], h["x"], h["y"]) for d in state["tracks"] if d.get("report") for h in d["hits"][-3:]}
@@ -553,7 +555,7 @@ def _sync_reports(camera: str, since: date) -> bool:
 
 
 def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas, windows, last_window,
-                con, now: datetime, sparks: list[dict] = ()) -> dict:
+                con, now: datetime, sparks: list[dict] = (), every: list[dict] = ()) -> dict:
     cutoff = (now - timedelta(hours=SHOW_H)).isoformat()
     held = {k for k, rec in load_labels(camera).items() if rec.get("label") == "comet"}
     recent = [t for t in tracks if t["hits"][-1]["frame_time"] >= cutoff or track_key(t) in held]
@@ -565,7 +567,7 @@ def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas
         if d["id"] in held and not (d["live"] and d["last_seen"] >= cutoff):
             d["held"] = True  # only the owner's comet label keeps it here
         (following if d["live"] or d["id"] in held else rejected).append(d)
-    following += missed_reports(camera, reports, following, rejected, metas, windows, lat_s, con, since=_ts(cutoff))
+    following += missed_reports(camera, reports, following, rejected, metas, windows, lat_s, con, every=every)
     _hold(camera, following, held)
     rank = {"alert": 0, "watch": 1, "steady": 2, "other": 3, "missed": 4, None: 5}
     following.sort(key=lambda d: (rank[d["tier"]], d["last_seen"]), reverse=False)
@@ -628,7 +630,7 @@ def _follows(d: dict, r: score.Truth) -> bool:
     """Whether summary `d` is a track of report `r`: it was matched to it when it was made, or its hits lie on it."""
     if set(r.report_ids) & set(d.get("report_ids") or ([d["report"]["id"]] if d.get("report") else [])):
         return True
-    return score.matches({"hits": [{"frame_time": h["t"], "x": h["x"], "y": h["y"]} for h in d.get("hits", [])]}, r)
+    return score.matches({"hits": [{"frame_time": h.get("t") or h["frame_time"], "x": h["x"], "y": h["y"]} for h in d.get("hits", [])]}, r)
 
 
 ARCHIVE_LOOK_H = 72  # a track that left the dashboard this recently still answers for its reports
@@ -653,16 +655,20 @@ MISSED_BOX = 3  # half-res px around the reported path in which our significance
 
 
 def missed_reports(camera: str, reports: list[score.Truth], following: list[dict], rejected: list[dict],
-                   metas, windows, lat_s: float, con, since: float = 0.0) -> list[dict]:
-    """Summaries, tier "missed", for the hunters' reports with a position at or after `since`
-    (the dashboard's window, as for tracks) that no followed track matches: the report's own path laid over our frames (its fitted motion, from
+                   metas, windows, lat_s: float, con, since: float = 0.0, every: list[dict] = ()) -> list[dict]:
+    """Summaries, tier "missed", for the hunters' reports of the tracked span (48 h: longer
+    than the dashboard keeps tracks, so a miss can be looked into for two days) that no track
+    of ours answers for. `every` is all the tracker's candidates of the span as track dicts,
+    shown or not: the unrejected ones answer for a report like a followed track, the rejected
+    ones give the reason. The rest of it: the report's own path laid over our frames (its fitted motion, from
     MISSED_LEAD frames before to MISSED_FOLLOW after), each hit carrying the single-frame
     significance we measure there, and `missed.why`: the rule that rejected our track of it,
     or how much of it stood above the noise. The same sheet, movies and export then work
     on it, so a miss can be looked at like a find."""
     from . import coords
 
-    known = list(following) + _recently_archived(camera)
+    known = list(following) + _recently_archived(camera) + [t for t in every if not t["status"].startswith("rejected")]
+    thrown = list(rejected) + [t for t in every if t["status"].startswith("rejected")]
     good = [metas[i] for i in windows if metas[i] and metas[i].ok and A.sig_path(camera, metas[i].name).exists()]
     out = []
     for r in reports:
@@ -693,14 +699,15 @@ def missed_reports(camera: str, reports: list[score.Truth], following: list[dict
         if d["report"] is None:
             continue
         sigs = [h["sig"] for h in hits]
-        rej = next((x for x in rejected if _follows(x, r)), None)
-        why = (f"our track {rej['id']} of it was rejected as {rej['status'].removeprefix('rejected:')}" if rej else
+        rej = next((x for x in thrown if _follows(x, r)), None)
+        rej_id = (rej["id"] if isinstance(rej["id"], str) else track_key(rej)) if rej else None
+        why = (f"our track {rej_id} of it was rejected as {rej['status'].removeprefix('rejected:')}" if rej else
                f"never made a track here: {sum(s >= M.MOVER_PEAK for s in sigs)} of {len(sigs)} frames reach "
                f"{M.MOVER_PEAK:g}σ at its position, brightest {max(sigs):.0f}σ")
         row = con.execute("SELECT comet_group FROM reports WHERE report_id=?", (rid,)).fetchone()
         d.update(tier="missed", tier_at=None, alert_at=None, following_at=None, live=False,
                  missed={"why": why, "group": r.group or (row["comet_group"] if row else None),
-                         "rejected_id": rej["id"] if rej else None})
+                         "rejected_id": rej_id})
         d["report"].update(lead_h=0.0, alert_lead_h=None)
         out.append(d)
     return out

@@ -594,16 +594,17 @@ would need stacking along their own motion.
 
 ### Reported, not followed here
 
-`live.missed_reports`: every hunter's report on this camera with a position
-in the dashboard's window that no followed track answers for becomes a card
-of tier `missed`. Its hits are the report's own fitted path laid over our
+`live.missed_reports`: every hunter's report on this camera within the
+tracked span (48 h, a day longer than tracks stay on the dashboard, so a miss
+can be looked into) that no track of ours answers for becomes a card of tier
+`missed`. Its hits are the report's own fitted path laid over our
 frames (2 frames before its first position to 8 after its last), each with
 the single-frame significance we measure there, so the sheet, the movies and
 the export show what we had. `missed.why` is the reason: the rule that
 rejected our track of it, or "never made a track here: n of m frames reach
 6 sigma at its position, brightest b". A report is answered for when a
-followed track, or one archived in the last 72 h, was matched to it or lies
-on its path (a card names one report; `report_ids` has all it matches). A
+followed track, one archived in the last 72 h, or any unrejected candidate
+of the span was matched to it or lies on its path (a card names one report; `report_ids` has all it matches). A
 miss the other CCOR camera follows is hidden behind that camera's card.
 
 ### Following an object until it is gone
