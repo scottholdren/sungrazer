@@ -560,7 +560,7 @@ def test_gif_roundtrip():
     PIL = pytest.importorskip("PIL.Image")
     rng = np.random.default_rng(0)
     frames = [gif.gray_to_index(rng.integers(0, 256, (40, 60)).astype(np.uint8)) for _ in range(3)]
-    frames[1][10:20, 10:50] = gif.GREEN
+    frames[1][10:20, 10:50] = gif.DIM
     frames.append(np.zeros((40, 60), np.uint8))          # a flat frame: long runs, table resets
     frames.append(np.tile(np.arange(60, dtype=np.uint8) * 4, (40, 1)))
     out = Path(__import__("tempfile").mkdtemp()) / "t.gif"
@@ -647,3 +647,18 @@ def test_export_positions_table_says_when_our_status_changed(tmp_path, monkeypat
     text = export.note("ccor1", d, None, None)
     assert "| date | HHMM | x | y | sigma | our status |" in text
     assert "| 0200 | 1484 | 1194 | 20.0 | following, tagged comet 02:20 |" in text and "| 0130 | 1500 | 1200 | 20.0 |  |" in text
+
+
+def test_one_marker_a_circle_yellow_on_a_hit_dim_and_dashed_otherwise():
+    from kreutz import export, gif
+
+    yy, xx = np.mgrid[0:101, 0:101]
+    hit, carried = np.zeros((101, 101), np.uint8), np.zeros((101, 101), np.uint8)
+    export.mark(hit, xx, yy, 50, 50, 20, True)
+    export.mark(carried, xx, yy, 50, 50, 20, False)
+    assert set(np.unique(hit)) == {0, gif.YELLOW} and set(np.unique(carried)) == {0, gif.DIM}
+    r = np.hypot(xx - 50, yy - 50)
+    assert np.abs(r[hit > 0] - 20).max() < 1.2 and hit[50, 50] == 0  # a circle around the object, nothing on it
+    assert 0.4 < (carried > 0).sum() / (hit > 0).sum() < 0.6  # dashed: half the circle
+    pal = gif.palette()
+    assert pal[3 * gif.YELLOW:3 * gif.YELLOW + 3] == bytes((255, 211, 77)) and pal[3 * gif.DIM] < 200  # one hue, dimmer

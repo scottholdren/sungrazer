@@ -229,8 +229,10 @@ reached on one frame). Every tag the owner gave it is there too, read from
 `labels.jsonl` so a later clear does not erase it, with its clock time, on
 the newest frame that had reached us when it was given.
 A timestamp is written into each frame's corner (`stamp`, a 5x7
-bitmap font). A crosshair with a gap marks the object, yellow on a
-measured hit; click the picture for 1:1. Same scrub controls; the field plays
+bitmap font). One marker on both movies and both GIFs: a circle on the
+object, yellow on a frame with a measured hit, dim and dashed where the
+position is only carried along the path (before the first hit, across a gap,
+after the last); click the picture for 1:1. Same scrub controls; the field plays
 at 6 frames/s by default, the black point slider goes below zero and defaults
 to the scale's own -2.2 sigma here, 2 sigma for the patch.
 

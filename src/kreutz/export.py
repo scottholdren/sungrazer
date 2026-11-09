@@ -69,8 +69,18 @@ def finds_dir(camera: str) -> Path:
     return paths.ROOT / "results" / camera / "live-finds"
 
 
+def mark(idx: np.ndarray, xx: np.ndarray, yy: np.ndarray, x: float, y: float, r: float, hit: bool) -> None:
+    """The one marker of every movie: a circle of radius r on the object, yellow on a
+    frame with a measured hit; where the position is only carried along the path
+    (before the first hit, across a gap, after the last) it is dim and dashed."""
+    ring = np.abs(np.hypot(xx - x, yy - y) - r) < 1.2
+    if not hit:
+        ring &= np.floor(np.arctan2(yy - y, xx - x) / (np.pi / 8)) % 2 == 0
+    idx[ring] = gif.YELLOW if hit else gif.DIM
+
+
 def write_movie_gif(sheet_png: Path, mv: dict, out: Path) -> None:
-    """The movie's frames with a 2.5-sigma black point and the ring, as an animated GIF."""
+    """The movie's frames with a 2.5-sigma black point and the marker, as an animated GIF."""
     sheet = read_png(sheet_png)
     T, cols, z = mv["tile"], mv["cols"], mv["zoom"]
     b = BLACK_SIGMA / mv["range_sigma"] * 255
@@ -81,8 +91,7 @@ def write_movie_gif(sheet_png: Path, mv: dict, out: Path) -> None:
         tile = sheet[r * T:(r + 1) * T, c * T:(c + 1) * T].astype(np.float32)
         tile = np.where(tile <= b, 0, (tile - b) * 255 / (255 - b))
         idx = gif.gray_to_index(tile)
-        ring = np.abs(np.hypot(xx - f["x"], yy - f["y"]) - RING_R * z) < 1.2
-        idx[ring] = gif.GREEN if f["hit"] else gif.YELLOW
+        mark(idx, xx, yy, f["x"], f["y"], RING_R * z, f["hit"])
         frames.append(idx)
     gif.write_gif(out, frames, delay_cs=35)
 
@@ -94,7 +103,7 @@ FIELD_GIF_LEVELS = 16  # grey levels in the field GIF. Its frames are noise, whi
 
 
 def write_field_gif(root: Path, fm: dict, out: Path) -> None:
-    """The field movie as an animated GIF with the crosshair: every frame, binned 2x2,
+    """The field movie as an animated GIF with the marker: every frame, binned 2x2,
     in FIELD_GIF_LEVELS grey levels."""
     h, w = fm["height"] // 2, fm["width"] // 2
     yy, xx = np.mgrid[0:h, 0:w]
@@ -108,10 +117,7 @@ def write_field_gif(root: Path, fm: dict, out: Path) -> None:
             img = np.where(img <= b, 0, (img - b) * 255 / (255 - b))
         idx = gif.gray_to_index(img)
         idx = np.minimum(idx // step * step + step // 2, 253).astype(np.uint8)
-        r, g = fm["ring_r"] / 2, fm["ring_r"] / 2 * 0.45  # a crosshair with a gap, as on the page
-        dx, dy = np.abs(xx - f["x"] / 2), np.abs(yy - f["y"] / 2)
-        cross = ((dy < 0.8) & (dx >= g) & (dx <= r)) | ((dx < 0.8) & (dy >= g) & (dy <= r))
-        idx[cross] = gif.YELLOW if f["hit"] else gif.GREEN
+        mark(idx, xx, yy, f["x"] / 2, f["y"] / 2, fm["ring_r"] / 2, f["hit"])
         frames.append(idx)
     gif.write_gif(out, frames, delay_cs=15)
 
@@ -218,16 +224,17 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
         L += ["", "## Movie", "",
               f"A fixed patch of sky at 2x the camera's resolution: significance maps (stars and corona modelled out), "
               f"the last {mv['stack']} maps added along the fitted motion, black below {BLACK_SIGMA:g} sigma. "
-              "The ring rides the fitted path: green on frames with a measured hit, yellow before the first hit. "
-              "A real object crosses the patch inside the ring; noise does not travel.", "",
+              "The circle sits on the object's measured positions: yellow on a frame with a measured hit, dim and "
+              "dashed where it is only carried along the path (before the first hit, across a gap, after the last). "
+              "A real object crosses the patch inside the circle; noise does not travel.", "",
               "![movie](movie.gif)"]
     if "field.gif" in files:
         L += ["", "## Full field", "",
               "The object's quadrant from just outside the occulter out to the field edge, up to the newest hit: each frame minus the "
               "median of the previous 24 hours (the static corona and glare cancel; streamers show bright where they have moved to "
               "and dark where they were; stars stay), no stacking, no smoothing, on one linear scale with zero near black, so the "
-              "noise shows as grain that thickens toward the Sun. The crosshair follows the object's measured positions, yellow on a "
-              "frame with a hit, and the movie runs two hours past the last one. This GIF is every frame at half resolution; the "
+              "noise shows as grain that thickens toward the Sun. The circle is the same marker as above (yellow on a "
+              "frame with a measured hit, dim and dashed otherwise), and the movie runs two hours past the last one. This GIF is every frame at half resolution; the "
               "dashboard plays them at the camera's resolution. A faint object is easier to judge in the stacked patch above.", "",
               "![full field](field.gif)"]
     if "sheet.png" in files:

@@ -37,7 +37,7 @@ MAX_FRAMES = 120     # frames in the patch movie, the newest (30 h); every frame
 LEAD_FRAMES = 4      # frames shown before the first hit
 RANGE_SIGMA = 10.0   # 255 on the PNG
 FULL_FRAMES = 120    # the field movie: this many frames up to the newest hit (30 h), at the camera's full resolution
-FULL_RING = 16       # marker size on it (crosshair tick length), px
+FULL_RING = 16       # radius of the marker circle on it, px
 FIELD_VERSION = 9    # in the cache key: bump when the field rendering changes, or old frames are served
 FIELD_CLEAR_X, FIELD_CLEAR_Y = 8, 56  # half-res px: the field view's corner nearest the Sun sits this far from it across
 #                        and down. Chris Wage's CCOR-1 frame of 2026-11-08, registered on ours through the comet's

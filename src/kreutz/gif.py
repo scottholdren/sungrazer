@@ -1,8 +1,8 @@
 """Animated GIF writer, standard library only (GIF89a, LZW, one global palette).
 
 Frames are 8-bit index arrays. The palette is 254 greys (0..253 map 0..255)
-plus index 254 = green and 255 = yellow for annotations, so a movie frame is
-`gray_to_index(img)` with rings drawn in 254.
+plus index 254 = dim yellow and 255 = yellow for the marker, so a movie frame is
+`gray_to_index(img)` with the circle drawn in one of them.
 """
 
 from __future__ import annotations
@@ -12,12 +12,12 @@ from pathlib import Path
 
 import numpy as np
 
-GREEN, YELLOW = 254, 255
+DIM, YELLOW = 254, 255
 
 
 def palette() -> bytes:
     greys = [int(round(i * 255 / 253)) for i in range(254)]
-    return b"".join(bytes((g, g, g)) for g in greys) + bytes((79, 211, 122)) + bytes((255, 211, 77))
+    return b"".join(bytes((g, g, g)) for g in greys) + bytes((150, 124, 45)) + bytes((255, 211, 77))
 
 
 def gray_to_index(img: np.ndarray) -> np.ndarray:
