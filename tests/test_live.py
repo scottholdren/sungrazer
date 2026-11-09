@@ -734,10 +734,26 @@ def test_missed_report_is_laid_over_our_frames_with_a_reason(tmp_path, monkeypat
     assert d["missed"]["why"].startswith("never made a track here: 0 of 13 frames reach 6σ") and "brightest 4σ" in d["missed"]["why"] or "brightest 5σ" in d["missed"]["why"]
     assert abs(d["hits"][2]["x"] - (1500 - 24)) < 1 and 3.5 < d["hits"][2]["sig"] < 6
     # a track of ours matched it and was thrown out: say which rule
-    rej = {"id": "20261109T0345_1476_1288", "status": "rejected:off-envelope", "report": {"id": "report_zy_x"}}
+    rej = {"id": "20261109T0345_1476_1288", "status": "rejected:off-envelope", "report_ids": ["report_zy_x"], "hits": []}
     (d2,) = live.missed_reports("ccor1", [truth], [], [rej], metas, range(14), 0.0, con)
     assert d2["missed"]["why"] == "our track 20261109T0345_1476_1288 of it was rejected as off-envelope"
     # followed: not a miss; retracted: not listed
-    assert live.missed_reports("ccor1", [truth], [{"report": {"id": "report_zy_x"}}], [], metas, range(14), 0.0, con) == []
-    truth.status = "retracted"
+    assert live.missed_reports("ccor1", [truth], [{"report_ids": ["report_zy_x"], "hits": []}], [], metas, range(14), 0.0, con) == []
+    # ... also when the track's card names another hunter's report of the same comet: its hits lie on this one
+    on_it = {"report": {"id": "report_other"}, "hits": [{"t": h["t"], "x": h["x"] + 3, "y": h["y"]} for h in d["hits"][2:5]]}
+    assert live.missed_reports("ccor1", [truth], [on_it], [], metas, range(14), 0.0, con) == []
+    # ... and when that track left the dashboard a day ago
+    arch = tmp_path / "live" / "ccor1" / "archive" / "2026-11"
+    arch.mkdir(parents=True)
+    (arch / "x.json").write_text(json.dumps(on_it))
     assert live.missed_reports("ccor1", [truth], [], [], metas, range(14), 0.0, con) == []
+    (arch / "x.json").unlink()
+    truth.camera = "ccor2"  # reported on the other camera: that watcher's to list
+    assert live.missed_reports("ccor1", [truth], [], [], metas, range(14), 0.0, con) == []
+    truth.camera, truth.status = None, "retracted"
+    assert live.missed_reports("ccor1", [truth], [], [], metas, range(14), 0.0, con) == []
+    # a miss on one camera that the other camera follows is hidden behind that camera's card
+    cams = [{"camera": "ccor1", "label": "CCOR-1", "tracks": [dict(d, missed=dict(d["missed"]))]},
+            {"camera": "ccor2", "label": "CCOR-2", "tracks": [{"id": "real", "tier": "alert", "report_ids": ["report_zy_x"]}]}]
+    live._yield_missed(cams)
+    assert cams[0]["tracks"][0]["twin_of"] == {"camera": "ccor2", "id": "real"} and cams[0]["tracks"][0]["missed"]["followed_on"] == "CCOR-2"

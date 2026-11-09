@@ -624,6 +624,30 @@ def other_tracks(camera: str, metas, windows, tracks: list[Track]) -> list[dict]
     return out
 
 
+def _follows(d: dict, r: score.Truth) -> bool:
+    """Whether summary `d` is a track of report `r`: it was matched to it when it was made, or its hits lie on it."""
+    if set(r.report_ids) & set(d.get("report_ids") or ([d["report"]["id"]] if d.get("report") else [])):
+        return True
+    return score.matches({"hits": [{"frame_time": h["t"], "x": h["x"], "y": h["y"]} for h in d.get("hits", [])]}, r)
+
+
+ARCHIVE_LOOK_H = 72  # a track that left the dashboard this recently still answers for its reports
+
+
+def _recently_archived(camera: str) -> list[dict]:
+    out = []
+    root = live_dir(camera) / "archive"
+    for p in root.glob("*/*.json") if root.exists() else ():
+        if time.time() - p.stat().st_mtime <= ARCHIVE_LOOK_H * 3600:
+            try:
+                d = json.loads(p.read_text())
+            except ValueError:
+                continue
+            if d.get("tier") != "missed":
+                out.append(d)
+    return out
+
+
 MISSED_LEAD, MISSED_FOLLOW = 2, 8  # frames before a report's first position and after its last that are backfilled
 MISSED_BOX = 3  # half-res px around the reported path in which our significance is read
 
@@ -638,14 +662,13 @@ def missed_reports(camera: str, reports: list[score.Truth], following: list[dict
     on it, so a miss can be looked at like a find."""
     from . import coords
 
-    seen = {d["report"]["id"] for d in following if d.get("report")}
-    by_rej = {d["report"]["id"]: d for d in rejected if d.get("report")}
+    known = list(following) + _recently_archived(camera)
     good = [metas[i] for i in windows if metas[i] and metas[i].ok and A.sig_path(camera, metas[i].name).exists()]
     out = []
     for r in reports:
         rid = r.report_ids[0]
-        if rid in seen or r.status in ("retracted", "rejected") or any(i in seen for i in r.report_ids):
-            continue
+        if r.camera is not None or r.status in ("retracted", "rejected") or any(_follows(d, r) for d in known):
+            continue  # reported on the other camera (its own watcher lists it), withdrawn, or followed
         frames = [m for m in good if r.times.min() - MISSED_LEAD * 900 - 60 <= m.time <= r.times.max() + MISSED_FOLLOW * 900 + 60]
         vx, vy = float(r.fit[0][0]), float(r.fit[1][0])
         hits = []
@@ -670,7 +693,7 @@ def missed_reports(camera: str, reports: list[score.Truth], following: list[dict
         if d["report"] is None:
             continue
         sigs = [h["sig"] for h in hits]
-        rej = by_rej.get(rid) or next((by_rej[i] for i in r.report_ids if i in by_rej), None)
+        rej = next((x for x in rejected if _follows(x, r)), None)
         why = (f"our track {rej['id']} of it was rejected as {rej['status'].removeprefix('rejected:')}" if rej else
                f"never made a track here: {sum(s >= M.MOVER_PEAK for s in sigs)} of {len(sigs)} frames reach "
                f"{M.MOVER_PEAK:g}σ at its position, brightest {max(sigs):.0f}σ")
@@ -800,7 +823,8 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con, camer
     vx, vy = t["velocity"]
     first, last = hits[0], hits[-1]
     span_frames = round((_ts(last["frame_time"]) - _ts(first["frame_time"])) / 900) + 1
-    rep = next((r for r in reports if score.matches(t, r)), None)
+    matched = [r for r in reports if score.matches(t, r)]
+    rep = matched[0] if matched else None  # the card names one report; `report_ids` has every one it matches
     found = t["reached"].get("3") or first["frame_time"]
     if len(hits) >= 3 and _ts(hits[2]["frame_time"]) < _ts(found):
         # A merge: the surviving piece's own third hit came after an earlier piece already had three.
@@ -833,7 +857,7 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con, camer
         "best_sig": round(max(h["sig"] for h in hits), 1), "sun_xy": t.get("sun_xy"),
         "hits": [{"t": h["frame_time"], "x": round(h["x"], 1), "y": round(h["y"], 1), "sig": round(h["sig"], 1)}
                  for h in hits],
-        "report": None,
+        "report": None, "report_ids": sorted({i for r in matched for i in r.report_ids}),
     }
     if t.get("other"):
         out["other"] = True
@@ -1075,6 +1099,7 @@ def merged_state() -> dict:
             s["tracks"] = [t for t in s["tracks"] if not t.get("held") or (t["label"] or {}).get("label") == "comet"]
             cams.append(s)
     _link_cameras(cams)
+    _yield_missed(cams)
     return {"now": datetime.now(timezone.utc).isoformat(timespec="seconds"), "cameras": cams}
 
 
@@ -1103,6 +1128,8 @@ def _link_cameras(cams: list[dict]) -> None:
                     # one card per object: the camera that saw it first keeps the card, the
                     # other camera's track becomes its twin (shown on the card, not listed)
                     first, second = (ta, tb) if ta["first_seen"] <= tb["first_seen"] else (tb, ta)
+                    if first.get("tier") == "missed" and second.get("tier") != "missed":
+                        first, second = second, first  # a report's path never takes the card from a real track
                     cam_first, cam_second = (a, b) if first is ta else (b, a)
                     first["same_as"] = {"camera": cam_second, "label": by[cam_second]["label"], "id": second["id"],
                                         "n_hits": second["n_hits"], "best_sig": second["best_sig"], "tier": second.get("tier"),
@@ -1112,6 +1139,22 @@ def _link_cameras(cams: list[dict]) -> None:
                                          "first_seen": first["first_seen"], "last_seen": first["last_seen"]}
                     second["twin_of"] = {"camera": cam_first, "id": first["id"]}
                     break
+
+
+def _yield_missed(cams: list[dict]) -> None:
+    """A report missed on one CCOR camera but followed on the other is not a miss to
+    list: its card becomes the twin of the other camera's track (hidden, named there)."""
+    by = {s["camera"]: s for s in cams}
+    for a, b in (("ccor1", "ccor2"), ("ccor2", "ccor1")):
+        if a not in by or b not in by:
+            continue
+        for t in by[a]["tracks"]:
+            if t.get("tier") != "missed" or t.get("twin_of"):
+                continue
+            real = next((x for x in by[b]["tracks"] if x.get("tier") != "missed" and t["report"]["id"] in (x.get("report_ids") or [])), None)
+            if real is not None:
+                t["twin_of"] = {"camera": b, "id": real["id"]}
+                t["missed"]["followed_on"] = by[b]["label"]
 
 
 # --- labels: the owner's eye, kept for training; the tracker never reads them -----
