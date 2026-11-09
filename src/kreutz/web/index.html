@@ -32,7 +32,9 @@ details summary { cursor:pointer; color:var(--dim) }
 .anim { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start }
 canvas { background:#000; border-radius:4px; image-rendering:pixelated }
 .movie { margin-top:14px } .movie label { margin-right:14px } .movie #mvblack, .movie #mvspeed { width:140px }
-#mvbox { overflow:auto } #mv { cursor:zoom-in; display:block } #mv.one { max-width:none !important; cursor:zoom-out }
+#mvbox { overflow:auto } #mv { cursor:zoom-in; display:block }
+/* one fixed line under the scrub bar: a label that wrapped on some frames moved everything around it */
+#mvlabel { display:block; margin-top:6px; height:1.5em; line-height:1.5em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums } #mv.one { max-width:none !important; cursor:zoom-out }
 .ctl { margin:8px 0 } .ctl button { margin-right:6px } .ctl input[type=range] { width:260px; vertical-align:middle }
 table { border-collapse:collapse; font-size:12px; font-family:ui-monospace, monospace } td,th { padding:2px 8px; border-bottom:1px solid var(--line); text-align:right } th { color:var(--dim) }
 .full { position:relative; display:inline-block } .full img { display:block; width:512px; height:480px } .full svg { position:absolute; inset:0 }
@@ -288,7 +290,7 @@ function fillDetail(t, fresh) {
             <input id="mvscrub" type="range" min="0" max="0" value="0" oninput="MV.frame=+this.value;MV.playing=false;drawMovie()"> <span id="mvlabel" class="dim"></span></div>
           <div class="ctl"><label>black point <input id="mvblack" type="range" min="-3" max="6" step="0.25" value="2" oninput="MV.black=+this.value;drawMovie()"> <span id="mvblackv" class="dim">2σ</span></label>
             <label>speed <input id="mvspeed" type="range" min="1" max="8" step="1" value="3" oninput="MV.fps=+this.value;mvTimer()"></label>
-            <label><input type="checkbox" id="mvring" checked onchange="MV.ring=this.checked;drawMovie()"> marker on the fitted path (solid = a measured hit)</label></div></div></div>
+            <label><input type="checkbox" id="mvring" checked onchange="MV.ring=this.checked;drawMovie()"> marker (yellow = a measured hit, dim and dashed = carried along the path)</label></div></div></div>
       <div class="movie" id="export"><button onclick="exportTrack('${c.camera}','${t.id}')">export for a hunter</button>
         <span class="dim">writes a Markdown report (positions in the form's layout, convention, caveats, the movie as an animated GIF, the sheet and cutout) into the repo and pushes it: the GitHub link is the thing to share.</span>
         <div id="exbox" style="display:none"><div id="exfiles" class="meta"></div>
