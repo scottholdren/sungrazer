@@ -565,7 +565,7 @@ def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas
         if d["id"] in held and not (d["live"] and d["last_seen"] >= cutoff):
             d["held"] = True  # only the owner's comet label keeps it here
         (following if d["live"] or d["id"] in held else rejected).append(d)
-    following += missed_reports(camera, reports, following, rejected, metas, windows, lat_s, con)
+    following += missed_reports(camera, reports, following, rejected, metas, windows, lat_s, con, since=_ts(cutoff))
     _hold(camera, following, held)
     rank = {"alert": 0, "watch": 1, "steady": 2, "other": 3, "missed": 4, None: 5}
     following.sort(key=lambda d: (rank[d["tier"]], d["last_seen"]), reverse=False)
@@ -653,9 +653,9 @@ MISSED_BOX = 3  # half-res px around the reported path in which our significance
 
 
 def missed_reports(camera: str, reports: list[score.Truth], following: list[dict], rejected: list[dict],
-                   metas, windows, lat_s: float, con) -> list[dict]:
-    """Summaries, tier "missed", for the hunters' reports of the tracked span that no followed
-    track matches: the report's own path laid over our frames (its fitted motion, from
+                   metas, windows, lat_s: float, con, since: float = 0.0) -> list[dict]:
+    """Summaries, tier "missed", for the hunters' reports with a position at or after `since`
+    (the dashboard's window, as for tracks) that no followed track matches: the report's own path laid over our frames (its fitted motion, from
     MISSED_LEAD frames before to MISSED_FOLLOW after), each hit carrying the single-frame
     significance we measure there, and `missed.why`: the rule that rejected our track of it,
     or how much of it stood above the noise. The same sheet, movies and export then work
@@ -667,7 +667,7 @@ def missed_reports(camera: str, reports: list[score.Truth], following: list[dict
     out = []
     for r in reports:
         rid = r.report_ids[0]
-        if r.camera is not None or r.status in ("retracted", "rejected") or any(_follows(d, r) for d in known):
+        if r.times.max() < since or r.camera is not None or r.status in ("retracted", "rejected") or any(_follows(d, r) for d in known):
             continue  # reported on the other camera (its own watcher lists it), withdrawn, or followed
         frames = [m for m in good if r.times.min() - MISSED_LEAD * 900 - 60 <= m.time <= r.times.max() + MISSED_FOLLOW * 900 + 60]
         vx, vy = float(r.fit[0][0]), float(r.fit[1][0])

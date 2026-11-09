@@ -161,7 +161,7 @@ function render() {
   $('#following').innerHTML = (tiered.length ? tiered.map(card).join('')
       : '<div class="dim">no object has reached the alert (4 hits, 15σ), watch (5 hits, 10σ) or steady (5 hits in a row, started 550+ px from the Sun) tier</div>')
     + (movers.length ? `<h3 style="margin:18px 0 6px">Other movers <span class="dim" style="font-weight:normal">· bright objects moving steadily off the Kreutz lane (6+ frames at 7σ a frame, any direction); no alert is raised for these</span></h3>${movers.map(card).join('')}` : '')
-    + (missed.length ? `<h3 style="margin:18px 0 6px">Reported, not followed here <span class="dim" style="font-weight:normal">· hunters' reports of the last 48 h that none of our tracks matches, laid over our frames along the reported path</span></h3>${missed.map(card).join('')}` : '')
+    + (missed.length ? `<h3 style="margin:18px 0 6px">Reported, not followed here <span class="dim" style="font-weight:normal">· hunters' reports of the last 24 h that none of our tracks matches, laid over our frames along the reported path</span></h3>${missed.map(card).join('')}` : '')
     + (rest.length ? `<details id="others"${wasOpen ? ' open' : ''}><summary class="dim">other candidates: ${n(rest.length, 'object')} with 3+ hits but below both tiers, most persistent first — at this stage about 1 in 100 is a comet</summary>${rest.map(card).join('')}</details>` : '')
     + (np ? `<div class="dim">${n(tracks.length, 'object')} from ${n(all.length, 'track')}; pieces of the same object are listed in its detail view</div>` : '');
   const sparks = show.flatMap(c => (c.sparks || []).map(t => ({...t, cam:c})));

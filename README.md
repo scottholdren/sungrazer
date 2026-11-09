@@ -568,6 +568,44 @@ nears the occulter). Each track therefore records its **status when it reached
 status at the threshold; a later rejection is printed but never undoes a
 submission.
 
+### Other movers: obvious objects off the Kreutz lane
+
+Stages B and C only look along the Kreutz lane. `detect/movers.py` follows
+the objects that need no search: bright enough to stand out of one frame's
+map (`MOVER_PEAK` = 6 sigma, outside the glare, the arm and the edges), linked
+frame to frame at a constant velocity in any direction (2 to 16 px/frame,
+`LINK_RADIUS` 4 px, one frame may be missed), `MOVER_HITS` = 6 hits with a
+median of `MOVER_SIGMA` = 7, and clean on the tracker's artefact rules
+(stationary, star-drift, glare-zone, pylon, edge, extended) plus `saturated`
+(a median at the map's ceiling is the Moon's rim or a planet). The live
+watcher runs it over the tracked span each cycle (`live.other_tracks`; peaks
+cached per frame under `movers/`), drops the movers the Kreutz lane already
+follows, and gives the rest the tier `other`: a card in their own section,
+sheet, movies and export like any track, and no alert.
+
+Over the 32 days of local maps (2025-07-16..24, 2025-08-17..31,
+2026-10-16..24) it found 16 movers, every one a real moving object: Kreutz
+comets, the Moon's rim twice (before `saturated`), and the confirmed Kracht II
+of 2025-08-26 (11 hits at 6 to 10 sigma, moving up and right at 3.4 px/frame,
+which the lane rejects as outbound). It is not a search for other comets:
+of the eight confirmed non-Kreutz comets of 2025-08-21..30 only two were
+bright enough per frame (7 to 9 sigma), the other six sat at 3 to 6 sigma and
+would need stacking along their own motion.
+
+### Reported, not followed here
+
+`live.missed_reports`: every hunter's report on this camera with a position
+in the dashboard's window that no followed track answers for becomes a card
+of tier `missed`. Its hits are the report's own fitted path laid over our
+frames (2 frames before its first position to 8 after its last), each with
+the single-frame significance we measure there, so the sheet, the movies and
+the export show what we had. `missed.why` is the reason: the rule that
+rejected our track of it, or "never made a track here: n of m frames reach
+6 sigma at its position, brightest b". A report is answered for when a
+followed track, or one archived in the last 72 h, was matched to it or lies
+on its path (a card names one report; `report_ids` has all it matches). A
+miss the other CCOR camera follows is hidden behind that camera's card.
+
 ### Following an object until it is gone
 
 A candidate is closed after `MAX_MISSES` (2) frames without a hit, and pieces
