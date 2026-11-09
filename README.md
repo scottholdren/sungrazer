@@ -101,10 +101,22 @@ Alert tiers (`live.TIERS`, chosen from real-time operating-point tables in
 `results/STATUS.md`): **alert** = 4 hits and best significance ≥ 15σ
 (Oct 17–24 2026: precision 0.60, 3 of 5 comets, median real lead −3.6 h);
 **watch** = 5 hits and ≥ 10σ. The dashboard sorts alerts first; the activity
-feed logs ALERT events. Discord: put a webhook URL in
-`data/state/discord_webhook.txt` (or `$KREUTZ_DISCORD_WEBHOOK`) and every new
-alert-tier object is posted once, with its contact sheet; set
-`$KREUTZ_DASHBOARD_URL` to append a link. Without a URL nothing is posted.
+feed logs ALERT events. Alerts off the machine (`notify.py`): every object
+that first reaches the alert tier is sent once per channel, with its contact
+sheet, to whichever of these is configured by a one-line file in
+`data/state/` or an environment variable:
+
+- **ntfy push** to a phone: `ntfy_url.txt` (`$KREUTZ_NTFY_URL`) holds the
+  topic URL, `https://ntfy.sh/<topic>`; subscribe to that topic in the ntfy
+  app. Priority 5 for an unreported object (the app can sound through
+  do-not-disturb), 4 for one a hunter has already reported. The topic name is
+  the only secret, so make it long and random.
+- **Discord**: `discord_webhook.txt` (`$KREUTZ_DISCORD_WEBHOOK`) holds a
+  webhook URL.
+
+`dashboard_url.txt` (`$KREUTZ_DASHBOARD_URL`) adds the link to open.
+`python -c "from kreutz import notify; print(notify.send_test())"` sends a
+test on every configured channel. With nothing configured nothing is sent.
 
 Labels: each card has comet / noise / unsure buttons. A click is appended to
 `data/live/<camera>/labels/labels.jsonl` with a frozen copy of the track and

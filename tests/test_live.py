@@ -230,6 +230,29 @@ def test_discord_post_once_with_sheet(tmp_path, monkeypatch):
     (url, content, fname), = calls
     assert url.endswith("/webhook") and "ALERT" in content and "UNREPORTED on CCOR-1" in content and fname == "s.png"
     assert "http://dash/" in content
+    # ntfy: a push with the sheet attached, ASCII headers, urgent when unreported, once per id
+    (tmp_path / "ntfy_url.txt").write_text("https://ntfy.example/kreutz-topic\n")
+    (tmp_path / "dashboard_url.txt").write_text("http://dash2/\n")
+    pushes = []
+
+    class P:
+        ok = True
+
+        def raise_for_status(self):
+            pass
+
+    class N:
+        def put(self, url, data=None, headers=None, timeout=None):
+            pushes.append((url, headers, len(data)))
+            return P()
+
+    monkeypatch.setattr(notify.net, "session", lambda: N())
+    assert notify.post_alert(d, "CCOR-1", sheet) is True  # Discord already has it; ntfy has not
+    assert notify.post_alert(d, "CCOR-1", sheet) is False
+    (url, h, n), = pushes
+    assert url.endswith("/kreutz-topic") and h["Priority"] == "5" and h["Title"] == "CCOR-1 comet alert: UNREPORTED"
+    assert h["Click"] == "http://dash2/" and h["Filename"] == "s.png" and n == len(b"\x89PNG fake")
+    assert "30.0 sigma" in h["Message"] and h["Message"].isascii() and d["id"] in h["Message"]
 
 
 def test_window_shrinks_after_a_gap():
