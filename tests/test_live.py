@@ -622,17 +622,28 @@ def test_movie_marker_sits_on_the_measured_hits_of_an_accelerating_track():
     assert abs((xs[0] - before[0]) - (xs[1] - xs[0])) < 0.5
 
 
-def test_export_positions_table_says_when_our_status_changed():
+def test_export_positions_table_says_when_our_status_changed(tmp_path, monkeypatch):
     from kreutz import export
     from kreutz.reports import db
 
+    monkeypatch.setattr(live.paths, "DATA", tmp_path)
     t0 = datetime(2026, 11, 9, 1, 30, 25, tzinfo=timezone.utc)
     d = live._track_summary(_track(t0, 8, sig=20.0), [], 0.0, db.connect(":memory:"))
-    d["label"] = {"label": "comet", "at": (t0 + timedelta(minutes=50)).isoformat()}
-    ch = export.status_changes("ccor1", d)
     h = [x["t"] for x in d["hits"]]
-    assert ch[h[1]] == ["spark"] and ch[h[2]] == ["following"] and ch[h[4]] == ["watch"]
-    assert ch[h[3]] == ["ALERT", "labelled comet 02:20"]  # the label on the last hit before it was given
+    monkeypatch.setattr(score, "latency_s", lambda camera: (8 * 60.0, ""))
+    times = iter([t0 + timedelta(minutes=50), t0 + timedelta(hours=14)])
+    monkeypatch.setattr(live, "_now_iso", lambda: next(times).isoformat(timespec="seconds"))
+    live.record_label("ccor1", d["id"], "comet")  # tagged at 02:20, while a spark here: no state yet
+    live.record_label("ccor1", d["id"], "clear")
+    with pytest.raises(ValueError):
+        live.record_label("ccor1", "undefined", "comet")  # what the page sent for a spark's buttons
+    assert live.label_history("ccor1", d["id"]) == [(f"2026-11-09T02:20:25+00:00", "comet"), ("2026-11-09T15:30:25+00:00", "clear")]
+    ch = export.status_changes("ccor1", d)
+    assert ch[h[1]] == ["spark"]
+    # the 02:15 frame had not reached us at 02:20 (8 min latency here): the tag sits on 02:00
+    assert ch[h[2]] == ["following", "tagged comet 02:20"]
+    assert ch[h[3]] == ["ALERT"] and h[4] not in ch  # watch, reached a frame later, is below ALERT: not a change
+    assert ch[h[-1]] == ["tag cleared 15:30"]
     text = export.note("ccor1", d, None, None)
     assert "| date | HHMM | x | y | sigma | our status |" in text
-    assert "| 0215 | 1476 | 1191 | 20.0 | ALERT, labelled comet 02:20 |" in text and "| 0130 | 1500 | 1200 | 20.0 |  |" in text
+    assert "| 0200 | 1484 | 1194 | 20.0 | following, tagged comet 02:20 |" in text and "| 0130 | 1500 | 1200 | 20.0 |  |" in text

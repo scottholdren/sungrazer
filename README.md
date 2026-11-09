@@ -223,8 +223,11 @@ The export's GIFs carry every frame of both movies. The field GIF is binned
 which LZW cannot pack (170 KB a frame at 254 levels, 45 KB at 16, nothing
 lost to the eye), so 120 frames are 5 MB. The note's positions table has an
 "our status" column (`export.status_changes`): the frame on which the track
-became a spark, was first followed (third hit), reached steady, watch or
-ALERT, and the owner's label.
+became a spark, was first followed (third hit), and each tier the first time
+it stood higher than before (steady, watch, ALERT; the highest of several
+reached on one frame). Every tag the owner gave it is there too, read from
+`labels.jsonl` so a later clear does not erase it, with its clock time, on
+the newest frame that had reached us when it was given.
 A timestamp is written into each frame's corner (`stamp`, a 5x7
 bitmap font). A crosshair with a gap marks the object, yellow on a
 measured hit; click the picture for 1:1. Same scrub controls; the field plays

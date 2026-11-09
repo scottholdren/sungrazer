@@ -118,10 +118,12 @@ def write_field_gif(root: Path, fm: dict, out: Path) -> None:
 
 def status_changes(camera: str, d: dict) -> dict[str, list[str]]:
     """hit time -> what the track became on that frame, on our side: spark (two hits
-    of SPARK_SIGMA), following (its third hit: a card on the dashboard), steady,
-    watch, ALERT (the tiers, as `live` defines them), and the owner's label on the
-    last hit before it was given."""
-    from . import live
+    of SPARK_SIGMA), following (its third hit: a card on the dashboard), then each
+    tier the first time the track stood higher than before (steady < watch < ALERT, as
+    `live` defines them; of several reached on one frame, the highest), and every tag
+    the owner gave it, with its clock time, on the newest hit whose frame had reached
+    us by then."""
+    from . import live, score
 
     hits = [{"frame_time": h["t"], "x": h["x"], "y": h["y"], "sig": h["sig"]} for h in d["hits"]]
     out: dict[str, list[str]] = {}
@@ -134,14 +136,20 @@ def status_changes(camera: str, d: dict) -> dict[str, list[str]]:
         at(hits[1]["frame_time"], "spark")
     if len(hits) >= 3:
         at(hits[2]["frame_time"], "following")
-    at(live._steady_at(hits, d.get("sun_xy"), camera), "steady")
-    at(live._fires_at(hits, *live.TIERS["watch"]), "watch")
-    at(live._fires_at(hits, *live.TIERS["alert"]), "ALERT")
-    lab = d.get("label")
-    if lab and lab.get("at"):
-        when = datetime.fromisoformat(lab["at"])
-        before = [h["frame_time"] for h in hits if datetime.fromisoformat(h["frame_time"]) <= when]
-        at(before[-1] if before else hits[0]["frame_time"], f"labelled {lab['label']} {when:%H:%M}")
+    tiers = [(live._steady_at(hits, d.get("sun_xy"), camera), 1, "steady"),
+             (live._fires_at(hits, *live.TIERS["watch"]), 2, "watch"),
+             (live._fires_at(hits, *live.TIERS["alert"]), 3, "ALERT")]
+    best = 0
+    for t in sorted({t for t, _, _ in tiers if t}):
+        rank, name = max((r, n) for tt, r, n in tiers if tt == t)
+        if rank > best:
+            at(t, name)
+            best = rank
+    lat_s = score.latency_s(camera)[0]
+    for when, label in live.label_history(camera, d["id"]):
+        w = datetime.fromisoformat(when)
+        seen = [h["frame_time"] for h in hits if datetime.fromisoformat(h["frame_time"]).timestamp() + lat_s <= w.timestamp()]
+        at(seen[-1] if seen else hits[0]["frame_time"], f"tag cleared {w:%H:%M}" if label == "clear" else f"tagged {label} {w:%H:%M}")
     return out
 
 
@@ -234,8 +242,10 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
           "convention). They are the centre of the stacked detection predicted from the fitted motion, good to about "
           "a pixel, not per-frame centroids; hunters' measurements tend to fall ~1 px right and up of these.", "",
           "The last column is what the track became here on that frame: spark (two bright hits, before it is a "
-          "track), following (third hit), steady / watch / ALERT (the dashboard's tiers), and the owner's label. "
-          "Frame times: a frame reaches us 15 to 25 minutes after it is taken.", "",
+          "track), following (third hit), then each of the dashboard's tiers the first time it stood higher than "
+          "before (steady, watch, ALERT). The owner's tags carry their clock time and sit on the newest frame that "
+          "had reached us when they were given; the rest are frame times, and a frame reaches us 15 to 25 minutes "
+          "after it is taken.", "",
           "| date | HHMM | x | y | sigma | our status |", "|---|---|---|---|---|---|"]
     changes = status_changes(camera, d)
     L += [f"| {datetime.fromisoformat(h['t']):%Y-%m-%d} | {datetime.fromisoformat(h['t']):%H%M} | {h['x']:.0f} | {h['y']:.0f} | {h['sig']:.1f} "

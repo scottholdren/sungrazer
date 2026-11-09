@@ -1026,15 +1026,34 @@ def load_labels(camera: str) -> dict[str, dict]:
     return json.loads(p.read_text()) if p.exists() else {}
 
 
+NOT_AN_ID = ("", "undefined", "null", "None")  # what a page with no track in hand sends
+
+
+def label_history(camera: str, track_id: str) -> list[tuple[str, str]]:
+    """Every label the owner gave a track, oldest first: (time, label), "clear" included."""
+    p = labels_dir(camera) / "labels.jsonl"
+    if not p.exists():
+        return []
+    out = []
+    for line in p.read_text().splitlines():
+        rec = json.loads(line)
+        if rec.get("id") == track_id and rec.get("at") and not rec.get("contradicted"):
+            out.append((rec["at"], rec["label"]))
+    return out
+
+
 def record_label(camera: str, track_id: str, label: str) -> dict:
     """Append the label with a frozen copy of the track and its stacked cutout."""
-    if camera not in cameras.CAMERAS or label not in LABEL_VALUES:
-        raise ValueError("unknown camera or label")
+    if camera not in cameras.CAMERAS or label not in LABEL_VALUES or str(track_id) in NOT_AN_ID:
+        raise ValueError("unknown camera, label or track id")
     d = labels_dir(camera)
     d.mkdir(parents=True, exist_ok=True)
     state_p = live_dir(camera) / "state.json"
     tracks = json.loads(state_p.read_text())["tracks"] if state_p.exists() else []
     track = next((t for t in tracks if t["id"] == track_id), None)
+    if track is None:  # a spark, or a track that has left the state
+        found = find_track(camera, track_id)
+        track = found[1] if isinstance(found, tuple) else found
     rec = {"id": track_id, "label": label, "at": _now_iso(), "track": track}
     with open(d / "labels.jsonl", "a") as f:
         f.write(json.dumps(rec) + "\n")
