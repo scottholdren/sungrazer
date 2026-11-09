@@ -28,11 +28,12 @@ from .detect.velocity import FRAME_SECONDS
 from .frameindex import FrameIndex
 from .inspect import write_png
 
-ZOOM = 4             # screen px per half-res map px (= 2x the camera's full resolution)
+ZOOM = 4             # screen px per half-res map px (= 2x the camera's full resolution) while the path fits
+ZOOMS = (4, 2, 1)    # tried in turn until the whole path fits the tile
 MARGIN = 20          # half-res px of sky around the fitted path
 MIN_HALF, MAX_HALF = 36, 72  # patch half-size, half-res px (tile 292..580 px)
 STACK = 8            # maps added along the motion (the detector stacks 8); 3 is offered too
-MAX_FRAMES = 40
+MAX_FRAMES = 120     # frames in the patch movie, the newest (30 h); every frame, none skipped
 LEAD_FRAMES = 4      # frames shown before the first hit
 RANGE_SIGMA = 10.0   # 255 on the PNG
 FULL_FRAMES = 120    # the field movie: this many frames up to the newest hit (30 h), at the camera's full resolution
@@ -119,36 +120,34 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
     if full:
         return _field(camera, d, out_dir, key, js, good, shown[-FULL_FRAMES:], pos, hit_times)
 
-    # The patch is fixed on the sky and at most 2 MAX_HALF + 1 map px across, so a track longer
-    # than that shows its newest stretch: the frames, counted back from the last, whose path fits.
-    # (Centred on the whole of a 28-h track, the object was outside the patch on 26 frames of 40.)
-    reach = (MAX_HALF - MARGIN) * 4  # full-res px the path may span
+    # The patch is fixed on the sky and holds the whole path: at ZOOM while that fits a ~580 px tile,
+    # otherwise at the largest of ZOOMS that does (a 28-h track is 940 camera px long: zoom 1). Only a
+    # path too long even for that is cut to its newest stretch. Every frame is shown, up to MAX_FRAMES.
+    shown = shown[-MAX_FRAMES:]
     pts = [pos(ts) for _, ts in shown]
-    k0 = len(shown) - 1
-    lox = hix = pts[-1][0]
-    loy = hiy = pts[-1][1]
-    while k0 > 0:
-        x, y = pts[k0 - 1]
-        if max(max(hix, x) - min(lox, x), max(hiy, y) - min(loy, y)) > reach:
-            break
-        lox, hix, loy, hiy = min(lox, x), max(hix, x), min(loy, y), max(hiy, y)
-        k0 -= 1
-    truncated = k0 > 0
-    shown = shown[k0:]
-    if len(shown) > MAX_FRAMES:
-        shown = [shown[i] for i in np.linspace(0, len(shown) - 1, MAX_FRAMES).round().astype(int)]
+
+    def box(k0: int) -> tuple[float, float, float, float]:
+        return (min(x for x, _ in pts[k0:]), max(x for x, _ in pts[k0:]), min(y for _, y in pts[k0:]), max(y for _, y in pts[k0:]))
+
+    def cap(z: int) -> int:  # the patch half-size, map px, that keeps the tile near 580 px at zoom z
+        return MAX_HALF * ZOOM // z
+
+    lox, hix, loy, hiy = box(0)
+    zoom = next((z for z in ZOOMS if math.ceil(max(hix - lox, hiy - loy) / 4) + MARGIN <= cap(z)), None)
+    truncated = zoom is None
+    if truncated:
+        zoom, k0 = ZOOMS[-1], len(shown) - 1
+        while k0 > 0:
+            bx = box(k0 - 1)
+            if math.ceil(max(bx[1] - bx[0], bx[3] - bx[2]) / 4) + MARGIN > cap(zoom):
+                break
+            k0 -= 1
+        shown, pts = shown[k0:], pts[k0:]
+        lox, hix, loy, hiy = box(0)
     cx, cy = (lox + hix) / 2, (loy + hiy) / 2                   # full-res report coords
-    half = int(np.clip(math.ceil(max(hix - lox, hiy - loy) / 4) + MARGIN, MIN_HALF, MAX_HALF))
+    half = int(np.clip(math.ceil(max(hix - lox, hiy - loy) / 4) + MARGIN, MIN_HALF, cap(zoom)))
     size = 2 * half + 1
-    tile = size * ZOOM
-    # the maps are added along the motion over the shown stretch, not the whole track's mean
-    own = t >= shown[0][1] - 60
-    if own.sum() >= 2 and np.ptp(t[own]) > 0:
-        vx = float(np.polyfit(t[own] / FRAME_SECONDS, xs[own], 1)[0])
-        vy = float(np.polyfit(t[own] / FRAME_SECONDS, ys[own], 1)[0])
-    else:
-        (xa, ya), (xb, yb) = pos(t[-1] - FRAME_SECONDS), pos(t[-1])
-        vx, vy = xb - xa, yb - ya
+    tile = size * zoom
 
     cache: dict[str, np.ndarray] = {}
 
@@ -164,32 +163,32 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
     sheet = np.zeros((nrow * tile, ncol * tile), np.uint8)
     frames = []
     for k, (p, ts) in enumerate(shown):
+        px, py = pts[k]
         acc, n = np.zeros((size, size), np.float32), 0
         for q, tq in reversed(good):
             if tq > ts + 1:
                 continue
-            dt = (ts - tq) / FRAME_SECONDS
-            acc += _cut(sig(q.name), cx - vx * dt, cy - vy * dt, half)
+            qx, qy = pos(tq)  # added along the measured path, not one velocity: a comet speeds up
+            acc += _cut(sig(q.name), cx - (px - qx), cy - (py - qy), half)
             n += 1
             if n >= stack:
                 break
         stk = acc / np.sqrt(max(n, 1))
         img = np.clip(stk / RANGE_SIGMA, 0, 1)
         r, c = divmod(k, ncol)
-        sheet[r * tile:(r + 1) * tile, c * tile:(c + 1) * tile] = np.repeat(np.repeat((img * 255).astype(np.uint8), ZOOM, 0), ZOOM, 1)
-        px, py = pos(ts)
+        sheet[r * tile:(r + 1) * tile, c * tile:(c + 1) * tile] = np.repeat(np.repeat((img * 255).astype(np.uint8), zoom, 0), zoom, 1)
         ri, ci = int(round((py - cy) / 2 + half)), int(round((px - cx) / 2 + half))
         ring = stk[max(ri - 3, 0):ri + 4, max(ci - 3, 0):ci + 4]
         frames.append({"peak": round(float(ring.max()), 1) if ring.size else None,  # sigma at the ring
                        "tail": round(float(np.percentile(stk, 99.9)), 1),          # the patch's own bright tail
 "name": p.name[9:24], "t": datetime.fromtimestamp(ts).astimezone().isoformat(timespec="minutes"),
-                       "x": round(((px - cx) / 2 + half) * ZOOM + ZOOM / 2, 1),
-                       "y": round(((py - cy) / 2 + half) * ZOOM + ZOOM / 2, 1),
+                       "x": round(((px - cx) / 2 + half) * zoom + zoom / 2, 1),
+                       "y": round(((py - cy) / 2 + half) * zoom + zoom / 2, 1),
                        "hit": int(round(ts / 60)) in hit_times, "stacked": n})
     out_dir.mkdir(parents=True, exist_ok=True)
     _drop_stale(out_dir, d, key)
     write_png(png, sheet)
-    meta = {"png": f"{camera}/movies/{png.name}", "tile": tile, "cols": ncol, "zoom": ZOOM, "stack": stack,
+    meta = {"png": f"{camera}/movies/{png.name}", "tile": tile, "cols": ncol, "zoom": zoom, "stack": stack,
             "range_sigma": RANGE_SIGMA, "frames": frames, "centre": [round(cx, 1), round(cy, 1)],
             "half_fullres": half * 2, "truncated": truncated}
     js.write_text(json.dumps(meta))

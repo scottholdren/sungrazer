@@ -620,3 +620,19 @@ def test_movie_marker_sits_on_the_measured_hits_of_an_accelerating_track():
     assert abs((after[0] - xs[-1]) - (xs[-1] - xs[-2])) < 0.5
     before = pos(t[0] - 900.0)
     assert abs((xs[0] - before[0]) - (xs[1] - xs[0])) < 0.5
+
+
+def test_export_positions_table_says_when_our_status_changed():
+    from kreutz import export
+    from kreutz.reports import db
+
+    t0 = datetime(2026, 11, 9, 1, 30, 25, tzinfo=timezone.utc)
+    d = live._track_summary(_track(t0, 8, sig=20.0), [], 0.0, db.connect(":memory:"))
+    d["label"] = {"label": "comet", "at": (t0 + timedelta(minutes=50)).isoformat()}
+    ch = export.status_changes("ccor1", d)
+    h = [x["t"] for x in d["hits"]]
+    assert ch[h[1]] == ["spark"] and ch[h[2]] == ["following"] and ch[h[4]] == ["watch"]
+    assert ch[h[3]] == ["ALERT", "labelled comet 02:20"]  # the label on the last hit before it was given
+    text = export.note("ccor1", d, None, None)
+    assert "| date | HHMM | x | y | sigma | our status |" in text
+    assert "| 0215 | 1476 | 1191 | 20.0 | ALERT, labelled comet 02:20 |" in text and "| 0130 | 1500 | 1200 | 20.0 |  |" in text

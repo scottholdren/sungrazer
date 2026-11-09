@@ -212,8 +212,19 @@ The marker on both movies sits on the object's measured positions
 (interpolated between hits, carried along the last `END_HITS` = 8 hits'
 straight-line fit beyond them): one straight line through a 28-hour track sat
 up to 29 px off, since a Kreutz comet speeds up as it falls. The zoomed patch
-is fixed on the sky and at most 290 full-res px across, so a longer track
-shows its newest stretch, stacked along that stretch's own motion.
+is fixed on the sky and holds the whole path, every frame up to `MAX_FRAMES`
+(120): at zoom 4 while the path fits a ~580 px tile (290 camera px), else at
+zoom 2 or 1 (`ZOOMS`; a 28-hour track is 940 camera px long), and only a path
+too long even for zoom 1 is cut to its newest stretch. The maps are added
+along the measured path, not one velocity.
+
+The export's GIFs carry every frame of both movies. The field GIF is binned
+2x2 and written in `FIELD_GIF_LEVELS` (16) grey levels: its frames are noise,
+which LZW cannot pack (170 KB a frame at 254 levels, 45 KB at 16, nothing
+lost to the eye), so 120 frames are 5 MB. The note's positions table has an
+"our status" column (`export.status_changes`): the frame on which the track
+became a spark, was first followed (third hit), reached steady, watch or
+ALERT, and the owner's label.
 A timestamp is written into each frame's corner (`stamp`, a 5x7
 bitmap font). A crosshair with a gap marks the object, yellow on a
 measured hit; click the picture for 1:1. Same scrub controls; the field plays

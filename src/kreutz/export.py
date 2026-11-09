@@ -87,33 +87,62 @@ def write_movie_gif(sheet_png: Path, mv: dict, out: Path) -> None:
     gif.write_gif(out, frames, delay_cs=35)
 
 
-FIELD_GIF_FRAMES = 32  # the field GIF keeps this many frames, evenly spaced and ending on the newest, at half the
-#                        movie's resolution: the full movie (120 frames at camera resolution) would be ~100 MB in git
+FIELD_GIF_LEVELS = 16  # grey levels in the field GIF. Its frames are noise, which LZW cannot pack: 170 KB a frame
+#                        at 254 levels, 45 KB at 16, with nothing lost to the eye at this size. Every frame of the
+#                        movie goes in (120 frames = 5 MB; they were thinned to 32 until 2026-11-09), at half the
+#                        movie's resolution.
 
 
 def write_field_gif(root: Path, fm: dict, out: Path) -> None:
-    """The field movie as an animated GIF with the crosshair: every n-th frame (at most
-    FIELD_GIF_FRAMES, always the newest), binned 2x2."""
-    n = len(fm["pngs"])
-    step = max(1, math.ceil(n / FIELD_GIF_FRAMES))
-    keep = list(range(n - 1, -1, -step))[::-1]
+    """The field movie as an animated GIF with the crosshair: every frame, binned 2x2,
+    in FIELD_GIF_LEVELS grey levels."""
     h, w = fm["height"] // 2, fm["width"] // 2
     yy, xx = np.mgrid[0:h, 0:w]
     lo, hi = fm.get("lo_sigma", 0.0), fm.get("hi_sigma", fm["range_sigma"])
     b = max((FIELD_BLACK_SIGMA - lo) / (hi - lo) * 255, 0.0)
+    step = 254 // FIELD_GIF_LEVELS
     frames = []
-    for i in keep:
-        f = fm["frames"][i]
-        img = read_png(root / fm["pngs"][i]).astype(np.float32)[:2 * h, :2 * w].reshape(h, 2, w, 2).mean(axis=(1, 3))
+    for p, f in zip(fm["pngs"], fm["frames"]):
+        img = read_png(root / p).astype(np.float32)[:2 * h, :2 * w].reshape(h, 2, w, 2).mean(axis=(1, 3))
         if b > 0:
             img = np.where(img <= b, 0, (img - b) * 255 / (255 - b))
         idx = gif.gray_to_index(img)
+        idx = np.minimum(idx // step * step + step // 2, 253).astype(np.uint8)
         r, g = fm["ring_r"] / 2, fm["ring_r"] / 2 * 0.45  # a crosshair with a gap, as on the page
         dx, dy = np.abs(xx - f["x"] / 2), np.abs(yy - f["y"] / 2)
         cross = ((dy < 0.8) & (dx >= g) & (dx <= r)) | ((dx < 0.8) & (dy >= g) & (dy <= r))
         idx[cross] = gif.YELLOW if f["hit"] else gif.GREEN
         frames.append(idx)
     gif.write_gif(out, frames, delay_cs=15)
+
+
+def status_changes(camera: str, d: dict) -> dict[str, list[str]]:
+    """hit time -> what the track became on that frame, on our side: spark (two hits
+    of SPARK_SIGMA), following (its third hit: a card on the dashboard), steady,
+    watch, ALERT (the tiers, as `live` defines them), and the owner's label on the
+    last hit before it was given."""
+    from . import live
+
+    hits = [{"frame_time": h["t"], "x": h["x"], "y": h["y"], "sig": h["sig"]} for h in d["hits"]]
+    out: dict[str, list[str]] = {}
+
+    def at(t: str | None, what: str) -> None:
+        if t:
+            out.setdefault(t, []).append(what)
+
+    if len(hits) >= 2 and min(hits[0]["sig"], hits[1]["sig"]) >= live.SPARK_SIGMA:
+        at(hits[1]["frame_time"], "spark")
+    if len(hits) >= 3:
+        at(hits[2]["frame_time"], "following")
+    at(live._steady_at(hits, d.get("sun_xy"), camera), "steady")
+    at(live._fires_at(hits, *live.TIERS["watch"]), "watch")
+    at(live._fires_at(hits, *live.TIERS["alert"]), "ALERT")
+    lab = d.get("label")
+    if lab and lab.get("at"):
+        when = datetime.fromisoformat(lab["at"])
+        before = [h["frame_time"] for h in hits if datetime.fromisoformat(h["frame_time"]) <= when]
+        at(before[-1] if before else hits[0]["frame_time"], f"labelled {lab['label']} {when:%H:%M}")
+    return out
 
 
 def publish(folder: Path, tid: str) -> str | None:
@@ -190,8 +219,8 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
               "median of the previous 24 hours (the static corona and glare cancel; streamers show bright where they have moved to "
               "and dark where they were; stars stay), no stacking, no smoothing, on one linear scale with zero near black, so the "
               "noise shows as grain that thickens toward the Sun. The crosshair follows the object's measured positions, yellow on a "
-              "frame with a hit. This GIF is every n-th frame at half resolution; the dashboard plays every frame at the camera's "
-              "resolution. A faint object is easier to judge in the stacked patch above.", "",
+              "frame with a hit, and the movie runs two hours past the last one. This GIF is every frame at half resolution; the "
+              "dashboard plays them at the camera's resolution. A faint object is easier to judge in the stacked patch above.", "",
               "![full field](field.gif)"]
     if "sheet.png" in files:
         L += ["", "## Contact sheet", "",
@@ -204,8 +233,13 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
           "2048x1920 full-resolution frame, origin upper left, x right, y down, 0-based (the Sungrazer 'Upper Left' "
           "convention). They are the centre of the stacked detection predicted from the fitted motion, good to about "
           "a pixel, not per-frame centroids; hunters' measurements tend to fall ~1 px right and up of these.", "",
-          "| date | HHMM | x | y | sigma |", "|---|---|---|---|---|"]
-    L += [f"| {datetime.fromisoformat(h['t']):%Y-%m-%d} | {datetime.fromisoformat(h['t']):%H%M} | {h['x']:.0f} | {h['y']:.0f} | {h['sig']:.1f} |" for h in hits]
+          "The last column is what the track became here on that frame: spark (two bright hits, before it is a "
+          "track), following (third hit), steady / watch / ALERT (the dashboard's tiers), and the owner's label. "
+          "Frame times: a frame reaches us 15 to 25 minutes after it is taken.", "",
+          "| date | HHMM | x | y | sigma | our status |", "|---|---|---|---|---|---|"]
+    changes = status_changes(camera, d)
+    L += [f"| {datetime.fromisoformat(h['t']):%Y-%m-%d} | {datetime.fromisoformat(h['t']):%H%M} | {h['x']:.0f} | {h['y']:.0f} | {h['sig']:.1f} "
+          f"| {', '.join(changes.get(h['t'], []))} |" for h in hits]
     L += ["", "Form layout (HHMM x y):", "", "```"] + [f"{datetime.fromisoformat(h['t']):%H%M} {h['x']:.0f} {h['y']:.0f}" for h in hits] + ["```"]
     if mv and "frames" in mv:
         L += ["", "## Movie frames", "",
