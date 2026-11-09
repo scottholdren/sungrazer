@@ -26,6 +26,7 @@ import numpy as np
 from . import cameras, contact, detect, fetch, net, paths, score
 from .detect import envelope as E
 from .detect import frames as A
+from .detect import movers as M
 from .detect import stack as B
 from .detect import track as C
 from .detect.track import Track, Tracker
@@ -211,7 +212,8 @@ class Watcher:
         timings["stage_c"] = _lap(t0, timings)
 
         act.now("state", "matching tracks against hunter reports")
-        state = build_state(camera, [detect.track_dict(t, camera) for t in tracks], open_chains, metas, windows,
+        others = other_tracks(camera, metas, windows, tracks)
+        state = build_state(camera, [detect.track_dict(t, camera) for t in tracks] + others, open_chains, metas, windows,
                             last_window, con, now, sparks=sparks_)
         # A reported object is followed like an alerted one: the tracker keeps its open piece through
         # STICKY_MISSES frames without a hit (the alert tier it recognises by itself).
@@ -277,6 +279,10 @@ class Watcher:
             self.known = {d["id"]: d for d in prev}
         for tid, d in cur.items():
             old = self.known.get(tid)
+            if d.get("tier") == "missed":  # a report's path, not a track of ours: logged once, never announced as found
+                if old is None:
+                    self.activity.change(f"{tid}: reported by {d['report']['reporter']}, not followed here ({d['missed']['why']})", "report", tid)
+                continue
             where = f"at {d['x']},{d['y']}, {d['speed']} px/frame, {d['n_hits']} hits, {d['best_sig']}σ"
             unrep = " — UNREPORTED" if not d["report"] else ""
             # The alert goes out whenever a track first shows at the alert tier, whatever else is news about it
@@ -559,8 +565,9 @@ def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas
         if d["id"] in held and not (d["live"] and d["last_seen"] >= cutoff):
             d["held"] = True  # only the owner's comet label keeps it here
         (following if d["live"] or d["id"] in held else rejected).append(d)
+    following += missed_reports(camera, reports, following, rejected, metas, windows, lat_s, con)
     _hold(camera, following, held)
-    rank = {"alert": 0, "watch": 1, "steady": 2, None: 3}
+    rank = {"alert": 0, "watch": 1, "steady": 2, "other": 3, "missed": 4, None: 5}
     following.sort(key=lambda d: (rank[d["tier"]], d["last_seen"]), reverse=False)
     following.sort(key=lambda d: rank[d["tier"]])  # stable: alerts first, then watch, each newest-first
     rejected.sort(key=lambda d: -d["best_sig"])
@@ -584,6 +591,96 @@ def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas
         "sparks": list(sparks),
         "sheet": {"half": contact.HALF, "scale": contact.SCALE, "gap": 4},
     }
+
+
+OTHER_ID0 = 900_000  # tracker-style ids of the movers' track dicts (the dashboard's id is made from the first hit)
+
+
+def other_tracks(camera: str, metas, windows, tracks: list[Track]) -> list[dict]:
+    """The obvious movers of the tracked span (`detect.movers`) that the Kreutz lane is not
+    already following, as track dicts in `detect.track_dict`'s shape with "other": True."""
+    scale = cameras.px_scale(camera)
+    good = [metas[i] for i in windows if metas[i] and metas[i].ok and A.sig_path(camera, metas[i].name).exists()]
+    if len(good) < M.MOVER_HITS:
+        return []
+    frames = [(m.time, M.load_peaks(camera, m.name, m.time, m.sun_xy, scale)) for m in good]
+    drifts = [m.drift for m in good[-8:] if m.drift]
+    drift = list(np.mean(drifts, axis=0)) if drifts else None
+    sun = next((m.sun_xy for m in reversed(good) if m.sun_xy), None)
+    lane = [{round(h.t): (h.x, h.y) for h in t.hits} for t in tracks if not t.rejected]
+    out = []
+    for k, ch in enumerate(M.movers(frames, drift, sun, scale)):
+        if any(sum(round(h.t) in pos and np.hypot(h.x - pos[round(h.t)][0], h.y - pos[round(h.t)][1]) < 12 for h in ch.hits) >= 2
+               for pos in lane):
+            continue  # the main search has it
+        vx, vy = ch.velocity()
+        out.append({"id": OTHER_ID0 + k, "camera": camera, "status": "candidate", "merged": 0, "velocity": [vx, vy],
+                    "first_seen": detect._iso(ch.hits[0].t), "other": True,
+                    "reached": {str(n): detect._iso(ch.hits[n - 1].t) for n in (3, 4, 5)},
+                    "status_at": {str(n): "candidate" for n in (3, 4, 5)},
+                    "star_drift": drift, "sun_xy": sun,
+                    "hits": [{"frame_time": detect._iso(h.t), "x": h.x, "y": h.y, "sig": h.sig, "vx": vx, "vy": vy,
+                              "edge": h.edge, "elong": h.elong} for h in ch.hits]})
+    return out
+
+
+MISSED_LEAD, MISSED_FOLLOW = 2, 8  # frames before a report's first position and after its last that are backfilled
+MISSED_BOX = 3  # half-res px around the reported path in which our significance is read
+
+
+def missed_reports(camera: str, reports: list[score.Truth], following: list[dict], rejected: list[dict],
+                   metas, windows, lat_s: float, con) -> list[dict]:
+    """Summaries, tier "missed", for the hunters' reports of the tracked span that no followed
+    track matches: the report's own path laid over our frames (its fitted motion, from
+    MISSED_LEAD frames before to MISSED_FOLLOW after), each hit carrying the single-frame
+    significance we measure there, and `missed.why`: the rule that rejected our track of it,
+    or how much of it stood above the noise. The same sheet, movies and export then work
+    on it, so a miss can be looked at like a find."""
+    from . import coords
+
+    seen = {d["report"]["id"] for d in following if d.get("report")}
+    by_rej = {d["report"]["id"]: d for d in rejected if d.get("report")}
+    good = [metas[i] for i in windows if metas[i] and metas[i].ok and A.sig_path(camera, metas[i].name).exists()]
+    out = []
+    for r in reports:
+        rid = r.report_ids[0]
+        if rid in seen or r.status in ("retracted", "rejected") or any(i in seen for i in r.report_ids):
+            continue
+        frames = [m for m in good if r.times.min() - MISSED_LEAD * 900 - 60 <= m.time <= r.times.max() + MISSED_FOLLOW * 900 + 60]
+        vx, vy = float(r.fit[0][0]), float(r.fit[1][0])
+        hits = []
+        for m in frames:
+            pos = r.position(m.time)
+            if pos is None:
+                continue
+            sg = A.load_sig(camera, m.name)
+            col, row = coords.report_to_fits(pos[0] / B.DS, pos[1] / B.DS, sg.shape[0])
+            rr, cc = int(round(row)), int(round(col))
+            box = sg[max(rr - MISSED_BOX, 0):rr + MISSED_BOX + 1, max(cc - MISSED_BOX, 0):cc + MISSED_BOX + 1]
+            if not (0 <= rr < sg.shape[0] and 0 <= cc < sg.shape[1]) or not np.isfinite(box).any():
+                continue  # off the frame, or masked there
+            hits.append({"frame_time": detect._iso(m.time), "x": round(pos[0], 1), "y": round(pos[1], 1),
+                         "sig": round(max(float(np.nanmax(box)), 0.0), 1), "vx": vx, "vy": vy, "edge": None, "elong": None})
+        if len(hits) < 2:
+            continue  # its frames are not in the tracked span
+        t = {"id": -1, "camera": camera, "status": "candidate", "merged": 0, "velocity": [vx, vy],
+             "first_seen": hits[0]["frame_time"], "reached": {}, "status_at": {}, "star_drift": None,
+             "sun_xy": next((m.sun_xy for m in reversed(frames) if m.sun_xy), None), "hits": hits}
+        d = _track_summary(t, [r], lat_s, con, camera)
+        if d["report"] is None:
+            continue
+        sigs = [h["sig"] for h in hits]
+        rej = by_rej.get(rid) or next((by_rej[i] for i in r.report_ids if i in by_rej), None)
+        why = (f"our track {rej['id']} of it was rejected as {rej['status'].removeprefix('rejected:')}" if rej else
+               f"never made a track here: {sum(s >= M.MOVER_PEAK for s in sigs)} of {len(sigs)} frames reach "
+               f"{M.MOVER_PEAK:g}σ at its position, brightest {max(sigs):.0f}σ")
+        row = con.execute("SELECT comet_group FROM reports WHERE report_id=?", (rid,)).fetchone()
+        d.update(tier="missed", tier_at=None, alert_at=None, following_at=None, live=False,
+                 missed={"why": why, "group": r.group or (row["comet_group"] if row else None),
+                         "rejected_id": rej["id"] if rej else None})
+        d["report"].update(lead_h=0.0, alert_lead_h=None)
+        out.append(d)
+    return out
 
 
 def _archive(camera: str, d: dict) -> None:
@@ -721,6 +818,9 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con, camer
         if at is not None:
             tier, tier_at = "steady", at
     alert_at = _fires_at(hits, *TIERS["alert"])
+    if t.get("other"):  # an obvious mover off the Kreutz lane: its own tier, from the hit that made it one, and no alert
+        found = hits[min(M.MOVER_HITS, len(hits)) - 1]["frame_time"]
+        tier, tier_at, alert_at = "other", found, None
     out = {
         "tier": tier, "tier_at": tier_at,
         "following_at": found, "alert_at": alert_at,  # the two escalation times: candidate (3 hits) and alert
@@ -735,6 +835,8 @@ def _track_summary(t: dict, reports: list[score.Truth], lat_s: float, con, camer
                  for h in hits],
         "report": None,
     }
+    if t.get("other"):
+        out["other"] = True
     if rep is not None:
         rid = rep.report_ids[0]
         row = con.execute("SELECT reporter, camera FROM reports WHERE report_id=?", (rid,)).fetchone()

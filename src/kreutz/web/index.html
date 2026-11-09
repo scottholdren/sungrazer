@@ -147,17 +147,21 @@ function render() {
   $('#chips').innerHTML = ['all', ...cams.map(c => c.label)].map(l => `<span class="chip ${FILTER===l?'on':''}" onclick="FILTER='${l}';render()">${esc(l)}</span>`).join('');
   const show = cams.filter(c => FILTER === 'all' || c.label === FILTER);
   const all = show.flatMap(c => c.tracks.map(t => ({...t, cam:c})));
-  const rank = {alert: 0, watch: 1, steady: 2};
+  const rank = {alert: 0, watch: 1, steady: 2, other: 3, missed: 4};
   const tracks = all.filter(t => (!t.group || t.group === t.id) && !t.twin_of)  // one card per object: a twin seen later from the other camera rides on the first camera's card
     .sort((a,b) => ((rank[a.tier] ?? 2) - (rank[b.tier] ?? 2)) || b.last_seen.localeCompare(a.last_seen));
-  const top = t => t.tier || lab(t) === 'comet';  // your comet label keeps it up here until you clear it
+  const side = t => t.tier === 'other' || t.tier === 'missed';  // their own sections below the tiers
+  const top = t => !side(t) && (t.tier || lab(t) === 'comet');  // your comet label keeps it up here until you clear it
   const tiered = tracks.filter(top).sort((a,b) => lrank(a) - lrank(b));
+  const movers = tracks.filter(t => t.tier === 'other'), missed = tracks.filter(t => t.tier === 'missed');
   // confidence for the rest: persistence first (the only feature that separates comets at this stage), then brightness
-  const rest = tracks.filter(t => !top(t)).sort((a,b) => (lrank(a) - lrank(b)) || (b.n_hits - a.n_hits) || (b.best_sig - a.best_sig));
+  const rest = tracks.filter(t => !top(t) && !side(t)).sort((a,b) => (lrank(a) - lrank(b)) || (b.n_hits - a.n_hits) || (b.best_sig - a.best_sig));
   const np = all.length - tracks.length;
   const wasOpen = $('#others') ? $('#others').open : false;
   $('#following').innerHTML = (tiered.length ? tiered.map(card).join('')
       : '<div class="dim">no object has reached the alert (4 hits, 15σ), watch (5 hits, 10σ) or steady (5 hits in a row, started 550+ px from the Sun) tier</div>')
+    + (movers.length ? `<h3 style="margin:18px 0 6px">Other movers <span class="dim" style="font-weight:normal">· bright objects moving steadily off the Kreutz lane (6+ frames at 7σ a frame, any direction); no alert is raised for these</span></h3>${movers.map(card).join('')}` : '')
+    + (missed.length ? `<h3 style="margin:18px 0 6px">Reported, not followed here <span class="dim" style="font-weight:normal">· hunters' reports of the last 48 h that none of our tracks matches, laid over our frames along the reported path</span></h3>${missed.map(card).join('')}` : '')
     + (rest.length ? `<details id="others"${wasOpen ? ' open' : ''}><summary class="dim">other candidates: ${n(rest.length, 'object')} with 3+ hits but below both tiers, most persistent first — at this stage about 1 in 100 is a comet</summary>${rest.map(card).join('')}</details>` : '')
     + (np ? `<div class="dim">${n(tracks.length, 'object')} from ${n(all.length, 'track')}; pieces of the same object are listed in its detail view</div>` : '');
   const sparks = show.flatMap(c => (c.sparks || []).map(t => ({...t, cam:c})));
@@ -181,13 +185,17 @@ function badges(t) {
   if (t.tier === 'alert') b.push(`<span class="b red">ALERT since ${fmt(t.tier_at)}</span>`);
   else if (t.tier === 'watch') b.push(`<span class="b amber">watch since ${fmt(t.tier_at)}</span>`);
   else if (t.tier === 'steady') b.push(`<span class="b outline" style="color:#f0b64d">steady since ${fmt(t.tier_at)}</span>`);
+  else if (t.tier === 'other') b.push(`<span class="b blue">other mover since ${fmt(t.tier_at)}: bright, not on the Kreutz lane</span>`);
+  else if (t.tier === 'missed') b.push(`<span class="b red">not followed here: ${esc(t.missed.why)}</span>${t.missed.group ? ` <span class="b outline">${esc(t.missed.group)}</span>` : ''}`);
   const r = t.report;
   if (r && r.status === 'confirmed') b.push(`<span class="b green">confirmed, ${n(t.n_hits, 'frame')}</span>`);
+  else if (t.tier === 'missed') b.push(`<span class="b outline">${n(t.n_hits, 'frame')} backfilled along the reported path</span>`);
   else b.push(`<span class="b amber">candidate, ${n(t.n_hits, 'frame')} measured</span>`);
   if (r) {
     b.push(`<span class="b blue"><a href="${esc(r.url)}" target="_blank" onclick="event.stopPropagation()">reported by ${esc(r.reporter)} ${fmt(r.posted)}${r.cross ? ` on ${esc(r.camera)}` : ''}</a></span>`);
     // the discovery clock is the alert: following it earlier does not count
-    if (r.alert_lead_h != null && r.alert_lead_h < 0) b.push(`<span class="b green">alerted here ${hrs(r.alert_lead_h)} before the report</span>`);
+    if (t.tier === 'missed') {}
+    else if (r.alert_lead_h != null && r.alert_lead_h < 0) b.push(`<span class="b green">alerted here ${hrs(r.alert_lead_h)} before the report</span>`);
     else if (r.alert_lead_h != null) b.push(`<span class="b red">loss: reported ${hrs(r.alert_lead_h)} before our alert${r.lead_h < 0 ? ` (following ${hrs(r.lead_h)} before it)` : ''}</span>`);
     else b.push(`<span class="b red">loss: reported, never alerted here${r.lead_h < 0 ? ` (following ${hrs(r.lead_h)} before it)` : ''}</span>`);
   } else b.push(`<span class="b amber">UNREPORTED on ${esc(t.cam.label)}</span>`);

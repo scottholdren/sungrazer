@@ -196,7 +196,7 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
     L = [f"# {LABEL.get(camera, camera)} candidate {d['id']}", "",
          f"**{d['n_hits']} frames, {span} UTC, peak {max(sigs):.0f} sigma, {trend}.**", "",
          f"- Detected by the kreutz shift-and-stack search (8 frames stacked along the fitted motion); "
-         f"status {d['status']}" + (f", {d['tier']} tier since {datetime.fromisoformat(d['tier_at']):%H:%M} UTC" if d.get("tier") else "") + ".",
+         f"status {d['status']}" + (f", {d['tier']} tier since {datetime.fromisoformat(d['tier_at']):%H:%M} UTC" if d.get("tier") and d.get("tier_at") else "") + ".",
          f"- Motion ({vx:+.1f}, {vy:+.1f}) px per 15-min frame, {math.hypot(vx, vy):.1f} px/frame."]
     if latest and latest.get("sun_xy"):
         sx, sy = latest["sun_xy"]
@@ -206,6 +206,12 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
         head = math.degrees(math.acos(max(-1.0, min(1.0, (vx * (sx - x) + vy * (sy - y)) / (r * v + 1e-9))))) if v else float("nan")
         pa = math.degrees(math.atan2(-(y - sy), x - sx))
         L.append(f"- Last position {r:.0f} px from the Sun at position angle {pa:.0f} deg, heading {head:.0f} deg off the Sun direction ({LANE.get(camera, LANE['ccor1'])}).")
+    if d.get("missed"):
+        L.append(f"- NOT followed by the detector: {d['missed']['why']}. The positions below are the report's own path "
+                 "laid over our frames, with the significance we measure there; the movies follow that path.")
+    if d.get("other"):
+        L.append("- Not on the Kreutz lane: found by the any-direction linker of bright single-frame peaks "
+                 "(`detect/movers.py`), not by the shift-and-stack search. No alert is raised for these.")
     rep = d.get("report")
     if rep:
         al = rep.get("alert_lead_h")

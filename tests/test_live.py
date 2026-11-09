@@ -671,3 +671,73 @@ def test_one_marker_a_circle_yellow_on_a_hit_dim_and_dashed_otherwise():
     assert 0.4 < (carried > 0).sum() / (hit > 0).sum() < 0.6  # dashed: half the circle
     pal = gif.palette()
     assert pal[3 * gif.YELLOW:3 * gif.YELLOW + 3] == bytes((255, 211, 77)) and pal[3 * gif.DIM] < 200  # one hue, dimmer
+
+
+def _maps(tmp_path, monkeypatch, n, obj, sun=(1024.0, 960.0)):
+    """n CCOR-1 half-res maps of unit noise 15 min apart with one object: obj(k) -> (x, y, sigma)."""
+    import numpy as np
+    from kreutz.detect import frames as A
+
+    monkeypatch.setattr(live.paths, "DATA", tmp_path)
+    (tmp_path / "derived" / "ccor1" / A.VERSION / "sig").mkdir(parents=True)
+    t0 = datetime(2026, 11, 9, 3, 0, 25, tzinfo=timezone.utc)
+    metas = []
+    for k in range(n):
+        tt = t0 + timedelta(minutes=15 * k)
+        name = f"CCOR1_1B_{tt:%Y%m%dT%H%M%S}_V00_NC.fits"
+        sig = np.random.default_rng(k).normal(0, 1, (960, 1024)).astype(np.float32)
+        x, y, s = obj(k)
+        r, c = int(round((1919 - y) / 2)), int(round(x / 2))
+        sig[r - 1:r + 2, c - 1:c + 2] = s * 0.6
+        sig[r, c] = s
+        np.save(A.sig_path("ccor1", name), sig.astype(np.float16))
+        metas.append(A.FrameMeta(name=name, time=tt.timestamp(), ok=True, problems=[], drift=[1.9, -0.5], drift_dt=1,
+                                 star_frames=8, n_stars_masked=0, sun_xy=list(sun)))
+    return t0, metas
+
+
+def test_other_movers_follow_a_bright_object_in_any_direction(tmp_path, monkeypatch):
+    # the Kracht II of 2025-08-26 moved up and to the right at 3.4 px/frame, 7-10 sigma a frame
+    t0, metas = _maps(tmp_path, monkeypatch, 9, lambda k: (1400 + 2.5 * k, 780 - 2.3 * k, 9.0))
+    out = live.other_tracks("ccor1", metas, range(9), [])
+    assert len(out) == 1 and out[0]["other"] and len(out[0]["hits"]) == 9
+    vx, vy = out[0]["velocity"]
+    assert abs(vx - 2.5) < 0.6 and abs(vy + 2.3) < 0.6  # away from the Kreutz lane, outbound, slow: kept
+    from kreutz.reports import db
+    d = live._track_summary(out[0], [], 0.0, db.connect(":memory:"))
+    assert d["tier"] == "other" and d["alert_at"] is None and d["other"] and d["live"]
+    assert d["tier_at"] == d["following_at"] == d["hits"][5]["t"]  # a mover from its sixth hit
+    # an object the main search follows is not listed twice
+    from kreutz.detect.stack import Peak
+    from kreutz.detect.track import Track
+    lane = Track(1, [Peak(m.time, 1400 + 2.5 * k, 780 - 2.3 * k, 2.5, -2.3, 9.0) for k, m in enumerate(metas)], candidate=True)
+    assert live.other_tracks("ccor1", metas, range(9), [lane]) == []
+    # too faint to see frame by frame: not obvious
+    monkeypatch.undo()
+    _, faint = _maps(tmp_path / "faint", monkeypatch, 9, lambda k: (1400 + 2.5 * k, 780 - 2.3 * k, 6.2))
+    assert live.other_tracks("ccor1", faint, range(9), []) == []
+
+
+def test_missed_report_is_laid_over_our_frames_with_a_reason(tmp_path, monkeypatch):
+    from kreutz.reports import db
+
+    t0, metas = _maps(tmp_path, monkeypatch, 14, lambda k: (1500 - 8.0 * k, 1300 - 4.0 * k, 4.5))  # there, but faint
+    con = db.connect(":memory:")
+    con.execute("INSERT INTO reports (report_id, reporter, camera, comet_group) VALUES (?, ?, ?, ?)", ("report_zy_x", "Zesheng Yang", "ccor1", "Meyer"))
+    times = np.array([m.time for m in metas[3:6]])
+    truth = score.Truth("report_zy_x", ["report_zy_x"], t0 + timedelta(hours=2), times,
+                        np.array([1500 - 8.0 * k for k in (3, 4, 5)]), np.array([1300 - 4.0 * k for k in (3, 4, 5)]), "reported")
+    out = live.missed_reports("ccor1", [truth], [], [], metas, range(14), 0.0, con)
+    (d,) = out
+    assert d["tier"] == "missed" and d["report"]["reporter"] == "Zesheng Yang" and d["missed"]["group"] == "Meyer"
+    assert d["n_hits"] == 2 + 3 + 8 and not d["live"] and d["alert_at"] is None  # lead, the report's frames, follow
+    assert d["missed"]["why"].startswith("never made a track here: 0 of 13 frames reach 6σ") and "brightest 4σ" in d["missed"]["why"] or "brightest 5σ" in d["missed"]["why"]
+    assert abs(d["hits"][2]["x"] - (1500 - 24)) < 1 and 3.5 < d["hits"][2]["sig"] < 6
+    # a track of ours matched it and was thrown out: say which rule
+    rej = {"id": "20261109T0345_1476_1288", "status": "rejected:off-envelope", "report": {"id": "report_zy_x"}}
+    (d2,) = live.missed_reports("ccor1", [truth], [], [rej], metas, range(14), 0.0, con)
+    assert d2["missed"]["why"] == "our track 20261109T0345_1476_1288 of it was rejected as off-envelope"
+    # followed: not a miss; retracted: not listed
+    assert live.missed_reports("ccor1", [truth], [{"report": {"id": "report_zy_x"}}], [], metas, range(14), 0.0, con) == []
+    truth.status = "retracted"
+    assert live.missed_reports("ccor1", [truth], [], [], metas, range(14), 0.0, con) == []
