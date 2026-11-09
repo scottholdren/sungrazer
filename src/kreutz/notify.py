@@ -9,7 +9,12 @@ data/state/ (gitignored with the rest of data/); an unconfigured channel is skip
            only secret, so it is a long random string.
 
 $KREUTZ_DASHBOARD_URL or dashboard_url.txt, when set, is added as the link to open.
-Each track id is sent at most once per channel (data/state/<channel>_posted.json).
+
+Two events are sent, each at most once per track and channel
+(data/state/<channel>_posted.json): "following", when a track first gets a card
+on the dashboard (its third hit; 3-10 a day on CCOR-1, most of them not
+comets), and "alert", when it reaches the alert tier. CHANNEL_EVENTS says which
+channel gets which: Discord both, the phone push only the alert.
 """
 
 from __future__ import annotations
@@ -19,6 +24,13 @@ import os
 from pathlib import Path
 
 from . import net, paths
+
+
+CHANNEL_EVENTS = {"discord": ("following", "alert"), "ntfy": ("alert",)}
+
+
+def _key(track_id: str, event: str) -> str:
+    return track_id if event == "alert" else f"{track_id}:{event}"  # alerts keep the bare id of older logs
 
 
 def _setting(env: str, fname: str) -> str | None:
@@ -62,15 +74,16 @@ def _mark_posted(track_id: str, channel: str = "discord") -> None:
     p.write_text(json.dumps(ids[-500:]))
 
 
-def alert_text(d: dict, label: str, dashboard: str | None) -> str:
+def alert_text(d: dict, label: str, dashboard: str | None, event: str = "alert") -> str:
     r = d.get("report")
     if r:  # a report already on the site when we alert is a loss, whatever the following time
         al = r.get("alert_lead_h")
-        rep = f"already reported by {r['reporter']}" + (f" ({al:+.1f} h relative to this alert)" if al is not None else "")
+        rep = f"already reported by {r['reporter']}" + (f" ({al:+.1f} h relative to this alert)" if al is not None and event == "alert" else "")
     else:
         rep = f"UNREPORTED on {label}" + (f"; a {d['lasco']['camera']} claim by {d['lasco']['reporter']} overlaps in time"
                                           if d.get("lasco") else "")
-    lines = [f"**ALERT** {label} `{d['id']}` — {rep}",
+    head = "**ALERT**" if event == "alert" else "following"
+    lines = [f"{head} {label} `{d['id']}` — {rep}",
              f"{d['n_hits']} hits, best {d['best_sig']}σ, at ({d['x']}, {d['y']}) moving ({d['velocity'][0]}, {d['velocity'][1]}) px/frame"
              f" · first seen {d['first_seen'][5:16].replace('T', ' ')} UTC · last {d['last_seen'][5:16].replace('T', ' ')} UTC"]
     if dashboard:
@@ -102,22 +115,24 @@ def push_ntfy(title: str, text: str, urgent: bool, click: str | None = None, ima
     resp.raise_for_status()
 
 
-def post_alert(d: dict, label: str, sheet: Path | None, dashboard: str | None = None) -> bool:
-    """Send one alert-tier object to every configured channel that has not had it; True if any was sent."""
+def post_alert(d: dict, label: str, sheet: Path | None, dashboard: str | None = None, event: str = "alert") -> bool:
+    """Send one event of one object to every configured channel that takes that event
+    and has not had it; True if any was sent."""
     sent = False
     dashboard = dashboard or dashboard_url()
-    if webhook_url() and not already_posted(d["id"]):
+    key = _key(d["id"], event)
+    if webhook_url() and event in CHANNEL_EVENTS["discord"] and not already_posted(key):
         files = {"file": (sheet.name, sheet.read_bytes(), "image/png")} if sheet and sheet.exists() else None
-        resp = net.session().post(webhook_url(), data={"content": alert_text(d, label, dashboard)}, files=files, timeout=30)
+        resp = net.session().post(webhook_url(), data={"content": alert_text(d, label, dashboard, event)}, files=files, timeout=30)
         resp.raise_for_status()
-        _mark_posted(d["id"])
+        _mark_posted(key)
         sent = True
-    if ntfy_url() and not already_posted(d["id"], "ntfy"):
+    if ntfy_url() and event in CHANNEL_EVENTS["ntfy"] and not already_posted(key, "ntfy"):
         r = d.get("report")
         title = f"{label} comet alert: " + (f"already reported by {r['reporter']}" if r else "UNREPORTED")
-        text = "\n".join(alert_text(d, label, None).split("\n")[1:]) + f"\n{d['id']}"
+        text = "\n".join(alert_text(d, label, None, event).split("\n")[1:]) + f"\n{d['id']}"
         push_ntfy(title, text, urgent=not r, click=dashboard, image=sheet)
-        _mark_posted(d["id"], "ntfy")
+        _mark_posted(key, "ntfy")
         sent = True
     return sent
 

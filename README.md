@@ -112,7 +112,9 @@ sheet, to whichever of these is configured by a one-line file in
   do-not-disturb), 4 for one a hunter has already reported. The topic name is
   the only secret, so make it long and random.
 - **Discord**: `discord_webhook.txt` (`$KREUTZ_DISCORD_WEBHOOK`) holds a
-  webhook URL.
+  webhook URL. Discord also gets a "following" notice when a track first
+  gets a card (its third hit: 3 to 10 a day on CCOR-1, most of them not
+  comets); the phone push is for alerts only (`notify.CHANNEL_EVENTS`).
 
 `dashboard_url.txt` (`$KREUTZ_DASHBOARD_URL`) adds the link to open.
 `python -c "from kreutz import notify; print(notify.send_test())"` sends a

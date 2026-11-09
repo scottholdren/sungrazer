@@ -125,7 +125,7 @@ class Watcher:
         self.snapshot: list[Track] | None = None  # merged candidates as of the last window fed
         self.sparks: list[dict] = []  # bright two-hit chains as of the last window fed
         self.phase = poll_phase(camera)["phase_min"]  # fixed for the life of the process: no slot flapping
-        self.pending_posts: list[str] = []  # alert-tier track ids to post to Discord once their sheet exists
+        self.pending_posts: list[tuple[str, str]] = []  # (track id, "following" | "alert") to send once the sheet exists
 
     def run(self, once: bool = False) -> None:
         if not once and net.last_poll(f"live:{self.camera}") + net.POLL_INTERVAL_S > time.time():
@@ -248,15 +248,15 @@ class Watcher:
         if not notify.configured():
             return
         by_id = {d["id"]: d for d in state["tracks"]}
-        for tid in ids:
+        for tid, event in ids:
             d = by_id.get(tid)
             if d is None:
                 continue
             try:
-                if notify.post_alert(d, state["label"], out / "tracks" / f"{tid}.png", DASHBOARD_URL):
-                    self.activity.event(f"alert for {tid} sent", kind="info", track=tid)
+                if notify.post_alert(d, state["label"], out / "tracks" / f"{tid}.png", DASHBOARD_URL, event):
+                    self.activity.event(f"{event} notice for {tid} sent", kind="info", track=tid)
             except Exception as e:
-                self.activity.event(f"alert for {tid} failed: {e}", kind="error", track=tid)
+                self.activity.event(f"{event} notice for {tid} failed: {e}", kind="error", track=tid)
 
     def _announce(self, state: dict) -> None:
         """Events for tracks that appeared, grew into something, or matched a report since last cycle."""
@@ -282,8 +282,8 @@ class Watcher:
             # The alert goes out whenever a track first shows at the alert tier, whatever else is news about it
             # this cycle (queued only in the alert branch below, an object that also gained a report was skipped).
             if (d["tier"] == "alert" and (old or {}).get("tier") != "alert" and _recent(d["tier_at"])
-                    and d.get("group", tid) == tid and tid not in self.pending_posts):
-                self.pending_posts.append(tid)
+                    and d.get("group", tid) == tid and (tid, "alert") not in self.pending_posts):
+                self.pending_posts.append((tid, "alert"))
             if old is None:
                 if d.get("group", tid) != tid and d["group"] in self.known:
                     self.activity.event(f"track {tid} joins object {d['group']} {where}", kind="info", track=d["group"])
@@ -291,6 +291,7 @@ class Watcher:
                     continue
                 if not _recent(d["first_seen"]):
                     continue  # an old track resurfacing (regrouped, or its head aged out) is not news
+                self.pending_posts.append((tid, "following"))
                 self.activity.event(f"new object {tid} {where}{unrep}", kind="track", track=tid)
                 self.activity.change(f"new {tid} {where}{unrep}", "new", tid)
             elif d["report"] and not old.get("report"):
