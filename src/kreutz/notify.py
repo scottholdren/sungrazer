@@ -8,8 +8,9 @@ data/state/ (gitignored with the rest of data/); an unconfigured channel is skip
            A push to the phone app subscribed to that topic; the topic name is the
            only secret, so it is a long random string.
 
-$KREUTZ_DASHBOARD_URL or dashboard_url.txt, when set, is what tapping the phone push
-opens (it only works on the home network; Discord posts carry no dashboard link).
+Tapping the phone push opens the camera's live-finds folder on GitHub, the follow-up
+the package itself. Nothing links the dashboard: it sits on a network the phone cannot
+reach.
 
 Two events are sent, each at most once per track and channel
 (data/state/<channel>_posted.json): "following", when a track first gets a card
@@ -53,10 +54,6 @@ def webhook_url() -> str | None:
 
 def ntfy_url() -> str | None:
     return _setting("KREUTZ_NTFY_URL", "ntfy_url.txt")
-
-
-def dashboard_url() -> str | None:
-    return _setting("KREUTZ_DASHBOARD_URL", "dashboard_url.txt")
 
 
 def configured() -> bool:
@@ -152,13 +149,12 @@ def _mime(p: Path) -> str:
     return "image/gif" if p.suffix.lower() == ".gif" else "image/png"
 
 
-def post_alert(d: dict, label: str, image: Path | None, dashboard: str | None = None, event: str = "alert",
+def post_alert(d: dict, label: str, image: Path | None, click: str | None = None, event: str = "alert",
                tag: dict | None = None) -> bool:
     """Send one event of one object to every configured channel that takes that event
     and has not had it; True if any was sent. `image` is attached (an animated GIF plays
-    in Discord)."""
+    in Discord); tapping the phone push opens `click`."""
     sent = False
-    dashboard = dashboard or dashboard_url()
     key = _key(d["id"], event)
     if webhook_url() and event in CHANNEL_EVENTS["discord"] and not already_posted(key):
         files = {"file": (image.name, image.read_bytes(), _mime(image))} if image and image.exists() else None
@@ -170,7 +166,7 @@ def post_alert(d: dict, label: str, image: Path | None, dashboard: str | None = 
         r = d.get("report")
         title = f"{label} comet alert: " + (f"already reported by {r['reporter']}" if r else "UNREPORTED")
         text = f"{_facts(d)}\n{d['id']}"
-        push_ntfy(title, text, urgent=not r, click=dashboard, image=image)
+        push_ntfy(title, text, urgent=not r, click=click, image=image)
         _mark_posted(key, "ntfy")
         sent = True
     return sent
@@ -202,6 +198,6 @@ def send_test() -> list[str]:
         net.session().post(webhook_url(), data={"content": "kreutz test: alerts from the watcher will arrive here."}, timeout=30).raise_for_status()
         out.append("discord")
     if ntfy_url():
-        push_ntfy("kreutz test", "Alerts from the comet watcher will arrive here.", urgent=False, click=dashboard_url())
+        push_ntfy("kreutz test", "Alerts from the comet watcher will arrive here.", urgent=False)
         out.append("ntfy")
     return out

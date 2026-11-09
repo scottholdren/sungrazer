@@ -195,6 +195,25 @@ def status_changes(camera: str, d: dict) -> dict[str, list[str]]:
     return out
 
 
+def repo_url() -> str | None:
+    """The GitHub repo this checkout pushes to, as a web URL, or None outside one."""
+    if not (paths.ROOT / ".git").exists():
+        return None
+    try:
+        remote = subprocess.run(["git", "-C", str(paths.ROOT), "remote", "get-url", "origin"], check=True,
+                                capture_output=True, text=True, timeout=30).stdout.strip()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+    return remote.removesuffix(".git").replace("git@github.com:", "https://github.com/") if "github.com" in remote else None
+
+
+def finds_url(camera: str) -> str | None:
+    """Where this camera's hunter packages are listed on GitHub: what an alert on the phone
+    opens, since the package itself follows a minute or two later."""
+    repo = repo_url()
+    return f"{repo}/tree/main/results/{camera}/live-finds" if repo else None
+
+
 def publish(folder: Path, tid: str) -> str | None:
     """Commit the folder and push; the GitHub link to its README, or None if this
     host cannot push (no key, no network, not a checkout)."""

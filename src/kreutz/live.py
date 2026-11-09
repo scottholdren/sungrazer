@@ -48,7 +48,6 @@ TIERS = {"alert": (4, 15.0), "watch": (5, 10.0)}
 # tiers; they reveal themselves by persisting, and every real one so far started >= 560 px out
 # while long-lived noise lives in the streamer belt at 380-420 px (results/ccor1/learn/).
 STEADY_HITS, STEADY_R = 5, 550.0
-DASHBOARD_URL = os.environ.get("KREUTZ_DASHBOARD_URL")  # appended to Discord posts when set
 PREVIEW_DS = 4  # full-frame preview downsample
 LABELS = {"ccor1": "CCOR-1", "ccor2": "CCOR-2"}
 
@@ -249,7 +248,7 @@ class Watcher:
 
     def _post_alerts(self, state: dict, out: Path) -> None:
         """The notices for the tracks announced this cycle (after their sheets are drawn)."""
-        from . import notify
+        from . import export, notify
 
         if not self.pending_posts:
             return
@@ -258,12 +257,13 @@ class Watcher:
             return
         by_id = {d["id"]: d for d in state["tracks"]}
         labels = load_labels(self.camera)
+        click = export.finds_url(self.camera)  # the phone push opens GitHub: the dashboard is out of its reach
         for tid, event in ids:
             d = by_id.get(tid)
             if d is None:
                 continue
             try:
-                if notify.post_alert(d, state["label"], _alert_image(d, out), DASHBOARD_URL, event, labels.get(tid)):
+                if notify.post_alert(d, state["label"], _alert_image(d, out), click, event, labels.get(tid)):
                     self.activity.event(f"{event} notice for {tid} sent", kind="info", track=tid)
                     if event == "alert":
                         self.to_package.append(tid)

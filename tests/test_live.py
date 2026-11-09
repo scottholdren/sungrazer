@@ -225,14 +225,13 @@ def test_discord_post_once_with_sheet(tmp_path, monkeypatch):
             return R()
 
     monkeypatch.setattr(notify.net, "session", lambda: S())
-    assert notify.post_alert(d, "CCOR-1", sheet, "http://dash/") is True
+    assert notify.post_alert(d, "CCOR-1", sheet) is True
     assert notify.post_alert(d, "CCOR-1", sheet) is False  # same id again: not reposted
     (url, content, fname), = calls
     assert url.endswith("/webhook") and "ALERT" in content and "UNREPORTED on CCOR-1" in content and fname == "s.png"
     assert "http://dash/" not in content  # the dashboard only opens at home: not in the post
     # ntfy: a push with the sheet attached, ASCII headers, urgent when unreported, once per id
     (tmp_path / "ntfy_url.txt").write_text("https://ntfy.example/kreutz-topic\n")
-    (tmp_path / "dashboard_url.txt").write_text("http://dash2/\n")
     pushes = []
 
     class P:
@@ -247,7 +246,7 @@ def test_discord_post_once_with_sheet(tmp_path, monkeypatch):
             return P()
 
     monkeypatch.setattr(notify.net, "session", lambda: N())
-    assert notify.post_alert(d, "CCOR-1", sheet) is True  # Discord already has it; ntfy has not
+    assert notify.post_alert(d, "CCOR-1", sheet, "http://dash2/") is True  # Discord already has it; ntfy has not
     assert notify.post_alert(d, "CCOR-1", sheet) is False
     (url, h, n), = pushes
     assert url.endswith("/kreutz-topic") and h["Priority"] == "5" and h["Title"] == "CCOR-1 comet alert: UNREPORTED"
