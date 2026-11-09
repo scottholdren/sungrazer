@@ -229,7 +229,7 @@ def test_discord_post_once_with_sheet(tmp_path, monkeypatch):
     assert notify.post_alert(d, "CCOR-1", sheet) is False  # same id again: not reposted
     (url, content, fname), = calls
     assert url.endswith("/webhook") and "ALERT" in content and "UNREPORTED on CCOR-1" in content and fname == "s.png"
-    assert "http://dash/" in content
+    assert "http://dash/" not in content  # the dashboard only opens at home: not in the post
     # ntfy: a push with the sheet attached, ASCII headers, urgent when unreported, once per id
     (tmp_path / "ntfy_url.txt").write_text("https://ntfy.example/kreutz-topic\n")
     (tmp_path / "dashboard_url.txt").write_text("http://dash2/\n")
@@ -786,11 +786,11 @@ def test_alert_carries_the_sheet_as_an_animation_positions_and_then_the_package_
 
     t0 = datetime(2026, 11, 9, 1, 30, 25, tzinfo=timezone.utc)
     d = live._track_summary(_track(t0, 6, sig=20.0), [], 0.0, db.connect(":memory:"))
-    text = notify.alert_text(d, "CCOR-1", "http://dash/", "alert", {"label": "comet", "at": "2026-11-09T02:17:43+00:00"})
+    text = notify.alert_text(d, "CCOR-1", "alert", {"label": "comet", "at": "2026-11-09T02:17:43+00:00"})
     assert "6 hits, best 20.0σ, steady · " in text and "px from the Sun, 8.5 px/frame, heading" in text
     assert "you tagged it comet 02:17 UTC" in text and "```\n0145 1492 1197\n" in text and text.count("\n02") >= 3
-    assert "dashboard (home network): http://dash/" in text
-    short = notify.alert_text(d, "CCOR-1", None, "following")
+    assert "http" not in text
+    short = notify.alert_text(d, "CCOR-1", "following")
     assert short.startswith("following CCOR-1") and "```" not in short  # no positions on the frequent notice
 
     (tmp_path / "discord_webhook.txt").write_text("https://discord.example/webhook")
@@ -815,7 +815,8 @@ def test_alert_carries_the_sheet_as_an_animation_positions_and_then_the_package_
     assert sent[0][2]["file"][0] == "a.gif" and sent[0][2]["file"][2] == "image/gif"  # the animation plays in Discord
     sent.clear()
     notify.post_note("package for CCOR-1 `x`", "CCOR-1 package ready", "https://github.com/o/r/blob/main/results/x/README.md")
-    assert sent[0][1]["content"].endswith("/README.md") and sent[1][3]["Priority"] == "2" and sent[1][3]["Click"].endswith("/README.md")
+    assert sent[0][1]["content"].endswith("/README.md>") and "\n<https://" in sent[0][1]["content"]  # no embed under the link
+    assert sent[1][3]["Priority"] == "2" and sent[1][3]["Click"].endswith("/README.md")
     assert notify.auto_export()
     (tmp_path / "auto_export.txt").write_text("off\n")
     assert not notify.auto_export()

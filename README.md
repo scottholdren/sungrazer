@@ -132,7 +132,9 @@ ended (no hit for 2.5 h), so the link ends up showing the whole pass.
 `auto_export.txt` holding `off` stops both. Builds are serialised across the
 watcher and the dashboard server by a file lock (`movie.build_lock`).
 
-`dashboard_url.txt` (`$KREUTZ_DASHBOARD_URL`) adds the link to open.
+`dashboard_url.txt` (`$KREUTZ_DASHBOARD_URL`) is what tapping the phone push
+opens; Discord posts carry no dashboard link (it only works at home), and
+the package link is in angle brackets so Discord shows no embed under it.
 `python -c "from kreutz import notify; print(notify.send_test())"` sends a
 test on every configured channel. With nothing configured nothing is sent.
 

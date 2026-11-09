@@ -8,7 +8,8 @@ data/state/ (gitignored with the rest of data/); an unconfigured channel is skip
            A push to the phone app subscribed to that topic; the topic name is the
            only secret, so it is a long random string.
 
-$KREUTZ_DASHBOARD_URL or dashboard_url.txt, when set, is added as the link to open.
+$KREUTZ_DASHBOARD_URL or dashboard_url.txt, when set, is what tapping the phone push
+opens (it only works on the home network; Discord posts carry no dashboard link).
 
 Two events are sent, each at most once per track and channel
 (data/state/<channel>_posted.json): "following", when a track first gets a card
@@ -101,7 +102,7 @@ def _facts(d: dict) -> str:
 POSITIONS = 5  # newest hits listed in an alert, in the Sungrazer form's layout
 
 
-def alert_text(d: dict, label: str, dashboard: str | None, event: str = "alert", tag: dict | None = None) -> str:
+def alert_text(d: dict, label: str, event: str = "alert", tag: dict | None = None) -> str:
     r = d.get("report")
     if r:  # a report already on the site when we alert is a loss, whatever the following time
         al = r.get("alert_lead_h")
@@ -120,9 +121,7 @@ def alert_text(d: dict, label: str, dashboard: str | None, event: str = "alert",
     if event == "alert":
         lines += ["```"] + [f"{h['t'][11:13]}{h['t'][14:16]} {h['x']:.0f} {h['y']:.0f}" for h in d["hits"][-POSITIONS:]] + ["```"]
     lines.append("picture, left to right: the raw frame · that frame's map · the last 8 maps stacked along the motion")
-    if dashboard:
-        lines.append(f"dashboard (home network): {dashboard}")
-    return "\n".join(lines)
+    return "\n".join(lines)  # no dashboard link: it only opens on the home network, and the owner asked it out
 
 
 def _ascii(s: str) -> str:
@@ -163,7 +162,7 @@ def post_alert(d: dict, label: str, image: Path | None, dashboard: str | None = 
     key = _key(d["id"], event)
     if webhook_url() and event in CHANNEL_EVENTS["discord"] and not already_posted(key):
         files = {"file": (image.name, image.read_bytes(), _mime(image))} if image and image.exists() else None
-        resp = net.session().post(webhook_url(), data={"content": alert_text(d, label, dashboard, event, tag)}, files=files, timeout=30)
+        resp = net.session().post(webhook_url(), data={"content": alert_text(d, label, event, tag)}, files=files, timeout=30)
         resp.raise_for_status()
         _mark_posted(key)
         sent = True
@@ -179,9 +178,10 @@ def post_alert(d: dict, label: str, image: Path | None, dashboard: str | None = 
 
 def post_note(text: str, title: str, link: str | None = None) -> None:
     """A follow-up to an alert on every configured channel: quiet on the phone (priority 2,
-    no sound), and tapping it opens `link`."""
+    no sound), and tapping it opens `link`. On Discord the link is in angle brackets, which
+    stops the embed (the repo's card) from unrolling under it."""
     if webhook_url():
-        net.session().post(webhook_url(), data={"content": text + (f"\n{link}" if link else "")}, timeout=30).raise_for_status()
+        net.session().post(webhook_url(), data={"content": text + (f"\n<{link}>" if link else "")}, timeout=30).raise_for_status()
     if ntfy_url():
         headers = {"Title": _ascii(title), "Priority": "2", "Tags": "page_facing_up"}
         if link:
