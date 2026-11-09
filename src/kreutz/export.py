@@ -36,6 +36,11 @@ RING_R = 7         # half-res px
 
 
 def export_track(camera: str, d: dict, latest: dict | None, root: Path, publish_it: bool = True) -> dict:
+    with movie.build_lock():
+        return _export_track(camera, d, latest, root, publish_it)
+
+
+def _export_track(camera: str, d: dict, latest: dict | None, root: Path, publish_it: bool = True) -> dict:
     out = finds_dir(camera) / d["id"]
     out.mkdir(parents=True, exist_ok=True)
     files = []
@@ -67,6 +72,37 @@ def export_track(camera: str, d: dict, latest: dict | None, root: Path, publish_
 
 def finds_dir(camera: str) -> Path:
     return paths.ROOT / "results" / camera / "live-finds"
+
+
+SHEET_GIF_ZOOM = 2    # the sheet's tiles are 147 px; doubled they read on a phone
+SHEET_GIF_HOLD = 5    # the newest frame is shown this many times as long
+
+
+def write_sheet_gif(sheet_png: Path, columns: list[str], out: Path) -> None:
+    """The contact sheet as an animation, for an alert: one frame per column, its three
+    tiles side by side (the raw frame around the object, that frame's significance map,
+    the last 8 maps stacked along the motion), the frame's time stamped on it, resting on
+    the newest."""
+    from . import contact
+
+    sheet = read_png(sheet_png)
+    T, gap = (2 * contact.HALF + 1) * contact.SCALE, 4
+    n = min(len(columns), (sheet.shape[1] - gap) // (T + gap))
+    z, bar = SHEET_GIF_ZOOM, 22
+    frames = []
+    for k in range(n):
+        x0 = gap + k * (T + gap)
+        img = np.zeros((bar + T * z, 3 * T * z + 2 * gap * z), np.uint8)
+        for r in range(contact.ROWS):
+            tile = sheet[gap + r * (T + gap):gap + r * (T + gap) + T, x0:x0 + T]
+            img[bar:, r * (T + gap) * z:r * (T + gap) * z + T * z] = np.repeat(np.repeat(tile, z, 0), z, 1)
+        name = columns[k][9:24] if len(columns[k]) > 24 else columns[k]
+        movie.stamp(img, f"{name[:4]}-{name[4:6]}-{name[6:8]} {name[9:11]}:{name[11:13]} UTC", x=4, y=4)
+        frames.append(gif.gray_to_index(img.astype(np.float32)))
+    if not frames:
+        raise ValueError("the sheet has no columns")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    gif.write_gif(out, frames + [frames[-1]] * (SHEET_GIF_HOLD - 1), delay_cs=60)
 
 
 def mark(idx: np.ndarray, xx: np.ndarray, yy: np.ndarray, x: float, y: float, r: float, hit: bool) -> None:

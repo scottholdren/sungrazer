@@ -762,3 +762,60 @@ def test_missed_report_is_laid_over_our_frames_with_a_reason(tmp_path, monkeypat
             {"camera": "ccor2", "label": "CCOR-2", "tracks": [{"id": "real", "tier": "alert", "report_ids": ["report_zy_x"]}]}]
     live._yield_missed(cams)
     assert cams[0]["tracks"][0]["twin_of"] == {"camera": "ccor2", "id": "real"} and cams[0]["tracks"][0]["missed"]["followed_on"] == "CCOR-2"
+
+
+def test_alert_carries_the_sheet_as_an_animation_positions_and_then_the_package_link(tmp_path, monkeypatch):
+    from kreutz import contact, export, gif, notify
+    from kreutz.reports import db
+
+    monkeypatch.setattr(notify.paths, "STATE_DIR", tmp_path)
+    # a sheet of 4 columns x 3 rows, each tile a different grey
+    T, gap = (2 * contact.HALF + 1) * contact.SCALE, 4
+    sheet = np.zeros((gap + 3 * (T + gap), gap + 4 * (T + gap)), np.uint8)
+    for k in range(4):
+        for r in range(3):
+            sheet[gap + r * (T + gap):gap + r * (T + gap) + T, gap + k * (T + gap):gap + k * (T + gap) + T] = 40 + 50 * r + 10 * k
+    from kreutz.inspect import write_png
+    write_png(tmp_path / "s.png", sheet)
+    out = tmp_path / "alerts" / "a.gif"
+    export.write_sheet_gif(tmp_path / "s.png", ["20261109T020025", "20261109T021525", "20261109T023025", "20261109T024525"], out)
+    b = out.read_bytes()
+    w, h = int.from_bytes(b[6:8], "little"), int.from_bytes(b[8:10], "little")
+    assert b[:6] == b"GIF89a" and (w, h) == (3 * T * 2 + 2 * gap * 2, 22 + T * 2)  # the three pictures in a row
+    assert b.count(b"\x21\xF9\x04") == 4 + export.SHEET_GIF_HOLD - 1  # every column, resting on the newest
+
+    t0 = datetime(2026, 11, 9, 1, 30, 25, tzinfo=timezone.utc)
+    d = live._track_summary(_track(t0, 6, sig=20.0), [], 0.0, db.connect(":memory:"))
+    text = notify.alert_text(d, "CCOR-1", "http://dash/", "alert", {"label": "comet", "at": "2026-11-09T02:17:43+00:00"})
+    assert "6 hits, best 20.0σ, steady · " in text and "px from the Sun, 8.5 px/frame, heading" in text
+    assert "you tagged it comet 02:17 UTC" in text and "```\n0145 1492 1197\n" in text and text.count("\n02") >= 3
+    assert "dashboard (home network): http://dash/" in text
+    short = notify.alert_text(d, "CCOR-1", None, "following")
+    assert short.startswith("following CCOR-1") and "```" not in short  # no positions on the frequent notice
+
+    (tmp_path / "discord_webhook.txt").write_text("https://discord.example/webhook")
+    (tmp_path / "ntfy_url.txt").write_text("https://ntfy.example/topic")
+    sent = []
+
+    class R:
+        ok = True
+
+        def raise_for_status(self):
+            pass
+
+    class S:
+        def post(self, url, data=None, files=None, headers=None, timeout=None):
+            sent.append((url, data, files, headers))
+            return R()
+
+        put = post
+
+    monkeypatch.setattr(notify.net, "session", lambda: S())
+    assert notify.post_alert(d, "CCOR-1", out, event="alert")
+    assert sent[0][2]["file"][0] == "a.gif" and sent[0][2]["file"][2] == "image/gif"  # the animation plays in Discord
+    sent.clear()
+    notify.post_note("package for CCOR-1 `x`", "CCOR-1 package ready", "https://github.com/o/r/blob/main/results/x/README.md")
+    assert sent[0][1]["content"].endswith("/README.md") and sent[1][3]["Priority"] == "2" and sent[1][3]["Click"].endswith("/README.md")
+    assert notify.auto_export()
+    (tmp_path / "auto_export.txt").write_text("off\n")
+    assert not notify.auto_export()

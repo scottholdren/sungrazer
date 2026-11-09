@@ -14,7 +14,12 @@ Two events are sent, each at most once per track and channel
 (data/state/<channel>_posted.json): "following", when a track first gets a card
 on the dashboard (its third hit; 3-10 a day on CCOR-1, most of them not
 comets), and "alert", when it reaches the alert tier. CHANNEL_EVENTS says which
-channel gets which: Discord both, the phone push only the alert.
+channel gets which: Discord both, the phone push only the alert. The picture is
+the contact sheet as an animation (`export.write_sheet_gif`). After an alert the
+watcher builds and publishes the hunter's package and sends its README link as
+a quiet follow-up (the dashboard link only opens on the home network), and
+publishes it once more when the track has ended; auto_export.txt holding "off"
+stops that.
 """
 
 from __future__ import annotations
@@ -74,7 +79,29 @@ def _mark_posted(track_id: str, channel: str = "discord") -> None:
     p.write_text(json.dumps(ids[-500:]))
 
 
-def alert_text(d: dict, label: str, dashboard: str | None, event: str = "alert") -> str:
+def _facts(d: dict) -> str:
+    """One line of what the track is doing: size, brightness and its trend, where, how fast, which way."""
+    import math
+
+    sig = [h["sig"] for h in d["hits"]]
+    trend = "brightening" if sig[-1] > sig[0] * 1.3 else "fading" if sig[-1] < sig[0] / 1.3 else "steady"
+    out = f"{d['n_hits']} hits, best {d['best_sig']}σ, {trend}"
+    vx, vy = d["velocity"]
+    v = math.hypot(vx, vy)
+    if d.get("sun_xy") and v:
+        sx, sy = d["sun_xy"]
+        r = math.hypot(d["x"] - sx, d["y"] - sy)
+        off = math.degrees(math.acos(max(-1.0, min(1.0, (vx * (sx - d["x"]) + vy * (sy - d["y"])) / (r * v + 1e-9)))))
+        out += f" · {r:.0f} px from the Sun, {v:.1f} px/frame, heading {off:.0f}° off the Sun"
+    else:
+        out += f" · at ({d['x']}, {d['y']}), {v:.1f} px/frame"
+    return out
+
+
+POSITIONS = 5  # newest hits listed in an alert, in the Sungrazer form's layout
+
+
+def alert_text(d: dict, label: str, dashboard: str | None, event: str = "alert", tag: dict | None = None) -> str:
     r = d.get("report")
     if r:  # a report already on the site when we alert is a loss, whatever the following time
         al = r.get("alert_lead_h")
@@ -83,11 +110,16 @@ def alert_text(d: dict, label: str, dashboard: str | None, event: str = "alert")
         rep = f"UNREPORTED on {label}" + (f"; a {d['lasco']['camera']} claim by {d['lasco']['reporter']} overlaps in time"
                                           if d.get("lasco") else "")
     head = "**ALERT**" if event == "alert" else "following"
-    lines = [f"{head} {label} `{d['id']}` — {rep}",
-             f"{d['n_hits']} hits, best {d['best_sig']}σ, at ({d['x']}, {d['y']}) moving ({d['velocity'][0]}, {d['velocity'][1]}) px/frame"
-             f" · first seen {d['first_seen'][5:16].replace('T', ' ')} UTC · last {d['last_seen'][5:16].replace('T', ' ')} UTC"]
+    lines = [f"{head} {label} `{d['id']}` — {rep}", _facts(d)]
+    if d.get("other"):
+        lines.append("not on the Kreutz lane (bright mover in another direction)")
+    if tag and tag.get("label"):
+        lines.append(f"you tagged it {tag['label']} {tag.get('at', '')[11:16]} UTC")
+    if event == "alert":
+        lines += ["```"] + [f"{h['t'][11:13]}{h['t'][14:16]} {h['x']:.0f} {h['y']:.0f}" for h in d["hits"][-POSITIONS:]] + ["```"]
+    lines.append("picture, left to right: the raw frame · that frame's map · the last 8 maps stacked along the motion")
     if dashboard:
-        lines.append(dashboard)
+        lines.append(f"dashboard (home network): {dashboard}")
     return "\n".join(lines)
 
 
@@ -115,26 +147,50 @@ def push_ntfy(title: str, text: str, urgent: bool, click: str | None = None, ima
     resp.raise_for_status()
 
 
-def post_alert(d: dict, label: str, sheet: Path | None, dashboard: str | None = None, event: str = "alert") -> bool:
+def _mime(p: Path) -> str:
+    return "image/gif" if p.suffix.lower() == ".gif" else "image/png"
+
+
+def post_alert(d: dict, label: str, image: Path | None, dashboard: str | None = None, event: str = "alert",
+               tag: dict | None = None) -> bool:
     """Send one event of one object to every configured channel that takes that event
-    and has not had it; True if any was sent."""
+    and has not had it; True if any was sent. `image` is attached (an animated GIF plays
+    in Discord)."""
     sent = False
     dashboard = dashboard or dashboard_url()
     key = _key(d["id"], event)
     if webhook_url() and event in CHANNEL_EVENTS["discord"] and not already_posted(key):
-        files = {"file": (sheet.name, sheet.read_bytes(), "image/png")} if sheet and sheet.exists() else None
-        resp = net.session().post(webhook_url(), data={"content": alert_text(d, label, dashboard, event)}, files=files, timeout=30)
+        files = {"file": (image.name, image.read_bytes(), _mime(image))} if image and image.exists() else None
+        resp = net.session().post(webhook_url(), data={"content": alert_text(d, label, dashboard, event, tag)}, files=files, timeout=30)
         resp.raise_for_status()
         _mark_posted(key)
         sent = True
     if ntfy_url() and event in CHANNEL_EVENTS["ntfy"] and not already_posted(key, "ntfy"):
         r = d.get("report")
         title = f"{label} comet alert: " + (f"already reported by {r['reporter']}" if r else "UNREPORTED")
-        text = "\n".join(alert_text(d, label, None, event).split("\n")[1:]) + f"\n{d['id']}"
-        push_ntfy(title, text, urgent=not r, click=dashboard, image=sheet)
+        text = f"{_facts(d)}\n{d['id']}"
+        push_ntfy(title, text, urgent=not r, click=dashboard, image=image)
         _mark_posted(key, "ntfy")
         sent = True
     return sent
+
+
+def post_note(text: str, title: str, link: str | None = None) -> None:
+    """A follow-up to an alert on every configured channel: quiet on the phone (priority 2,
+    no sound), and tapping it opens `link`."""
+    if webhook_url():
+        net.session().post(webhook_url(), data={"content": text + (f"\n{link}" if link else "")}, timeout=30).raise_for_status()
+    if ntfy_url():
+        headers = {"Title": _ascii(title), "Priority": "2", "Tags": "page_facing_up"}
+        if link:
+            headers["Click"] = link
+        net.session().post(ntfy_url(), data=_ascii(text).encode(), headers=headers, timeout=30).raise_for_status()
+
+
+def auto_export() -> bool:
+    """Whether an alert also builds and publishes the hunter's package and links it
+    (data/state/auto_export.txt holding "off" turns that off)."""
+    return (_setting("KREUTZ_AUTO_EXPORT", "auto_export.txt") or "on").lower() != "off"
 
 
 def send_test() -> list[str]:

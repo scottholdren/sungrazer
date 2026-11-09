@@ -116,6 +116,22 @@ sheet, to whichever of these is configured by a one-line file in
   gets a card (its third hit: 3 to 10 a day on CCOR-1, most of them not
   comets); the phone push is for alerts only (`notify.CHANNEL_EVENTS`).
 
+An alert reads: reported or not; hits, brightest sigma and whether it is
+brightening; distance from the Sun, speed and heading; the owner's tag if
+any; and the newest five positions in the report form's layout. Its picture
+is the contact sheet as an animation (`export.write_sheet_gif`): one frame per
+column, the three pictures in a row (raw frame, that frame's map, the last 8
+maps stacked), the time stamped on, resting on the newest; Discord plays it
+in place. The owner did not find the still sheet useful (2026-11-09).
+
+After an alert the watcher also builds and publishes the hunter's package
+(`Watcher._packages`, once the cycle's state is out) and sends its README
+link as a quiet follow-up: that link opens anywhere, the dashboard's only on
+the home network. The package is published once more when the track has
+ended (no hit for 2.5 h), so the link ends up showing the whole pass.
+`auto_export.txt` holding `off` stops both. Builds are serialised across the
+watcher and the dashboard server by a file lock (`movie.build_lock`).
+
 `dashboard_url.txt` (`$KREUTZ_DASHBOARD_URL`) adds the link to open.
 `python -c "from kreutz import notify; print(notify.send_test())"` sends a
 test on every configured channel. With nothing configured nothing is sent.

@@ -15,14 +15,16 @@ with the frame names, grid layout and the fitted position per frame.
 from __future__ import annotations
 
 import json
+import fcntl
 import math
 import warnings
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
 
-from . import coords
+from . import coords, paths
 from .detect import frames as A
 from .detect.velocity import FRAME_SECONDS
 from .frameindex import FrameIndex
@@ -90,7 +92,39 @@ def _path(t: np.ndarray, xs: np.ndarray, ys: np.ndarray, velocity) -> "callable"
     return pos
 
 
+_LOCK_DEPTH = 0
+
+
+@contextmanager
+def build_lock():
+    """One movie or package build at a time across processes (the dashboard server builds
+    on request, the watcher when it alerts): they write the same files and the same git
+    checkout. Re-entrant within a process: a package build holds it while building movies."""
+    global _LOCK_DEPTH
+    if _LOCK_DEPTH:
+        _LOCK_DEPTH += 1
+        try:
+            yield
+        finally:
+            _LOCK_DEPTH -= 1
+        return
+    paths.STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(paths.STATE_DIR / "build.lock", "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        _LOCK_DEPTH = 1
+        try:
+            yield
+        finally:
+            _LOCK_DEPTH = 0
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
 def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = False) -> dict:
+    with build_lock():
+        return _movie(camera, d, out_dir, stack, full)
+
+
+def _movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = False) -> dict:
     """Build (or reuse) the movie for track summary `d` (state.json entry), each
     frame the sum of the last `stack` maps along the motion. `full` gives the field
     movie (`_field`: the object's quadrant at full resolution, one PNG per frame)

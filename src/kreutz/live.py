@@ -127,6 +127,7 @@ class Watcher:
         self.sparks: list[dict] = []  # bright two-hit chains as of the last window fed
         self.phase = poll_phase(camera)["phase_min"]  # fixed for the life of the process: no slot flapping
         self.pending_posts: list[tuple[str, str]] = []  # (track id, "following" | "alert") to send once the sheet exists
+        self.to_package: list[str] = []  # alerted track ids whose hunter's package is to be built and linked
 
     def run(self, once: bool = False) -> None:
         if not once and net.last_poll(f"live:{self.camera}") + net.POLL_INTERVAL_S > time.time():
@@ -240,10 +241,14 @@ class Watcher:
         print(f"[{now:%H:%M:%S}] {camera}: {len(state['tracks'])} following, {len(state['rejected'])} rejected, "
               f"{state['open_chains']} open chains; cycle {state['cycle_s']} s: "
               + ", ".join(f"{k} {v}" for k, v in timings.items()), flush=True)
+        try:
+            self._packages(state, out)  # after the state is out: a build must not hold the dashboard back
+        except Exception as e:
+            act.event(f"packages: {e}", kind="error")
         return state
 
     def _post_alerts(self, state: dict, out: Path) -> None:
-        """Discord posts for the alert-tier objects announced this cycle (after their sheets are drawn)."""
+        """The notices for the tracks announced this cycle (after their sheets are drawn)."""
         from . import notify
 
         if not self.pending_posts:
@@ -252,15 +257,61 @@ class Watcher:
         if not notify.configured():
             return
         by_id = {d["id"]: d for d in state["tracks"]}
+        labels = load_labels(self.camera)
         for tid, event in ids:
             d = by_id.get(tid)
             if d is None:
                 continue
             try:
-                if notify.post_alert(d, state["label"], out / "tracks" / f"{tid}.png", DASHBOARD_URL, event):
+                if notify.post_alert(d, state["label"], _alert_image(d, out), DASHBOARD_URL, event, labels.get(tid)):
                     self.activity.event(f"{event} notice for {tid} sent", kind="info", track=tid)
+                    if event == "alert":
+                        self.to_package.append(tid)
             except Exception as e:
                 self.activity.event(f"{event} notice for {tid} failed: {e}", kind="error", track=tid)
+
+    def _packages(self, state: dict, out: Path) -> None:
+        """After an alert: build and publish the hunter's package and send its README link
+        (it opens anywhere; the dashboard only on the home network). The package is
+        published once more when the track has ended (no hit for ENDED_S), so the link
+        ends up showing the whole pass. One refresh a cycle: a build takes a minute or two."""
+        from . import export, notify
+
+        first, self.to_package = self.to_package, []
+        if not notify.auto_export():
+            return
+        book_p = paths.STATE_DIR / "auto_export.json"
+        book = json.loads(book_p.read_text()) if book_p.exists() else {}
+        by_id = {d["id"]: d for d in state["tracks"]}
+        refresh = []
+        for key, rec in list(book.items()):
+            cam, tid = key.split("/", 1)
+            if cam != self.camera:
+                continue
+            d = by_id.get(tid)
+            if d is None:
+                del book[key]  # it has left the dashboard: its last package stands
+            elif d["n_hits"] != rec["n_hits"] and time.time() - _ts(d["last_seen"]) >= ENDED_S:
+                refresh.append(tid)
+        latest_p = out / "latest.json"
+        latest = json.loads(latest_p.read_text()) if latest_p.exists() else None
+        for tid in first + refresh[:1]:
+            d = by_id.get(tid)
+            if d is None:
+                continue
+            try:
+                self.activity.now("package", f"building the hunter's package for {tid}")
+                rec = export.export_track(self.camera, d, latest, out.parent)
+                book[f"{self.camera}/{tid}"] = {"n_hits": d["n_hits"], "at": _now_iso(), "url": rec.get("url")}
+                if tid in first and rec.get("url"):
+                    notify.post_note(f"package for {state['label']} `{tid}`: its positions in the report form's layout, and both movies",
+                                     f"{state['label']} package ready", rec["url"])
+                self.activity.event(f"hunter's package for {tid} " + ("published" if rec.get("url") else "written (not pushed)"),
+                                    kind="info", track=tid)
+            except Exception as e:
+                self.activity.event(f"hunter's package for {tid} failed: {e}", kind="error", track=tid)
+        if first or refresh or book_p.exists():
+            _write_json(book_p, book)
 
     def _announce(self, state: dict) -> None:
         """Events for tracks that appeared, grew into something, or matched a report since last cycle."""
@@ -593,6 +644,26 @@ def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas
         "sparks": list(sparks),
         "sheet": {"half": contact.HALF, "scale": contact.SCALE, "gap": 4},
     }
+
+
+ENDED_S = 2.5 * 3600  # no hit for this long (the tracker's two hours of patience, and the feed's lag): the track has ended
+
+
+def _alert_image(d: dict, out: Path) -> Path | None:
+    """What a notice shows: the track's contact sheet as an animation, the sheet itself
+    if that cannot be made, nothing without a sheet."""
+    from . import export
+
+    sheet = out / "tracks" / f"{d['id']}.png"
+    if not sheet.exists():
+        return None
+    try:
+        anim = out / "alerts" / f"{d['id']}.gif"
+        export.write_sheet_gif(sheet, d.get("columns") or [], anim)
+        return anim
+    except Exception as e:  # noqa: BLE001 - the notice matters more than its picture
+        print(f"alert animation for {d['id']} failed: {e}", flush=True)
+        return sheet
 
 
 OTHER_ID0 = 900_000  # tracker-style ids of the movers' track dicts (the dashboard's id is made from the first hit)
