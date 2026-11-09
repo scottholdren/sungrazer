@@ -420,25 +420,26 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
     assert movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3) == meta  # cached
     deep = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies")  # the detector's 8-stack
     assert deep["stack"] == movie.STACK and deep["frames"][-1]["stacked"] == movie.STACK
-    # the full field: one PNG per frame, the raw frame minus the median of the five before it, no stacking,
-    # noise kept as texture (black point -2 sigma), ring in half-res px
+    # the full field: one PNG per frame at full resolution, the raw frame minus the median of the earlier
+    # frames, no stacking or smoothing, zero near black on one linear scale
     fm = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3, full=True)
     assert len(fm["pngs"]) == len(fm["frames"]) == 1 + movie.LEAD_FRAMES + 3
-    # cropped to the Sun's surroundings plus the path with a margin, not the whole 1024 x 960 frame
+    # cropped to the path with a margin (no Sun position in this fixture), not the whole 2048 x 1920 frame
     x0, y0 = fm["crop"]
-    assert 0 < fm["width"] < 1024 and 0 < fm["height"] < 960 and x0 >= 0 and y0 >= 0
+    assert 0 < fm["width"] < 2048 and 0 < fm["height"] < 1920 and x0 >= 0 and y0 >= 0
     assert fm["stack"] == 1 and (fm["lo_sigma"], fm["hi_sigma"]) == (movie.FIELD_LO, movie.FIELD_HI)
+    zero = (0 - movie.FIELD_LO) / (movie.FIELD_HI - movie.FIELD_LO) * 255  # where zero sits on the PNG
+    assert zero < 30  # the sky is near black
     for j, f in enumerate(fm["frames"]):
         img = _read_png(tmp_path / "live" / "ccor1" / "movies" / fm["pngs"][j].split("/")[-1])
         assert img.shape == (fm["height"], fm["width"])
-        assert movie.FIELD_MARGIN - 2 <= f["x"] <= fm["width"] - movie.FIELD_MARGIN + 2  # path inside, with its margin
-        assert movie.FIELD_MARGIN - 2 <= f["y"] <= fm["height"] - movie.FIELD_MARGIN + 2
+        assert 2 * movie.FIELD_MARGIN - 4 <= f["x"] <= fm["width"] - 2 * movie.FIELD_MARGIN + 4  # path inside, with its margin
+        assert 2 * movie.FIELD_MARGIN - 4 <= f["y"] <= fm["height"] - 2 * movie.FIELD_MARGIN + 4
         y, x = int(round(f["y"])), int(round(f["x"]))
-        zero = (0 - movie.FIELD_LO) / (movie.FIELD_HI - movie.FIELD_LO) * 255  # where zero sigma sits on the PNG
-        assert img[y - 2:y + 3, x - 2:x + 3].max() > zero + 80, f"object missing from full frame {j}"
-        assert zero - 10 < np.median(img) < zero + 20  # the noise is visible as grain, not cut to black
+        assert img[y - 3:y + 4, x - 3:x + 4].max() > zero + 30, f"object missing from full frame {j}"
+        assert zero - 12 < np.median(img) < zero + 12  # the noise is grain around zero, not cut to black
         assert f["stacked"] == 1
-    assert fm["frames"][-1]["background"] >= 1 and fm["frames"][-1]["peak"] > 4  # smoothed: the 12-sigma blob reads lower
+    assert fm["frames"][-1]["background"] >= 1 and fm["frames"][-1]["peak"] > 4
     assert movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=8, full=True) == fm  # cached; stack ignored
     assert (tmp_path / "live" / "ccor1" / "movies" / "t1_4_s3.png").exists()  # both depths of the current size stay
     d["n_hits"] = 5
@@ -576,3 +577,23 @@ def test_find_track_shapes_a_logged_spark_like_a_track(tmp_path, monkeypatch):
     assert t["spark"] and t["status"] == "spark: gone" and t["n_hits"] == 2 and t["best_sig"] == 9.6 and t["last_seen"] == hits[1]["t"]
     assert live.find_track("ccor1", "20261101T0800_1_1")["status"] == "spark"
     assert live.find_track("ccor1", "20261101T0500_1_1") is None
+
+
+def test_movie_marker_sits_on_the_measured_hits_of_an_accelerating_track():
+    # 20261107T1730_1924_1608: 7 -> 10 px/frame over 28 h; one straight line sat up to 29 px off its hits
+    import numpy as np
+    from kreutz import movie
+
+    k = np.arange(100.0)
+    t = k * 900.0
+    xs, ys = 1900 - (7 * k + 0.015 * k ** 2), 1600 - (4 * k + 0.01 * k ** 2)
+    fit = np.polyval(np.polyfit(k, xs, 1), k)
+    assert np.abs(fit - xs).max() > 20  # the old marker
+    pos = movie._path(t, xs, ys, [-8.0, -5.0])
+    assert all(np.hypot(pos(t[i])[0] - xs[i], pos(t[i])[1] - ys[i]) < 1e-6 for i in range(100))
+    mid = pos((t[40] + t[41]) / 2)
+    assert abs(mid[0] - (xs[40] + xs[41]) / 2) < 1e-6
+    after = pos(t[-1] + 900.0)  # one frame past the last hit: carried at the track's final speed, not its mean
+    assert abs((after[0] - xs[-1]) - (xs[-1] - xs[-2])) < 0.5
+    before = pos(t[0] - 900.0)
+    assert abs((xs[0] - before[0]) - (xs[1] - xs[0])) < 0.5

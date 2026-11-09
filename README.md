@@ -164,28 +164,39 @@ dropped: the Pages build, legacy or through Actions, sat for minutes at
 GitHub's end and served stale copies for ten more.)
 
 Full field: the "full field" button next to it asks `/api/movie` with
-`full=1` for the frame at half resolution, cropped the way the hunters frame
-their movies: the object's quadrant, its corner nearest the Sun
+`full=1` for the frame at the camera's full resolution, cropped the way the
+hunters frame their movies: the object's quadrant, its corner nearest the Sun
 `FIELD_SUN_CLEAR` (100) half-res px from the Sun on each axis, just outside
 the occulter so the glare and the arm stay out and the streamer bases show,
 running out to the field edge on the object's side (at most `FIELD_MAX` = 640
-px) and always holding the fitted path with a `FIELD_MARGIN` of 50 px
-(`_field_crop`; one PNG per frame, the last `FULL_FRAMES`
-= 32 frames up to the newest hit; `crop` in the movie's JSON is the offset of
-the crop in the half-res frame): each raw frame minus one fixed background,
-the pixelwise minimum of the good frames over the `FIELD_BG_HOURS` (24) before
-the first shown frame, every `FIELD_BG_STEP` (4) frames. The static corona
-and glare cancel; streamers (which move over a day) and stars stay, which is
-the look of the hunters' own field movies. No stacking (shifting along one
-object's motion smears everything else; stacking stays in the zoomed patch,
-where it helps a faint comet show). Divided by the frame's own noise per
-radius, smoothed by `FIELD_SOFT` (1) px so the noise reads as grain and stars
-and comet as soft dots, on a linear scale from `FIELD_LO` (-2) to `FIELD_HI`
-(10) sigma. A timestamp is written into each frame's corner (`stamp`, a 5x7
-bitmap font). A crosshair with a gap marks the fitted position, yellow on a
+half-res px) and always holding the path with a `FIELD_MARGIN` of 50 px
+(`_field_crop`; one PNG per frame, the last `FULL_FRAMES` = 120 frames, 30 h,
+up to the newest hit; `crop` in the movie's JSON is the offset of the crop in
+the full-res frame). Each raw frame has the pixelwise median of the good
+frames over the `FIELD_BG_HOURS` (24) before it subtracted, every
+`FIELD_BG_STEP` (4) frames: the static corona and glare cancel to zero,
+streamers show bright where they have moved to and dark where they were, and
+stars, the Moon and the object stay. No stacking (shifting along one object's
+motion smears everything else; stacking stays in the zoomed patch, where it
+helps a faint comet show), no smoothing, and one linear scale from `FIELD_LO`
+(-2.2) to `FIELD_HI` (22.8) in units of the noise in the outer half of the
+view, so the sky is near black and the grain thickens toward the Sun. This is
+Chris Wage's recipe; compared frame for frame with his CCOR-1 movie of
+2026-11-08 it has the same zero level and grain. (Until 2026-11-09 the view
+was half resolution, the last 32 frames, minus the 24-h minimum, divided by
+the noise per radius and smoothed: a grey haze that burned out near the
+occulter, and a movie too short to hold the Moon's pass of that morning.)
+The marker on both movies sits on the object's measured positions
+(interpolated between hits, carried along the last `END_HITS` = 8 hits'
+straight-line fit beyond them): one straight line through a 28-hour track sat
+up to 29 px off, since a Kreutz comet speeds up as it falls. The zoomed patch
+is fixed on the sky and at most 290 full-res px across, so a longer track
+shows its newest stretch, stacked along that stretch's own motion.
+A timestamp is written into each frame's corner (`stamp`, a 5x7
+bitmap font). A crosshair with a gap marks the object, yellow on a
 measured hit; click the picture for 1:1. Same scrub controls; the field plays
 at 6 frames/s by default, the black point slider goes below zero and defaults
-to -2 sigma here, 2 sigma for the patch.
+to the scale's own -2.2 sigma here, 2 sigma for the patch.
 
 Movie: the detail view's "build hi-res movie" button asks `/api/movie` for a
 fixed patch of sky (significance maps, the last 8 or 3 frames added along the

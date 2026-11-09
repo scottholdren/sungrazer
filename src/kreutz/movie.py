@@ -35,40 +35,66 @@ STACK = 8            # maps added along the motion (the detector stacks 8); 3 is
 MAX_FRAMES = 40
 LEAD_FRAMES = 4      # frames shown before the first hit
 RANGE_SIGMA = 10.0   # 255 on the PNG
-FULL_FRAMES = 32     # the field movie: the frame at half res, this many frames up to the newest hit
-FULL_RING = 10       # marker size on it (crosshair tick length), px
-FIELD_VERSION = 6    # in the cache key: bump when the field rendering changes, or old frames are served
+FULL_FRAMES = 120    # the field movie: this many frames up to the newest hit (30 h), at the camera's full resolution
+FULL_RING = 16       # marker size on it (crosshair tick length), px
+FIELD_VERSION = 7    # in the cache key: bump when the field rendering changes, or old frames are served
 FIELD_SUN_CLEAR = 100  # half-res px: the field view's corner nearest the Sun sits this far from it on each axis,
 #                        just outside the occulter (the hunters' framing: glare and arm out, streamer bases in)
 FIELD_MAX = 640      # half-res px: the view runs from that corner out to the field edge, at most this far
 FIELD_MARGIN = 50    # half-res px around the object's path (always inside the view)
-FIELD_BG_HOURS = 24  # the field's background: the pixelwise minimum of the good frames over this long before the
-FIELD_BG_STEP = 4    # first shown frame, every this many frames. The static corona and glare cancel; streamers
-#                      (which move) and stars stay, which is the look of the hunters' own field movies.
-FIELD_SOFT = 1.0     # Gaussian smoothing of the field, half-res px: noise becomes grain, stars and comet soft dots
-FIELD_LO, FIELD_HI = -2.0, 10.0  # the field's linear scale in sigma of the frame's own noise (0 and 255 on the PNG)
+FIELD_BG_HOURS = 24  # the field's background: the pixelwise median of the good frames over this long before each
+FIELD_BG_STEP = 4    # shown frame, every this many frames (so it is recomputed once per 4 shown frames). The static
+#                      corona and glare cancel to zero; streamers that have moved show bright where they are and
+#                      dark where they were, stars and the object stay. This is the hunters' recipe (frame minus
+#                      the median of earlier frames); the minimum used until 2026-11-09 left every change positive,
+#                      a grey haze that burned out to white near the occulter.
+FIELD_LO, FIELD_HI = -2.2, 22.8  # the field's one linear scale (0 and 255 on the PNG) in units of the noise in the
+#                      outer half of the view. Not divided by the noise per radius: the grain grows toward the Sun
+#                      (4-5x by the occulter), as on the hunters' movies, and zero sits at 9% grey so the sky is black.
+END_HITS = 8         # hits at each end of a track whose straight-line fit carries the marker beyond the hits
+
+
+def _path(t: np.ndarray, xs: np.ndarray, ys: np.ndarray, velocity) -> "callable":
+    """pos(ts) -> (x, y), full-res report px: where the object is at time ts. Between
+    its measured hits it is interpolated from them; outside, it is carried along the
+    straight-line fit of the END_HITS hits at that end. One straight line through a
+    whole long track misses: a Kreutz comet speeds up as it falls (20261107T1730_1924_1608
+    went from 7 to 10 px/frame over 28 h, and the single fit sat up to 29 px off its hits)."""
+    u = t / FRAME_SECONDS
+
+    def end(sl: slice) -> tuple[float, float]:
+        if len(u[sl]) >= 2 and np.ptp(u[sl]) > 0:
+            return float(np.polyfit(u[sl], xs[sl], 1)[0]), float(np.polyfit(u[sl], ys[sl], 1)[0])
+        return float(velocity[0]), float(velocity[1])
+
+    head, tail = end(slice(0, END_HITS)), end(slice(-END_HITS, None))
+
+    def pos(ts: float) -> tuple[float, float]:
+        q = ts / FRAME_SECONDS
+        if q <= u[0]:
+            return float(xs[0] + head[0] * (q - u[0])), float(ys[0] + head[1] * (q - u[0]))
+        if q >= u[-1]:
+            return float(xs[-1] + tail[0] * (q - u[-1])), float(ys[-1] + tail[1] * (q - u[-1]))
+        return float(np.interp(q, u, xs)), float(np.interp(q, u, ys))
+
+    return pos
 
 
 def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = False) -> dict:
     """Build (or reuse) the movie for track summary `d` (state.json entry), each
-    frame the sum of the last `stack` maps along the motion. `full` gives the
-    whole field at half resolution (one PNG per frame) instead of the zoomed patch."""
+    frame the sum of the last `stack` maps along the motion. `full` gives the field
+    movie (`_field`: the object's quadrant at full resolution, one PNG per frame)
+    instead of the zoomed patch."""
     key = f"{d['id']}_{d['n_hits']}_full{FIELD_VERSION}" if full else f"{d['id']}_{d['n_hits']}_s{stack}"
     png, js = out_dir / f"{key}.png", out_dir / f"{key}.json"
     if js.exists():
         meta = json.loads(js.read_text())
         if png.exists() or (full and all((out_dir / Path(p).name).exists() for p in meta.get("pngs", []))):
             return meta
-    hits = d["hits"]
+    hits = sorted(d["hits"], key=lambda h: _ts(h["t"]))
     t = np.array([_ts(h["t"]) for h in hits])
     xs, ys = np.array([h["x"] for h in hits], float), np.array([h["y"] for h in hits], float)
-    if len(hits) >= 2 and np.ptp(t) > 0:
-        fx, fy = np.polyfit(t / FRAME_SECONDS, xs, 1), np.polyfit(t / FRAME_SECONDS, ys, 1)
-    else:
-        vx, vy = d["velocity"]
-        fx = np.array([vx, xs[0] - vx * t[0] / FRAME_SECONDS])
-        fy = np.array([vy, ys[0] - vy * t[0] / FRAME_SECONDS])
-    vx, vy = float(fx[0]), float(fy[0])
+    pos = _path(t, xs, ys, d["velocity"])
     t_show0, t_last = t[0] - LEAD_FRAMES * FRAME_SECONDS, t[-1]
 
     idx = FrameIndex(camera, datetime.fromtimestamp(t_show0).date() - timedelta(days=1),
@@ -79,19 +105,40 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
     shown = [g for g in good if g[1] >= t_show0 - 60]
     if not shown:
         raise ValueError("no processed frames for this track")
+    hit_times = set(np.round(t / 60).astype(int))
     if full:
-        shown = shown[-FULL_FRAMES:]
-    elif len(shown) > MAX_FRAMES:
-        shown = [shown[i] for i in np.linspace(0, len(shown) - 1, MAX_FRAMES).round().astype(int)]
+        return _field(camera, d, out_dir, key, js, good, shown[-FULL_FRAMES:], pos, hit_times)
 
-    # fixed patch: centred on the middle of the fitted path, big enough for all of it
-    ta, tb = shown[0][1] / FRAME_SECONDS, shown[-1][1] / FRAME_SECONDS
-    xa, xb = np.polyval(fx, ta), np.polyval(fx, tb)
-    ya, yb = np.polyval(fy, ta), np.polyval(fy, tb)
-    cx, cy = (xa + xb) / 2, (ya + yb) / 2                       # full-res report coords
-    half = int(np.clip(math.ceil(max(abs(xb - xa), abs(yb - ya)) / 4) + MARGIN, MIN_HALF, MAX_HALF))
+    # The patch is fixed on the sky and at most 2 MAX_HALF + 1 map px across, so a track longer
+    # than that shows its newest stretch: the frames, counted back from the last, whose path fits.
+    # (Centred on the whole of a 28-h track, the object was outside the patch on 26 frames of 40.)
+    reach = (MAX_HALF - MARGIN) * 4  # full-res px the path may span
+    pts = [pos(ts) for _, ts in shown]
+    k0 = len(shown) - 1
+    lox = hix = pts[-1][0]
+    loy = hiy = pts[-1][1]
+    while k0 > 0:
+        x, y = pts[k0 - 1]
+        if max(max(hix, x) - min(lox, x), max(hiy, y) - min(loy, y)) > reach:
+            break
+        lox, hix, loy, hiy = min(lox, x), max(hix, x), min(loy, y), max(hiy, y)
+        k0 -= 1
+    truncated = k0 > 0
+    shown = shown[k0:]
+    if len(shown) > MAX_FRAMES:
+        shown = [shown[i] for i in np.linspace(0, len(shown) - 1, MAX_FRAMES).round().astype(int)]
+    cx, cy = (lox + hix) / 2, (loy + hiy) / 2                   # full-res report coords
+    half = int(np.clip(math.ceil(max(hix - lox, hiy - loy) / 4) + MARGIN, MIN_HALF, MAX_HALF))
     size = 2 * half + 1
     tile = size * ZOOM
+    # the maps are added along the motion over the shown stretch, not the whole track's mean
+    own = t >= shown[0][1] - 60
+    if own.sum() >= 2 and np.ptp(t[own]) > 0:
+        vx = float(np.polyfit(t[own] / FRAME_SECONDS, xs[own], 1)[0])
+        vy = float(np.polyfit(t[own] / FRAME_SECONDS, ys[own], 1)[0])
+    else:
+        (xa, ya), (xb, yb) = pos(t_last - FRAME_SECONDS), pos(t_last)
+        vx, vy = xb - xa, yb - ya
 
     cache: dict[str, np.ndarray] = {}
 
@@ -102,63 +149,6 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
                 del cache[next(iter(cache))]
         return cache[name]
 
-    hit_times = set(np.round(t / 60).astype(int))
-    if full:
-        # The field is the raw frame minus one fixed background, the pixelwise minimum
-        # of the good frames over the FIELD_BG_HOURS before the first shown frame: the
-        # static corona and glare cancel, streamers and stars stay. No stacking (shifting
-        # along one object's motion smears everything else). Divided by the frame's own
-        # noise per radius, smoothed by FIELD_SOFT px, on a linear scale from FIELD_LO
-        # sigma so the noise shows as grain rather than being cut to black. Cropped to
-        # the object's quadrant, from just outside the occulter out to the field edge.
-        out_dir.mkdir(parents=True, exist_ok=True)
-        frames, pngs, imgs = [], [], []
-        h, w = None, None
-        bg_frames = [q for q, tq in good if tq < shown[0][1] - 60][::-1][::FIELD_BG_STEP][::-1]
-        if not bg_frames:
-            raise ValueError("no earlier frames for the background")
-        bg = None
-        for q in bg_frames:
-            a = _raw_half(q).astype(np.float32)
-            bg = a if bg is None else np.fmin(bg, a)  # fmin ignores NaN
-
-        for k, (p, ts) in enumerate(shown):
-            cur = _raw_half(p).astype(np.float32)
-            with np.errstate(all="ignore"):
-                diff = cur - bg
-            ok = np.isfinite(diff)
-            m = A.load_meta(camera, p.name)
-            centre = (m.sun_xy[0] / 2, m.sun_xy[1] / 2) if m is not None and m.sun_xy else None
-            z = _soften(np.where(ok, diff / _radial_sigma(diff, ok, centre), 0.0), ok, FIELD_SOFT)
-            ok &= np.isfinite(z)
-            z = np.where(ok, z, FIELD_LO)
-            img = (np.clip((z - FIELD_LO) / (FIELD_HI - FIELD_LO), 0, 1) * 255).astype(np.uint8)
-            h, w = img.shape
-            imgs.append((img, centre))
-            px, py = np.polyval(fx, ts / FRAME_SECONDS), np.polyval(fy, ts / FRAME_SECONDS)
-            ri, ci = int(round(py / 2)), int(round(px / 2))
-            ring = z[max(ri - 3, 0):ri + 4, max(ci - 3, 0):ci + 4]
-            frames.append({"peak": round(float(ring.max()), 1) if ring.size else None,
-                           "tail": round(float(np.percentile(z[ok], 99.9)), 1) if ok.any() else None,
-                           "name": p.name[9:24], "t": datetime.fromtimestamp(ts).astimezone().isoformat(timespec="minutes"),
-                           "x": round(px / 2, 1), "y": round(py / 2, 1),
-                           "hit": int(round(ts / 60)) in hit_times, "stacked": 1, "background": len(bg_frames)})
-        x0, x1, y0, y1 = _field_crop([f["x"] for f in frames], [f["y"] for f in frames],
-                                      next((c for _, c in imgs if c), None), w, h)
-        for k, ((img, _), f) in enumerate(zip(imgs, frames)):
-            fpng = out_dir / f"{key}_{k:02d}.png"
-            tile = np.ascontiguousarray(img[y0:y1, x0:x1])
-            stamp(tile, f"{f['name'][:4]}-{f['name'][4:6]}-{f['name'][6:8]} {f['name'][9:11]}:{f['name'][11:13]} UTC")
-            write_png(fpng, tile)
-            pngs.append(f"{camera}/movies/{fpng.name}")
-            f["x"], f["y"] = round(f["x"] - x0, 1), round(f["y"] - y0, 1)
-        for old in out_dir.glob(f"{d['id']}_*"):
-            if not old.name.startswith(f"{d['id']}_{d['n_hits']}_"):
-                old.unlink()
-        meta = {"pngs": pngs, "width": x1 - x0, "height": y1 - y0, "crop": [x0, y0], "zoom": 1, "stack": 1,
-                "range_sigma": FIELD_HI, "lo_sigma": FIELD_LO, "hi_sigma": FIELD_HI, "frames": frames, "ring_r": FULL_RING}
-        js.write_text(json.dumps(meta))
-        return meta
     ncol = math.ceil(math.sqrt(len(shown)))
     nrow = math.ceil(len(shown) / ncol)
     sheet = np.zeros((nrow * tile, ncol * tile), np.uint8)
@@ -177,7 +167,7 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
         img = np.clip(stk / RANGE_SIGMA, 0, 1)
         r, c = divmod(k, ncol)
         sheet[r * tile:(r + 1) * tile, c * tile:(c + 1) * tile] = np.repeat(np.repeat((img * 255).astype(np.uint8), ZOOM, 0), ZOOM, 1)
-        px, py = np.polyval(fx, ts / FRAME_SECONDS), np.polyval(fy, ts / FRAME_SECONDS)
+        px, py = pos(ts)
         ri, ci = int(round((py - cy) / 2 + half)), int(round((px - cx) / 2 + half))
         ring = stk[max(ri - 3, 0):ri + 4, max(ci - 3, 0):ci + 4]
         frames.append({"peak": round(float(ring.max()), 1) if ring.size else None,  # sigma at the ring
@@ -193,12 +183,83 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
     write_png(png, sheet)
     meta = {"png": f"{camera}/movies/{png.name}", "tile": tile, "cols": ncol, "zoom": ZOOM, "stack": stack,
             "range_sigma": RANGE_SIGMA, "frames": frames, "centre": [round(cx, 1), round(cy, 1)],
-            "half_fullres": half * 2}
+            "half_fullres": half * 2, "truncated": truncated}
     js.write_text(json.dumps(meta))
     return meta
 
 
-RADIAL_STEP = 8  # px annuli for the field's noise estimate
+def _field(camera: str, d: dict, out_dir: Path, key: str, js: Path, good: list, shown: list, pos, hit_times: set) -> dict:
+    """The field movie: one PNG per shown frame, the object's quadrant (`_field_crop`) of
+    the raw frame at full resolution minus the median of the earlier frames, no stacking
+    (shifting along one object's motion smears everything else), no smoothing, on one
+    linear scale in units of the outer field's noise. The hunters' recipe and framing."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pts = [pos(ts) for _, ts in shown]
+    h, w = _raw_full(shown[0][0]).shape
+    sun = next((tuple(m.sun_xy) for p, _ in shown if (m := A.load_meta(camera, p.name)) is not None and m.sun_xy), None)
+    x0, x1, y0, y1 = (2 * v for v in _field_crop([x / 2 for x, _ in pts], [y / 2 for _, y in pts],
+                                                 (sun[0] / 2, sun[1] / 2) if sun else None, w // 2, h // 2))
+    far = None  # the outer half of the view (by distance from the Sun), where the noise is measured
+    order = {p.name: i for i, (p, _) in enumerate(good)}
+    crops: dict[str, np.ndarray] = {}
+
+    def crop(q: Path) -> np.ndarray:
+        if q.name not in crops:
+            crops[q.name] = _raw_full(q)[y0:y1, x0:x1].copy()
+        return crops[q.name]
+
+    frames, pngs, bg, bg_names = [], [], None, None
+    for k, (p, ts) in enumerate(shown):
+        earlier = [q for q, tq in good if ts - FIELD_BG_HOURS * 3600 - 60 <= tq < ts - 60]
+        if len(earlier) > 2 * FIELD_BG_STEP:
+            earlier = [q for q in earlier if order[q.name] % FIELD_BG_STEP == 0]
+        if not earlier:
+            raise ValueError("no earlier frames for the background")
+        names = tuple(q.name for q in earlier)
+        if names != bg_names:
+            stack = np.stack([crop(q) for q in earlier])
+            for n in [n for n in crops if n not in names]:
+                del crops[n]
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")  # all-NaN columns: outside the field
+                bg = np.nanmedian(stack, axis=0)
+            del stack
+            bg_names = names
+        cur = crops[p.name] if p.name in crops else _raw_full(p)[y0:y1, x0:x1]
+        with np.errstate(all="ignore"):
+            diff = cur - bg
+        ok = np.isfinite(diff)
+        if far is None:
+            far = np.ones(ok.shape, bool)
+            if sun is not None and ok.any():
+                yy, xx = np.mgrid[y0:y1, x0:x1]
+                r = np.hypot(xx - sun[0], yy - sun[1])
+                far = r > np.median(r[ok])
+        sel = ok & far
+        v = diff[sel] if sel.sum() >= 1000 else diff[ok]
+        s = 1.4826 * float(np.median(np.abs(v - np.median(v)))) if v.size else 0.0
+        z = np.where(ok, diff / (s if s > 0 else 1.0), np.nan)
+        img = np.where(ok, np.clip((z - FIELD_LO) / (FIELD_HI - FIELD_LO), 0, 1) * 255, 0).astype(np.uint8)
+        px, py = pts[k]
+        ri, ci = int(round(py - y0)), int(round(px - x0))
+        ring = z[max(ri - 6, 0):ri + 7, max(ci - 6, 0):ci + 7]
+        name = p.name[9:24]
+        stamp(img, f"{name[:4]}-{name[4:6]}-{name[6:8]} {name[9:11]}:{name[11:13]} UTC")
+        fpng = out_dir / f"{key}_{k:03d}.png"
+        write_png(fpng, img)
+        pngs.append(f"{camera}/movies/{fpng.name}")
+        frames.append({"peak": round(float(np.nanmax(ring)), 1) if np.isfinite(ring).any() else None,
+                       "tail": round(float(np.percentile(z[ok], 99.9)), 1) if ok.any() else None,
+                       "name": name, "t": datetime.fromtimestamp(ts).astimezone().isoformat(timespec="minutes"),
+                       "x": round(px - x0, 1), "y": round(py - y0, 1),
+                       "hit": int(round(ts / 60)) in hit_times, "stacked": 1, "background": len(names)})
+    for old in out_dir.glob(f"{d['id']}_*"):
+        if not old.name.startswith(f"{d['id']}_{d['n_hits']}_"):
+            old.unlink()
+    meta = {"pngs": pngs, "width": x1 - x0, "height": y1 - y0, "crop": [x0, y0], "zoom": 1, "stack": 1,
+            "range_sigma": FIELD_HI, "lo_sigma": FIELD_LO, "hi_sigma": FIELD_HI, "frames": frames, "ring_r": FULL_RING}
+    js.write_text(json.dumps(meta))
+    return meta
 
 
 def _field_crop(xs: list[float], ys: list[float], sun: tuple[float, float] | None, w: int, h: int) -> tuple[int, int, int, int]:
@@ -231,19 +292,6 @@ def _field_crop(xs: list[float], ys: list[float], sun: tuple[float, float] | Non
     y0 = int(np.clip(math.floor(lo_y), 0, h - 1))
     y1 = int(np.clip(math.ceil(hi_y), y0 + 1, h))
     return x0, x1, y0, y1
-
-
-def _soften(z: np.ndarray, ok: np.ndarray, sigma: float) -> np.ndarray:
-    """Gaussian smoothing that ignores NaN/masked pixels (normalised by the smoothed
-    mask); pixels with too little valid support come back NaN."""
-    from scipy import ndimage
-
-    if sigma <= 0:
-        return z
-    f = ndimage.gaussian_filter(np.where(ok, z, 0.0), sigma)
-    n = ndimage.gaussian_filter(ok.astype(np.float32), sigma)
-    with np.errstate(all="ignore"):
-        return np.where(n > 0.3, f / n, np.nan)
 
 
 # A 5x7 bitmap font for the frame stamp: digits, '-', ':', space and 'UTC'.
@@ -291,40 +339,12 @@ def stamp(img: np.ndarray, text: str, x: int = 6, y: int = 6, scale: int = STAMP
     region[glyphs[:y1 - y, :x1 - x]] = 255
 
 
-def _radial_sigma(diff: np.ndarray, ok: np.ndarray, centre: tuple[float, float] | None) -> np.ndarray:
-    """Per-pixel noise of a difference frame as a function of distance from the Sun
-    (photon noise follows the corona's brightness, which falls steeply with radius):
-    a robust sigma (1.4826 MAD) in RADIAL_STEP-px annuli, interpolated across empty ones."""
-    h, w = diff.shape
-    cx, cy = centre if centre else (w / 2, h / 2)
-    yy, xx = np.indices(diff.shape)
-    r = (np.hypot(yy - cy, xx - cx) / RADIAL_STEP).astype(int)
-    n = int(r.max()) + 1
-    prof = np.full(n, np.nan)
-    for k in range(n):
-        sel = ok & (r == k)
-        if sel.sum() >= 50:
-            v = diff[sel]
-            prof[k] = 1.4826 * np.median(np.abs(v - np.median(v)))
-    good = np.isfinite(prof) & (prof > 0)
-    if not good.any():
-        return np.ones_like(diff)
-    prof = np.interp(np.arange(n), np.flatnonzero(good), prof[good])
-    floor = 1e-3 * float(np.median(prof[good]))  # raw units are tiny (1e-10): the floor must be relative
-    return np.maximum(prof[r], floor).astype(np.float32)
-
-
-def _raw_half(p: Path) -> np.ndarray:
-    """The raw frame at half resolution (2x2 mean), report orientation (row 0 = top),
-    masked pixels NaN."""
+def _raw_full(p: Path) -> np.ndarray:
+    """The raw frame at full resolution, report orientation (row 0 = top), masked pixels NaN."""
     from .fitsio import read_frame
 
     d = read_frame(p, check_orientation=False).data.astype(np.float32)
-    d = np.where(d > 0, d, np.nan)  # the occulter and the arm read 0 or below
-    h, w = (d.shape[0] // 2) * 2, (d.shape[1] // 2) * 2
-    with np.errstate(all="ignore"):
-        small = np.nanmean(d[:h, :w].reshape(h // 2, 2, w // 2, 2), axis=(1, 3))
-    return np.flipud(small)
+    return np.flipud(np.where(d > 0, d, np.nan))  # the occulter and the arm read 0 or below
 
 
 def _cut(sig: np.ndarray, x: float, y: float, half: int) -> np.ndarray:

@@ -31,7 +31,7 @@ LANE = {"ccor1": ("Kreutz comets in CCOR-1 arrive from the lower right, position
                   "position angle -45 to -55 deg, heading within ~10 deg of the Sun")}
 LABEL = {"ccor1": "CCOR-1", "ccor2": "CCOR-2"}
 BLACK_SIGMA = 2.5  # the patch GIF's black point
-FIELD_BLACK_SIGMA = -2.0  # the field GIF's: below zero, so the noise stays as texture
+FIELD_BLACK_SIGMA = -2.2  # the field GIF's: the movie's own, zero at 9% grey
 RING_R = 7         # half-res px
 
 
@@ -87,20 +87,29 @@ def write_movie_gif(sheet_png: Path, mv: dict, out: Path) -> None:
     gif.write_gif(out, frames, delay_cs=35)
 
 
+FIELD_GIF_FRAMES = 32  # the field GIF keeps this many frames, evenly spaced and ending on the newest, at half the
+#                        movie's resolution: the full movie (120 frames at camera resolution) would be ~100 MB in git
+
+
 def write_field_gif(root: Path, fm: dict, out: Path) -> None:
-    """The full-field movie's frames (one PNG each) with the black point and the ring,
-    as an animated GIF; mostly black, so it compresses well despite the size."""
-    yy, xx = np.mgrid[0:fm["height"], 0:fm["width"]]
+    """The field movie as an animated GIF with the crosshair: every n-th frame (at most
+    FIELD_GIF_FRAMES, always the newest), binned 2x2."""
+    n = len(fm["pngs"])
+    step = max(1, math.ceil(n / FIELD_GIF_FRAMES))
+    keep = list(range(n - 1, -1, -step))[::-1]
+    h, w = fm["height"] // 2, fm["width"] // 2
+    yy, xx = np.mgrid[0:h, 0:w]
     lo, hi = fm.get("lo_sigma", 0.0), fm.get("hi_sigma", fm["range_sigma"])
-    b = max((FIELD_BLACK_SIGMA - lo) / (hi - lo) * 255, 0.0)  # the field keeps its noise as texture
+    b = max((FIELD_BLACK_SIGMA - lo) / (hi - lo) * 255, 0.0)
     frames = []
-    for p, f in zip(fm["pngs"], fm["frames"]):
-        img = read_png(root / p).astype(np.float32)
+    for i in keep:
+        f = fm["frames"][i]
+        img = read_png(root / fm["pngs"][i]).astype(np.float32)[:2 * h, :2 * w].reshape(h, 2, w, 2).mean(axis=(1, 3))
         if b > 0:
             img = np.where(img <= b, 0, (img - b) * 255 / (255 - b))
         idx = gif.gray_to_index(img)
-        r, g = fm["ring_r"], fm["ring_r"] * 0.45  # a crosshair with a gap, as on the page
-        dx, dy = np.abs(xx - f["x"]), np.abs(yy - f["y"])
+        r, g = fm["ring_r"] / 2, fm["ring_r"] / 2 * 0.45  # a crosshair with a gap, as on the page
+        dx, dy = np.abs(xx - f["x"] / 2), np.abs(yy - f["y"] / 2)
         cross = ((dy < 0.8) & (dx >= g) & (dx <= r)) | ((dx < 0.8) & (dy >= g) & (dy <= r))
         idx[cross] = gif.YELLOW if f["hit"] else gif.GREEN
         frames.append(idx)
@@ -177,11 +186,12 @@ def note(camera: str, d: dict, latest: dict | None, mv: dict | None, files: list
               "![movie](movie.gif)"]
     if "field.gif" in files:
         L += ["", "## Full field", "",
-              "The object's quadrant at half resolution, from just outside the occulter out to the field edge, the last frames up to the newest hit: each frame minus the "
-              "minimum of the previous 24 hours (streamers and stars stay, the static corona and glare cancel), lightly smoothed, "
-              "no stacking, on a linear scale from -2 sigma of the frame's noise (so the noise shows as grain). The crosshair "
-              "follows the fitted path, yellow on a measured hit. For where the object sits in the corona and what else is moving; "
-              "a faint object is easier to judge in the stacked patch above.", "",
+              "The object's quadrant from just outside the occulter out to the field edge, up to the newest hit: each frame minus the "
+              "median of the previous 24 hours (the static corona and glare cancel; streamers show bright where they have moved to "
+              "and dark where they were; stars stay), no stacking, no smoothing, on one linear scale with zero near black, so the "
+              "noise shows as grain that thickens toward the Sun. The crosshair follows the object's measured positions, yellow on a "
+              "frame with a hit. This GIF is every n-th frame at half resolution; the dashboard plays every frame at the camera's "
+              "resolution. A faint object is easier to judge in the stacked patch above.", "",
               "![full field](field.gif)"]
     if "sheet.png" in files:
         L += ["", "## Contact sheet", "",
