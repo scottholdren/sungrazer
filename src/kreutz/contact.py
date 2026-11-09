@@ -39,14 +39,15 @@ def contact_sheet(track: dict, out: Path, tiles: dict | None = None) -> tuple[Pa
     `tiles` (frame name -> (x, y, top, bottom)) caches drawn columns across calls
     for a growing track: a column is reused while the fitted path moves < 1.5 px."""
     camera = track["camera"]
-    hits = track["hits"]
+    from .movie import _path
+
+    hits = sorted(track["hits"], key=lambda h: h["frame_time"])
     t = np.array([datetime.fromisoformat(h["frame_time"]).timestamp() for h in hits])
-    xs, ys = np.array([h["x"] for h in hits]), np.array([h["y"] for h in hits])
-    if len(hits) >= 2 and np.ptp(t) > 0:
-        fx, fy = np.polyfit(t / FRAME_SECONDS, xs, 1), np.polyfit(t / FRAME_SECONDS, ys, 1)
-    else:
-        fx, fy = np.array([track["velocity"][0], xs[0] - track["velocity"][0] * t[0] / FRAME_SECONDS]), \
-                 np.array([track["velocity"][1], ys[0] - track["velocity"][1] * t[0] / FRAME_SECONDS])
+    xs, ys = np.array([h["x"] for h in hits], float), np.array([h["y"] for h in hits], float)
+    # The tiles sit on the measured positions (interpolated between hits, carried along the ends' motion
+    # beyond them), as the movies' marker does. On one straight line through the whole track the object
+    # of a long pass sat 7-30 px off the centre and its stack was smeared (20261109T0130_1740_1790, 17 h).
+    pos = _path(t, xs, ys, track["velocity"])
     t0 = t[0] - 7 * FRAME_SECONDS - 60
     from .detect import frame_list
 
@@ -66,7 +67,7 @@ def contact_sheet(track: dict, out: Path, tiles: dict | None = None) -> tuple[Pa
             if tp > ts + 1 or tp < ts - STACK_SPAN_S:
                 continue
             sig = np.repeat(np.repeat(A.load_sig(camera, p.name), 2, axis=0), 2, axis=1)
-            acc += np.nan_to_num(_cut_report(sig, np.polyval(fx, tp / FRAME_SECONDS), np.polyval(fy, tp / FRAME_SECONDS), 1))
+            acc += np.nan_to_num(_cut_report(sig, *pos(tp), 1))
             n += 1
             if n >= STACK_N:
                 break
@@ -76,7 +77,7 @@ def contact_sheet(track: dict, out: Path, tiles: dict | None = None) -> tuple[Pa
     sheet = np.full((ROWS * tile + (ROWS + 1) * 4, max(len(paths), 1) * (tile + 4) + 4), 40, np.uint8)
     for j, p in enumerate(paths):
         ts = _ts(p)
-        x, y = np.polyval(fx, ts / FRAME_SECONDS), np.polyval(fy, ts / FRAME_SECONDS)
+        x, y = pos(ts)
         hit = tiles.get(p.name) if tiles is not None else None
         if hit is not None and np.hypot(hit[0] - x, hit[1] - y) < 1.5 and len(hit) == 5:
             top, bot, stk = hit[2], hit[3], hit[4]

@@ -105,7 +105,9 @@ def alert_text(d: dict, label: str, dashboard: str | None, event: str = "alert",
     r = d.get("report")
     if r:  # a report already on the site when we alert is a loss, whatever the following time
         al = r.get("alert_lead_h")
-        rep = f"already reported by {r['reporter']}" + (f" ({al:+.1f} h relative to this alert)" if al is not None and event == "alert" else "")
+        rep = f"already reported by {r['reporter']}" + ("" if al is None or event != "alert" else
+                                                           f" (we alerted {-al:.1f} h before the report)" if al < 0 else
+                                                           f" ({al:.1f} h before this alert)")
     else:
         rep = f"UNREPORTED on {label}" + (f"; a {d['lasco']['camera']} claim by {d['lasco']['reporter']} overlaps in time"
                                           if d.get("lasco") else "")
