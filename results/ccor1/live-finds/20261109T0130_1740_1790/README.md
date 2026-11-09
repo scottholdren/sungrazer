@@ -31,15 +31,15 @@ Top: raw frame. Middle: significance map of that frame. Bottom: the detector's v
 
 2048x1920 full-resolution frame, origin upper left, x right, y down, 0-based (the Sungrazer 'Upper Left' convention). They are the centre of the stacked detection predicted from the fitted motion, good to about a pixel, not per-frame centroids; hunters' measurements tend to fall ~1 px right and up of these.
 
-The last column is what the track became here on that frame: spark (two bright hits, before it is a track), following (third hit), steady / watch / ALERT (the dashboard's tiers), and the owner's label. Frame times: a frame reaches us 15 to 25 minutes after it is taken.
+The last column is what the track became here on that frame: spark (two bright hits, before it is a track), following (third hit), then each of the dashboard's tiers the first time it stood higher than before (steady, watch, ALERT). The owner's tags carry their clock time and sit on the newest frame that had reached us when they were given; the rest are frame times, and a frame reaches us 15 to 25 minutes after it is taken.
 
 | date | HHMM | x | y | sigma | our status |
 |---|---|---|---|---|---|
 | 2026-11-09 | 0130 | 1740 | 1790 | 8.0 |  |
-| 2026-11-09 | 0145 | 1734 | 1786 | 9.9 | spark |
+| 2026-11-09 | 0145 | 1734 | 1786 | 9.9 | spark, tagged comet 02:17 |
 | 2026-11-09 | 0200 | 1726 | 1782 | 10.5 | following |
 | 2026-11-09 | 0215 | 1720 | 1776 | 14.1 |  |
-| 2026-11-09 | 0230 | 1714 | 1772 | 16.7 | steady, watch, ALERT |
+| 2026-11-09 | 0230 | 1714 | 1772 | 16.7 | ALERT |
 | 2026-11-09 | 0245 | 1708 | 1768 | 14.3 |  |
 | 2026-11-09 | 0300 | 1700 | 1762 | 16.6 |  |
 | 2026-11-09 | 0315 | 1694 | 1758 | 17.1 |  |
@@ -86,7 +86,7 @@ The last column is what the track became here on that frame: spark (two bright h
 | 2026-11-09 | 1500 | 1382 | 1518 | 42.3 |  |
 | 2026-11-09 | 1515 | 1376 | 1514 | 42.3 |  |
 | 2026-11-09 | 1530 | 1368 | 1508 | 43.8 |  |
-| 2026-11-09 | 1545 | 1360 | 1500 | 41.6 |  |
+| 2026-11-09 | 1545 | 1360 | 1500 | 41.6 | tag cleared 16:10 |
 | 2026-11-09 | 1600 | 1354 | 1494 | 42.2 |  |
 | 2026-11-09 | 1615 | 1348 | 1490 | 47.0 |  |
 | 2026-11-09 | 1630 | 1340 | 1484 | 49.6 |  |
@@ -226,4 +226,4 @@ Sigma inside the ring on the fitted position vs the brightest 0.1% of the whole 
 | 20261109T163025 | 53.4 | 5.2 | hit |
 | 20261109T164525 | 56.9 | 5.1 | hit |
 
-*Written 2026-11-09 17:14 UTC.*
+*Written 2026-11-09 17:17 UTC.*
