@@ -43,10 +43,19 @@ import numpy as np
 from .stack import Peak
 from .velocity import FRAME_SECONDS
 
-VERSION = "c5"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
+VERSION = "c6"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
 MATCH_RADIUS = 6.0  # px, full resolution (half-res stacking + 0.5 px/frame velocity steps)
 MATCH_DV = 2.0  # px/frame
 MAX_MISSES = 2
+# An object that has been alerted on or reported is followed until it is gone, not until two frames miss it
+# (2026-11-09: 20261109T0130_1740_1790, 17 sigma, was closed at 04:30 while CCOR-1's daily Earth-glare frames
+# blanked the map over it, and stood at 9 sigma on its path again at 05:30).
+STICKY_HITS, STICKY_SIGMA = 4, 15.0  # a track this good (the dashboard's alert tier), or one the live watcher has
+STICKY_MISSES = 8  # matched to a report (`sticky`), stays open through this many frames without a hit (2 h)
+BLIND_FRAMES = 8  # frames in a row any candidate may spend where the map is blank at its predicted place (Earth
+#                   glare, the Moon's mask, a masked star) without them counting as misses; then it is closed
+COAST_SLOP = 0.5  # px the match radius grows per frame of coasting beyond MAX_MISSES (the velocity is known to
+#                   0.25 px/frame and a comet accelerates)
 CANDIDATE_HITS = 3
 STAR_DV = 1.5
 MIN_SPEED = 2.0  # px/frame (CCOR-1); slowest confirmed comet 3. Detector defects wandering with CCOR-2's
@@ -70,6 +79,8 @@ class Track:
     id: int
     hits: list[Peak] = field(default_factory=list)
     misses: int = 0
+    blind: int = 0  # frames in a row with the map blank at the predicted place
+    sticky: bool = False  # alerted on or reported: kept open through STICKY_MISSES
     consecutive: int = 0
     candidate: bool = False
     reached: dict = field(default_factory=dict)  # n hits -> unix time it happened
@@ -142,17 +153,21 @@ class Tracker:
         self._next = 0
         self.scale = scale  # cameras.px_scale: pixel thresholds relative to CCOR-1
 
-    def update(self, t: float, peaks: list[Peak], star_drift, sun_xy, envelope=None, seed: bool = True) -> None:
-        """Extend tracks with this window's peaks; if `seed`, unclaimed peaks start new tracks."""
+    def update(self, t: float, peaks: list[Peak], star_drift, sun_xy, envelope=None, seed: bool = True,
+               seen=None) -> None:
+        """Extend tracks with this window's peaks; if `seed`, unclaimed peaks start new tracks.
+        `seen(x, y)` says whether the newest map has data at a position (see `stack.seen_fn`):
+        a candidate predicted onto a blank patch is not counted as missed."""
         # Greedy matching, best-predicted first.
         claimed = set()
         pairs = []
         for ti, tr in enumerate(self.active):
             px, py = tr.predict(t)
             vx, vy = tr.velocity()
+            reach = MATCH_RADIUS + COAST_SLOP * max((t - tr.last.t) / FRAME_SECONDS - 1 - MAX_MISSES, 0)
             for pi, pk in enumerate(peaks):
                 d = np.hypot(pk.x - px, pk.y - py)
-                if d <= MATCH_RADIUS and np.hypot(pk.vx - vx, pk.vy - vy) <= MATCH_DV:
+                if d <= reach and np.hypot(pk.vx - vx, pk.vy - vy) <= MATCH_DV:
                     pairs.append((d, -pk.sig, ti, pi))
         pairs.sort()
         matched_tracks = set()
@@ -163,7 +178,7 @@ class Tracker:
             claimed.add(pi)
             tr = self.active[ti]
             tr.hits.append(peaks[pi])
-            tr.misses = 0
+            tr.misses = tr.blind = 0
             tr.consecutive += 1
             n = len(tr.hits)
             if tr.consecutive >= CANDIDATE_HITS and not tr.candidate:
@@ -173,6 +188,8 @@ class Tracker:
                 vx, vy = tr.velocity()
                 tr.rejected = rejection(vx, vy, tr.last.x, tr.last.y, star_drift, sun_xy, tr.hits, envelope,
                                         getattr(self, "scale", 1.0))
+                if not tr.rejected and n >= STICKY_HITS and max(h.sig for h in tr.hits) >= STICKY_SIGMA:
+                    tr.sticky = True
                 for k in (3, 4, 5):
                     if n >= k and k not in tr.reached:
                         tr.reached[k] = t
@@ -180,9 +197,17 @@ class Tracker:
         still = []
         for ti, tr in enumerate(self.active):
             if ti not in matched_tracks:
+                if tr.candidate and seen is not None and not seen(*tr.predict(t)):
+                    tr.blind = getattr(tr, "blind", 0) + 1
+                    if tr.blind > BLIND_FRAMES:
+                        self.done.append(tr)
+                    else:
+                        still.append(tr)
+                    continue
                 tr.misses += 1
                 tr.consecutive = 0 if not tr.candidate else tr.consecutive
-                if tr.misses > (MAX_MISSES if tr.candidate else 0):
+                patience = STICKY_MISSES if getattr(tr, "sticky", False) and not tr.rejected else MAX_MISSES
+                if tr.misses > (patience if tr.candidate else 0):
                     if tr.candidate:
                         self.done.append(tr)
                     continue
@@ -209,11 +234,25 @@ class Tracker:
 
     def snapshot(self, since: float = 0.0) -> list[Track]:
         """Merged candidates with a hit at or after `since`, leaving the tracker running
-        (merging mutates, so copy)."""
+        (merging mutates, so copy). A track that is not rejected keeps its earlier pieces
+        however old they are: with the pieces filtered first, a comet followed for 28 h
+        lost the half before a gap once that half was a day old, and came back under a
+        new id with 67 of its 110 hits (20261107T1730_1924_1608, 2026-11-09)."""
         import copy
 
-        cands = copy.deepcopy([t for t in self.done + self.active if t.candidate and t.last.t >= since])
-        return merge_duplicates(sorted(cands, key=lambda t: t.hits[0].t))
+        cands = [t for t in self.done + self.active if t.candidate]
+        merged = merge_duplicates(sorted(copy.deepcopy([t for t in cands if t.last.t >= since]), key=lambda t: t.hits[0].t))
+        old = sorted((t for t in cands if t.last.t < since and not t.rejected), key=lambda t: -t.last.t)
+        slack = CONTINUE_FRAMES * FRAME_SECONDS + 1
+        used: set[int] = set()
+        for m in merged:
+            if m.rejected:
+                continue
+            for o in old:  # newest first: a chain of pieces is walked back in one pass
+                if id(o) not in used and o.last.t >= m.hits[0].t - slack and o.hits[0].t <= m.last.t and _same_object(m, o):
+                    _absorb(m, copy.deepcopy(o))
+                    used.add(id(o))
+        return sorted(merged, key=lambda t: t.hits[0].t)
 
     def prune(self, before: float) -> None:
         """Forget finished tracks whose last hit is older than `before`."""

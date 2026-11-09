@@ -213,6 +213,12 @@ class Watcher:
         act.now("state", "matching tracks against hunter reports")
         state = build_state(camera, [detect.track_dict(t, camera) for t in tracks], open_chains, metas, windows,
                             last_window, con, now, sparks=sparks_)
+        # A reported object is followed like an alerted one: the tracker keeps its open piece through
+        # STICKY_MISSES frames without a hit (the alert tier it recognises by itself).
+        reported = {(h["t"], h["x"], h["y"]) for d in state["tracks"] if d.get("report") for h in d["hits"][-3:]}
+        for t in self.tracker.active if self.tracker else ():
+            if t.candidate and (detect._iso(t.last.t), round(t.last.x, 1), round(t.last.y, 1)) in reported:
+                t.sticky = True
         timings["state"] = _lap(t0, timings)
         self._announce(state)
         out = live_dir(camera)
@@ -402,7 +408,8 @@ class Watcher:
                 continue
             peaks = [B.Peak(**d) for d in json.loads(p.read_text())]
             seed = detect.SEED_COLD or all(A.is_warm(metas[j]) for j in mem)
-            tr.update(metas[i].time, peaks, drift, sun_xy, envelope=env, seed=seed)
+            tr.update(metas[i].time, peaks, drift, sun_xy, envelope=env, seed=seed,
+                      seen=B.seen_fn(A.load_sig(self.camera, paths_[i].name)))
             self.fed_until = metas[i].time
             scene = (drift, sun_xy, env)
             fed += 1

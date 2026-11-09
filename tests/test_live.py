@@ -405,11 +405,11 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
             for k in (6, 7, 8, 9)]
     d = {"id": "t1", "n_hits": 4, "velocity": [vx, vy], "hits": hits}
     meta = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3)
-    assert (tmp_path / "live" / "ccor1" / "movies" / "t1_4_s3.png").exists()
+    assert (tmp_path / "live" / "ccor1" / "movies" / "t1_4_s3f0.png").exists()
     assert len(meta["frames"]) == 1 + movie.LEAD_FRAMES + 3  # lead frames before the first hit, then the hits
     assert [f["hit"] for f in meta["frames"]] == [False] * movie.LEAD_FRAMES + [True] * 4
     assert meta["frames"][-1]["stacked"] == 3
-    sheet = _read_png(tmp_path / "live" / "ccor1" / "movies" / "t1_4_s3.png")
+    sheet = _read_png(tmp_path / "live" / "ccor1" / "movies" / "t1_4_s3f0.png")
     T, z = meta["tile"], meta["zoom"]
     for j, f in enumerate(meta["frames"]):
         r, c = divmod(j, meta["cols"])
@@ -441,7 +441,7 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
         assert f["stacked"] == 1
     assert fm["frames"][-1]["background"] >= 1 and fm["frames"][-1]["peak"] > 4
     assert movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=8, full=True) == fm  # cached; stack ignored
-    assert (tmp_path / "live" / "ccor1" / "movies" / "t1_4_s3.png").exists()  # both depths of the current size stay
+    assert (tmp_path / "live" / "ccor1" / "movies" / "t1_4_s3f0.png").exists()  # both depths of the current size stay
     d["n_hits"] = 5
     movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies")
     assert not list((tmp_path / "live" / "ccor1" / "movies").glob("t1_4_*"))  # stale ones are dropped

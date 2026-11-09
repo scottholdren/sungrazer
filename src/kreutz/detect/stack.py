@@ -117,6 +117,25 @@ def edge_distance(newest: np.ndarray, min_area: int = 500) -> np.ndarray:
     return ndimage.distance_transform_edt(~nan)[1:-1, 1:-1]
 
 
+def seen_fn(newest: np.ndarray):
+    """seen(x, y) for the tracker: whether a half-res map has data at full-res report
+    position (x, y): at least half of the 5 x 5 map px around it are finite. Off the
+    map counts as not seen."""
+    from .. import coords
+
+    ok = np.isfinite(newest)
+    h, w = ok.shape
+
+    def seen(x: float, y: float) -> bool:
+        col, row = coords.report_to_fits(x / DS, y / DS, h)
+        r, c = int(round(row)), int(round(col))
+        if not (0 <= r < h and 0 <= c < w):
+            return False
+        return bool(ok[max(r - 2, 0):r + 3, max(c - 2, 0):c + 3].mean() >= 0.5)
+
+    return seen
+
+
 def elongation(sig: np.ndarray, r: int, c: int, half: int = 12, level: float = 2.5) -> float:
     """Axis ratio of the connected >level blob nearest (r, c) in a half-res map.
 

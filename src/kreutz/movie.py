@@ -37,9 +37,12 @@ LEAD_FRAMES = 4      # frames shown before the first hit
 RANGE_SIGMA = 10.0   # 255 on the PNG
 FULL_FRAMES = 120    # the field movie: this many frames up to the newest hit (30 h), at the camera's full resolution
 FULL_RING = 16       # marker size on it (crosshair tick length), px
-FIELD_VERSION = 8    # in the cache key: bump when the field rendering changes, or old frames are served
-FIELD_SUN_CLEAR = 100  # half-res px: the field view's corner nearest the Sun sits this far from it on each axis,
-#                        just outside the occulter (the hunters' framing: glare and arm out, streamer bases in)
+FIELD_VERSION = 9    # in the cache key: bump when the field rendering changes, or old frames are served
+FIELD_CLEAR_X, FIELD_CLEAR_Y = 8, 56  # half-res px: the field view's corner nearest the Sun sits this far from it across
+#                        and down. Chris Wage's CCOR-1 frame of 2026-11-08, registered on ours through the comet's
+#                        positions (0.76 screen px per camera px), starts 15 px right of the Sun and 111 px below it and
+#                        is 1053 x 729 camera px: the arm's edge and the occulter's limb are in, for context. At 100 px
+#                        on each axis (until 2026-11-09) ours showed 184 camera px less of the inner corona.
 FIELD_MAX = 640      # half-res px: the view runs from that corner out to the field edge, at most this far
 FIELD_MARGIN = 50    # half-res px around the object's path (always inside the view)
 FIELD_BG_HOURS = 24  # the field's background: the pixelwise median of the good frames over this long before each
@@ -51,8 +54,12 @@ FIELD_BG_STEP = 4    # shown frame, every this many frames (so it is recomputed 
 FIELD_LO, FIELD_HI = -2.2, 22.8  # the field's one linear scale (0 and 255 on the PNG) in units of the noise in the
 #                      outer half of the view. Not divided by the noise per radius: the grain grows toward the Sun
 #                      (4-5x by the occulter), as on the hunters' movies, and zero sits at 9% grey so the sky is black.
-FIELD_KNEE, FIELD_TOP = 14.0, 600.0  # above the knee the scale is logarithmic and reaches white at FIELD_TOP: the Moon's
-#                      earthlit face reads 90-550 on it (CCOR-1, 2026-11-08) and keeps its maria instead of a white disc
+FIELD_SHOULDER = ((10.0, None), (92.0, 150.0), (600.0, 250.0), (660.0, 255.0))  # (value, PNG level): above the first
+#                      value the scale runs straight in log(value) between these points instead. The Moon's earthlit
+#                      face reads 92-553 (1st-99th percentile, CCOR-1 2026-11-08) and gets 100 levels in mid-grey, so
+#                      its maria show; bright stars (10-90) sit at 124-150 instead of white; a comet's head is white.
+FOLLOW_FRAMES = 8    # both movies run this many frames (2 h) past the last hit, the marker carried along the path:
+#                      an object is watched until it is gone, not until the detector's last hit
 END_HITS = 8         # hits at each end of a track whose straight-line fit carries the marker beyond the hits
 
 
@@ -87,26 +94,27 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
     frame the sum of the last `stack` maps along the motion. `full` gives the field
     movie (`_field`: the object's quadrant at full resolution, one PNG per frame)
     instead of the zoomed patch."""
-    key = f"{d['id']}_{d['n_hits']}_full{FIELD_VERSION}" if full else f"{d['id']}_{d['n_hits']}_s{stack}"
-    png, js = out_dir / f"{key}.png", out_dir / f"{key}.json"
-    if js.exists():
-        meta = json.loads(js.read_text())
-        if png.exists() or (full and all((out_dir / Path(p).name).exists() for p in meta.get("pngs", []))):
-            return meta
     hits = sorted(d["hits"], key=lambda h: _ts(h["t"]))
     t = np.array([_ts(h["t"]) for h in hits])
     xs, ys = np.array([h["x"] for h in hits], float), np.array([h["y"] for h in hits], float)
     pos = _path(t, xs, ys, d["velocity"])
-    t_show0, t_last = t[0] - LEAD_FRAMES * FRAME_SECONDS, t[-1]
+    t_show0, t_last = t[0] - LEAD_FRAMES * FRAME_SECONDS, t[-1] + FOLLOW_FRAMES * FRAME_SECONDS
 
     idx = FrameIndex(camera, datetime.fromtimestamp(t_show0).date() - timedelta(days=1),
-                     datetime.fromtimestamp(t_last).date())
+                     datetime.fromtimestamp(t_last).date() + timedelta(days=1))
     good = [(p, tt.timestamp()) for p, tt in zip(idx.paths, idx.times)
             if t_show0 - (FIELD_BG_HOURS * 3600 if full else (stack + 1) * FRAME_SECONDS) - 60 <= tt.timestamp() <= t_last + 60
             and (m := A.load_meta(camera, p.name)) is not None and m.ok and A.sig_path(camera, p.name).exists()]
     shown = [g for g in good if g[1] >= t_show0 - 60]
     if not shown:
         raise ValueError("no processed frames for this track")
+    # cached per track size and per number of frames that have arrived since its last hit
+    key = f"{d['id']}_{d['n_hits']}_" + (f"full{FIELD_VERSION}" if full else f"s{stack}") + f"f{sum(ts > t[-1] + 60 for _, ts in shown)}"
+    png, js = out_dir / f"{key}.png", out_dir / f"{key}.json"
+    if js.exists():
+        meta = json.loads(js.read_text())
+        if png.exists() or (full and all((out_dir / Path(p).name).exists() for p in meta.get("pngs", []))):
+            return meta
     hit_times = set(np.round(t / 60).astype(int))
     if full:
         return _field(camera, d, out_dir, key, js, good, shown[-FULL_FRAMES:], pos, hit_times)
@@ -139,7 +147,7 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
         vx = float(np.polyfit(t[own] / FRAME_SECONDS, xs[own], 1)[0])
         vy = float(np.polyfit(t[own] / FRAME_SECONDS, ys[own], 1)[0])
     else:
-        (xa, ya), (xb, yb) = pos(t_last - FRAME_SECONDS), pos(t_last)
+        (xa, ya), (xb, yb) = pos(t[-1] - FRAME_SECONDS), pos(t[-1])
         vx, vy = xb - xa, yb - ya
 
     cache: dict[str, np.ndarray] = {}
@@ -179,9 +187,7 @@ def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = 
                        "y": round(((py - cy) / 2 + half) * ZOOM + ZOOM / 2, 1),
                        "hit": int(round(ts / 60)) in hit_times, "stacked": n})
     out_dir.mkdir(parents=True, exist_ok=True)
-    for old in out_dir.glob(f"{d['id']}_*"):
-        if not old.name.startswith(f"{d['id']}_{d['n_hits']}_"):
-            old.unlink()
+    _drop_stale(out_dir, d, key)
     write_png(png, sheet)
     meta = {"png": f"{camera}/movies/{png.name}", "tile": tile, "cols": ncol, "zoom": ZOOM, "stack": stack,
             "range_sigma": RANGE_SIGMA, "frames": frames, "centre": [round(cx, 1), round(cy, 1)],
@@ -241,11 +247,7 @@ def _field(camera: str, d: dict, out_dir: Path, key: str, js: Path, good: list, 
         v = diff[sel] if sel.sum() >= 1000 else diff[ok]
         s = 1.4826 * float(np.median(np.abs(v - np.median(v)))) if v.size else 0.0
         z = np.where(ok, diff / (s if s > 0 else 1.0), np.nan)
-        knee = (FIELD_KNEE - FIELD_LO) / (FIELD_HI - FIELD_LO)
-        with np.errstate(all="ignore"):
-            lvl = np.where(z <= FIELD_KNEE, (z - FIELD_LO) / (FIELD_HI - FIELD_LO),
-                           knee + (1 - knee) * np.log(z / FIELD_KNEE) / math.log(FIELD_TOP / FIELD_KNEE))
-        img = np.where(ok, np.clip(lvl, 0, 1) * 255, 0).astype(np.uint8)
+        img = np.where(ok, _levels(z), 0).astype(np.uint8)
         px, py = pts[k]
         ri, ci = int(round(py - y0)), int(round(px - x0))
         ring = z[max(ri - 6, 0):ri + 7, max(ci - 6, 0):ci + 7]
@@ -259,20 +261,40 @@ def _field(camera: str, d: dict, out_dir: Path, key: str, js: Path, good: list, 
                        "name": name, "t": datetime.fromtimestamp(ts).astimezone().isoformat(timespec="minutes"),
                        "x": round(px - x0, 1), "y": round(py - y0, 1),
                        "hit": int(round(ts / 60)) in hit_times, "stacked": 1, "background": len(names)})
-    for old in out_dir.glob(f"{d['id']}_*"):
-        if not old.name.startswith(f"{d['id']}_{d['n_hits']}_"):
-            old.unlink()
+    _drop_stale(out_dir, d, key)
     meta = {"pngs": pngs, "width": x1 - x0, "height": y1 - y0, "crop": [x0, y0], "zoom": 1, "stack": 1,
             "range_sigma": FIELD_HI, "lo_sigma": FIELD_LO, "hi_sigma": FIELD_HI, "frames": frames, "ring_r": FULL_RING}
     js.write_text(json.dumps(meta))
     return meta
 
 
+def _drop_stale(out_dir: Path, d: dict, key: str) -> None:
+    """Remove the track's movies of other sizes, and this kind's with another count of follow frames."""
+    kind = key[len(f"{d['id']}_{d['n_hits']}_"):].rsplit("f", 1)[0]  # "s8" or "full9"
+    for old in out_dir.glob(f"{d['id']}_*"):
+        rest = old.name[len(d["id"]) + 1:]
+        same_size = rest.startswith(f"{d['n_hits']}_")
+        if not same_size or (rest.startswith(f"{d['n_hits']}_{kind}f") and not old.name.startswith(key + ".") and not old.name.startswith(key + "_")):
+            old.unlink()
+
+
+def _levels(z: np.ndarray) -> np.ndarray:
+    """PNG levels of the field's values: linear from FIELD_LO to the shoulder's first
+    value, then straight in log(value) through FIELD_SHOULDER."""
+    k0 = FIELD_SHOULDER[0][0]
+    lin = (z - FIELD_LO) / (FIELD_HI - FIELD_LO) * 255
+    xs = [math.log(v) for v, _ in FIELD_SHOULDER]
+    ys = [(k0 - FIELD_LO) / (FIELD_HI - FIELD_LO) * 255] + [lv for _, lv in FIELD_SHOULDER[1:]]
+    with np.errstate(all="ignore"):
+        top = np.interp(np.log(np.maximum(z, k0)), xs, ys)
+    return np.clip(np.where(z <= k0, lin, top), 0, 255)
+
+
 def _field_crop(xs: list[float], ys: list[float], sun: tuple[float, float] | None, w: int, h: int) -> tuple[int, int, int, int]:
     """The field view's crop (x0, x1, y0, y1) in half-res px: the quadrant the object
     is in, as the hunters frame their movies. The corner nearest the Sun sits
-    FIELD_SUN_CLEAR px from it on each axis, just outside the occulter, so the
-    glare and the arm stay out and the streamer bases show; the view runs out to
+    FIELD_CLEAR_X px across and FIELD_CLEAR_Y px down from it, so the occulter's
+    limb and the streamer bases show; the view runs out to
     the field edge on the object's side, at most FIELD_MAX px, and always holds
     the fitted path with FIELD_MARGIN around it. Without a Sun position: the
     path with its margin."""
@@ -282,16 +304,16 @@ def _field_crop(xs: list[float], ys: list[float], sun: tuple[float, float] | Non
         sx, sy = sun
         ox, oy = float(np.mean(xs)), float(np.mean(ys))
         if ox >= sx:
-            lo_x = min(lo_x, sx + FIELD_SUN_CLEAR)
+            lo_x = min(lo_x, sx + FIELD_CLEAR_X)
             hi_x = max(hi_x, min(w, lo_x + FIELD_MAX))
         else:
-            hi_x = max(hi_x, sx - FIELD_SUN_CLEAR)
+            hi_x = max(hi_x, sx - FIELD_CLEAR_X)
             lo_x = min(lo_x, max(0, hi_x - FIELD_MAX))
         if oy >= sy:
-            lo_y = min(lo_y, sy + FIELD_SUN_CLEAR)
+            lo_y = min(lo_y, sy + FIELD_CLEAR_Y)
             hi_y = max(hi_y, min(h, lo_y + FIELD_MAX))
         else:
-            hi_y = max(hi_y, sy - FIELD_SUN_CLEAR)
+            hi_y = max(hi_y, sy - FIELD_CLEAR_Y)
             lo_y = min(lo_y, max(0, hi_y - FIELD_MAX))
     x0 = int(np.clip(math.floor(lo_x), 0, w - 1))
     x1 = int(np.clip(math.ceil(hi_x), x0 + 1, w))

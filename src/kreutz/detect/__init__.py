@@ -192,7 +192,8 @@ def run_stage_c(camera, paths, metas, windows, envelopes, seed_cold: bool = SEED
         drift = list(np.mean(drifts, axis=0)) if drifts else None
         warm = all(A.is_warm(metas[j]) for j in mem)
         cold += not warm
-        tr.update(metas[i].time, peaks, drift, metas[i].sun_xy, envelope=env, seed=warm or seed_cold)
+        tr.update(metas[i].time, peaks, drift, metas[i].sun_xy, envelope=env, seed=warm or seed_cold,
+                  seen=B.seen_fn(A.load_sig(camera, paths[i].name)))
     print(f"stage C: {cold} windows with cold frames " + ("could start tracks (seed_cold)" if seed_cold
                                                          else "started no new tracks"))
     tracks = tr.finish()

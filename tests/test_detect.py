@@ -354,3 +354,55 @@ def test_detector_defects_follow_the_pipelines_shift(tmp_path, monkeypatch):
         rr, cc = r0 + int(round(sy)), c0 + int(round(sx))
         assert m[rr:rr + 3, cc:cc + 2].all() and m.sum() < 120  # covers the cluster, with a small margin
     assert A.load_defects("ccor1") is None or True  # a camera without frames: no map, no error
+
+
+def _run(sig, gap, seen=None, back=True):
+    """Five hits, `gap` frames with nothing, then (if `back`) the object on its path again."""
+    tr = C.Tracker()
+    for k in range(5):
+        tr.update(k * 900.0, [_peak(k, 1700 - 7 * k, 1500 - 4 * k, -7, -4, sig=sig)], DRIFT, SUN)
+    for k in range(5, 5 + gap):
+        tr.update(k * 900.0, [], DRIFT, SUN, seen=seen)
+    k = 5 + gap
+    if back:
+        tr.update(k * 900.0, [_peak(k, 1700 - 7 * k, 1500 - 4 * k, -7, -4, sig=sig)], DRIFT, SUN)
+    return tr
+
+
+def test_alerted_track_is_followed_through_two_hours_without_a_hit():
+    bright = _run(16.0, 6)  # alert grade: 4 hits, 15 sigma
+    assert [len(t.hits) for t in bright.active if t.candidate] == [6] and bright.active[0].sticky
+    faint = _run(9.0, 6)  # an ordinary candidate is closed after MAX_MISSES
+    assert [len(t.hits) for t in faint.done] == [5] and not faint.done[0].sticky
+    assert [len(t.hits) for t in _run(16.0, C.STICKY_MISSES + 1, back=False).done] == [5]  # then it is gone
+    told = _run(9.0, 0, back=False)  # the live watcher marks a reported track
+    told.active[0].sticky = True
+    for k in range(5, 11):
+        told.update(k * 900.0, [], DRIFT, SUN)
+    assert len(told.active) == 1 and not told.done
+
+
+def test_frames_blank_at_the_predicted_place_are_not_misses():
+    # 20261109T0130_1740_1790: CCOR-1's Earth-glare frames blanked the map over it for five frames
+    blind = _run(9.0, 5, seen=lambda x, y: False)
+    assert [len(t.hits) for t in blind.active if t.candidate] == [6] and not blind.done
+    assert [len(t.hits) for t in _run(9.0, 5, seen=lambda x, y: True).done] == [5]  # looked and saw nothing
+    assert [len(t.hits) for t in _run(9.0, C.BLIND_FRAMES + 1, seen=lambda x, y: False, back=False).done] == [5]
+    m = np.ones((960, 1024), np.float32)
+    m[100:200, 300:400] = np.nan
+    seen = B.seen_fn(m)
+    assert seen(1000, 1000) and not seen(700, 1919 - 300) and not seen(5000, 10)  # report y runs down
+
+
+def test_snapshot_keeps_a_followed_tracks_pieces_older_than_the_window():
+    # 20261107T1730_1924_1608 lost the half before a gap once that half was a day old
+    tr = C.Tracker()
+    for k in list(range(6)) + list(range(11, 17)):
+        while tr.active and k * 900.0 - tr.active[0].last.t > 900.0 and k == 11:
+            for j in range(6, 11):
+                tr.update(j * 900.0, [], DRIFT, SUN)
+            break
+        tr.update(k * 900.0, [_peak(k, 1700 - 7 * k, 1500 - 4 * k, -7, -4, sig=9.0)], DRIFT, SUN)
+    assert [len(t.hits) for t in tr.done] == [6]  # the first piece was closed in the gap
+    snap = tr.snapshot(since=8 * 900.0)  # the first piece's last hit is older than the window
+    assert [len(t.hits) for t in snap] == [12] and snap[0].hits[0].t == 0.0

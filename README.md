@@ -166,8 +166,12 @@ GitHub's end and served stale copies for ten more.)
 Full field: the "full field" button next to it asks `/api/movie` with
 `full=1` for the frame at the camera's full resolution, cropped the way the
 hunters frame their movies: the object's quadrant, its corner nearest the Sun
-`FIELD_SUN_CLEAR` (100) half-res px from the Sun on each axis, just outside
-the occulter so the glare and the arm stay out and the streamer bases show,
+`FIELD_CLEAR_X` (8) half-res px across and `FIELD_CLEAR_Y` (56) down from the
+Sun, which is where Chris Wage's CCOR-1 frame starts (registered on ours
+through the comet's positions: 15 and 111 camera px, 1053 x 729 camera px in
+all), so the arm's edge, the occulter's limb and the streamer bases are in
+for context (at 100 px on each axis, until 2026-11-09, ours showed 184 camera
+px less of the inner corona),
 running out to the field edge on the object's side (at most `FIELD_MAX` = 640
 half-res px) and always holding the path with a `FIELD_MARGIN` of 50 px
 (`_field_crop`; one PNG per frame, the last `FULL_FRAMES` = 120 frames, 30 h,
@@ -181,8 +185,12 @@ motion smears everything else; stacking stays in the zoomed patch, where it
 helps a faint comet show), no smoothing, and one linear scale from `FIELD_LO`
 (-2.2) to `FIELD_HI` (22.8) in units of the noise in the outer half of the
 view, so the sky is near black and the grain thickens toward the Sun. Above
-`FIELD_KNEE` (14) the scale turns logarithmic and reaches white at
-`FIELD_TOP` (600), so the Moon's earthlit face keeps its maria. This is
+10 the scale runs straight in log(value) through `FIELD_SHOULDER`: the Moon's
+earthlit face (92 to 553 on CCOR-1, 2026-11-08) gets 100 grey levels around
+mid-grey so its maria show, bright stars sit at 124 to 150 instead of white,
+and a comet's head is white. Both movies run `FOLLOW_FRAMES` (8, two hours)
+past the last hit, the marker carried along the path, and are cached per
+count of those frames so a quiet track's movie still grows. This is
 Chris Wage's recipe; compared frame for frame with his CCOR-1 movie of
 2026-11-08 it has the same zero level and grain. (Until 2026-11-09 the view
 was half resolution, the last 32 frames, minus the 24-h minimum, divided by
@@ -529,6 +537,33 @@ nears the occulter). Each track therefore records its **status when it reached
 3, 4 and 5 hits** (`status_at`) as well as its final status. Scoring uses the
 status at the threshold; a later rejection is printed but never undoes a
 submission.
+
+### Following an object until it is gone
+
+A candidate is closed after `MAX_MISSES` (2) frames without a hit, and pieces
+up to `CONTINUE_FRAMES` (6) apart on one path are joined afterwards. Two
+things keep that from cutting short an object that matters (tracker `c6`,
+2026-11-09):
+
+- **Sticky tracks.** A track at the dashboard's alert grade (`STICKY_HITS` = 4
+  hits, `STICKY_SIGMA` = 15) or matched to a hunter's report (the live watcher
+  sets `sticky` on its open piece every cycle) stays open through
+  `STICKY_MISSES` (8) frames without a hit, two hours, with the match radius
+  growing `COAST_SLOP` (0.5) px per coasted frame.
+- **Blind frames.** A frame whose map is blank at a candidate's predicted
+  place (`stack.seen_fn`: under half of the 5 x 5 map px there finite) is not
+  a miss, for up to `BLIND_FRAMES` (8) in a row. CCOR-1's Earth-glare frames
+  (04:15 to 05:15 UTC daily) blank most of the map: 20261109T0130_1740_1790,
+  17 sigma, was closed at 04:30 that way and stood at 9 sigma on its path
+  again at 05:30.
+
+`Tracker.snapshot(since)` returns the merged tracks with a hit since `since`
+(the dashboard's `SHOW_H`), and a track that is not rejected takes its older
+pieces with it: filtered piece by piece, a comet followed for 28 h lost the
+half before a gap once that half was a day old and came back under a new id
+with 67 of its 110 hits. On the 2026-10-17..24 scorecard `c6` finds the same
+5 of 5 at the same times as `c5`, with 277 unmatched tracks against 282, and
+follows the 10-19 comet for 82 hits against 69.
 
 ### Rejection rules and why each exists
 
