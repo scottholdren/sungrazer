@@ -37,7 +37,7 @@ LEAD_FRAMES = 4      # frames shown before the first hit
 RANGE_SIGMA = 10.0   # 255 on the PNG
 FULL_FRAMES = 120    # the field movie: this many frames up to the newest hit (30 h), at the camera's full resolution
 FULL_RING = 16       # marker size on it (crosshair tick length), px
-FIELD_VERSION = 7    # in the cache key: bump when the field rendering changes, or old frames are served
+FIELD_VERSION = 8    # in the cache key: bump when the field rendering changes, or old frames are served
 FIELD_SUN_CLEAR = 100  # half-res px: the field view's corner nearest the Sun sits this far from it on each axis,
 #                        just outside the occulter (the hunters' framing: glare and arm out, streamer bases in)
 FIELD_MAX = 640      # half-res px: the view runs from that corner out to the field edge, at most this far
@@ -51,6 +51,8 @@ FIELD_BG_STEP = 4    # shown frame, every this many frames (so it is recomputed 
 FIELD_LO, FIELD_HI = -2.2, 22.8  # the field's one linear scale (0 and 255 on the PNG) in units of the noise in the
 #                      outer half of the view. Not divided by the noise per radius: the grain grows toward the Sun
 #                      (4-5x by the occulter), as on the hunters' movies, and zero sits at 9% grey so the sky is black.
+FIELD_KNEE, FIELD_TOP = 14.0, 600.0  # above the knee the scale is logarithmic and reaches white at FIELD_TOP: the Moon's
+#                      earthlit face reads 90-550 on it (CCOR-1, 2026-11-08) and keeps its maria instead of a white disc
 END_HITS = 8         # hits at each end of a track whose straight-line fit carries the marker beyond the hits
 
 
@@ -239,7 +241,11 @@ def _field(camera: str, d: dict, out_dir: Path, key: str, js: Path, good: list, 
         v = diff[sel] if sel.sum() >= 1000 else diff[ok]
         s = 1.4826 * float(np.median(np.abs(v - np.median(v)))) if v.size else 0.0
         z = np.where(ok, diff / (s if s > 0 else 1.0), np.nan)
-        img = np.where(ok, np.clip((z - FIELD_LO) / (FIELD_HI - FIELD_LO), 0, 1) * 255, 0).astype(np.uint8)
+        knee = (FIELD_KNEE - FIELD_LO) / (FIELD_HI - FIELD_LO)
+        with np.errstate(all="ignore"):
+            lvl = np.where(z <= FIELD_KNEE, (z - FIELD_LO) / (FIELD_HI - FIELD_LO),
+                           knee + (1 - knee) * np.log(z / FIELD_KNEE) / math.log(FIELD_TOP / FIELD_KNEE))
+        img = np.where(ok, np.clip(lvl, 0, 1) * 255, 0).astype(np.uint8)
         px, py = pts[k]
         ri, ci = int(round(py - y0)), int(round(px - x0))
         ring = z[max(ri - 6, 0):ri + 7, max(ci - 6, 0):ci + 7]

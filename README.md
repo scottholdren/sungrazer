@@ -180,7 +180,9 @@ stars, the Moon and the object stay. No stacking (shifting along one object's
 motion smears everything else; stacking stays in the zoomed patch, where it
 helps a faint comet show), no smoothing, and one linear scale from `FIELD_LO`
 (-2.2) to `FIELD_HI` (22.8) in units of the noise in the outer half of the
-view, so the sky is near black and the grain thickens toward the Sun. This is
+view, so the sky is near black and the grain thickens toward the Sun. Above
+`FIELD_KNEE` (14) the scale turns logarithmic and reaches white at
+`FIELD_TOP` (600), so the Moon's earthlit face keeps its maria. This is
 Chris Wage's recipe; compared frame for frame with his CCOR-1 movie of
 2026-11-08 it has the same zero level and grain. (Until 2026-11-09 the view
 was half resolution, the last 32 frames, minus the 24-h minimum, divided by
