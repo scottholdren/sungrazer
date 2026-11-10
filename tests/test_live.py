@@ -256,10 +256,8 @@ def test_discord_post_once_with_sheet(tmp_path, monkeypatch):
     pushes.clear()
     d2 = dict(d, id="20261025T0100_1_2")
     monkeypatch.setattr(notify.net, "session", lambda: S())
-    assert notify.post_alert(d2, "CCOR-1", sheet, event="following") is True
-    assert notify.post_alert(d2, "CCOR-1", sheet, event="following") is False
-    assert calls[0][1].startswith("following CCOR-1 `20261025T0100_1_2`") and not pushes
-    assert notify.already_posted("20261025T0100_1_2:following") and not notify.already_posted("20261025T0100_1_2")
+    assert notify.post_alert(d2, "CCOR-1", sheet, event="following") is False  # alerts only, on every channel
+    assert not calls and not pushes
     assert "30.0 sigma" in h["Message"] and h["Message"].isascii() and d["id"] in h["Message"]
 
 

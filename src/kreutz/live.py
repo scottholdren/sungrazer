@@ -350,7 +350,6 @@ class Watcher:
                     continue
                 if not _recent(d["first_seen"]):
                     continue  # an old track resurfacing (regrouped, or its head aged out) is not news
-                self.pending_posts.append((tid, "following"))
                 self.activity.event(f"new object {tid} {where}{unrep}", kind="track", track=tid)
                 self.activity.change(f"new {tid} {where}{unrep}", "new", tid)
             elif d["report"] and not old.get("report"):

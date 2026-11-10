@@ -12,11 +12,9 @@ Tapping the phone push opens the camera's live-finds folder on GitHub, the follo
 the package itself. Nothing links the dashboard: it sits on a network the phone cannot
 reach.
 
-Two events are sent, each at most once per track and channel
-(data/state/<channel>_posted.json): "following", when a track first gets a card
-on the dashboard (its third hit; 3-10 a day on CCOR-1, most of them not
-comets), and "alert", when it reaches the alert tier. CHANNEL_EVENTS says which
-channel gets which: Discord both, the phone push only the alert. The picture is
+Only the alert is sent, when a track reaches the alert tier, at most once per track
+and channel (data/state/<channel>_posted.json). A "following" event (a track's
+third hit) exists but no channel takes it: the owner turned it off (CHANNEL_EVENTS). The picture is
 the contact sheet as an animation (`export.write_sheet_gif`). After an alert the
 watcher builds and publishes the hunter's package and sends its README link as
 a quiet follow-up (the dashboard link only opens on the home network), and
@@ -33,7 +31,7 @@ from pathlib import Path
 from . import net, paths
 
 
-CHANNEL_EVENTS = {"discord": ("following", "alert"), "ntfy": ("alert",)}
+CHANNEL_EVENTS = {"discord": ("alert",), "ntfy": ("alert",)}  # the owner wants alerts only (2026-11-09)
 
 
 def _key(track_id: str, event: str) -> str:
