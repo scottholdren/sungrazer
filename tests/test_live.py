@@ -845,3 +845,30 @@ def test_one_alert_per_object(tmp_path, monkeypatch):
     assert not sent and notify.already_posted(b["id"]) and notify.already_posted(b["id"], "ntfy")
     text = notify.alert_text(dict(a, same_as={"label": "CCOR-2", "id": "20261111T2115_1384_1896", "n_hits": 5, "best_sig": 44.8}), "CCOR-1")
     assert "also on CCOR-2 as `20261111T2115_1384_1896` (5 hits, best 44.8σ)" in text
+
+
+
+def test_no_alert_for_an_object_already_reported(tmp_path, monkeypatch):
+    from kreutz import notify
+    from kreutz.reports import db
+
+    monkeypatch.setattr(notify.paths, "STATE_DIR", tmp_path)
+    d = live._track_summary(_track(datetime(2026, 11, 12, 0, 30, 25, tzinfo=timezone.utc), 6, sig=30.0), [], 0.0, db.connect(":memory:"))
+    sent = []
+    monkeypatch.setattr(notify, "post_alert", lambda *x, **k: sent.append(x) or True)
+    monkeypatch.setattr(notify, "configured", lambda: True)
+    monkeypatch.setattr(live, "load_labels", lambda camera: {})
+    w = live.Watcher.__new__(live.Watcher)
+    w.camera, w.to_package = "ccor1", []
+    w.activity = type("A", (), {"event": lambda self, *x, **k: None})()
+    for case in ("here", "there"):
+        e = dict(d, id=f"{d['id']}{case}")
+        if case == "here":
+            e["report"] = {"id": "report_cf_x", "reporter": "Chuck Fields"}
+            monkeypatch.setattr(live, "_twin_elsewhere", lambda camera, x, state: None)
+        else:
+            monkeypatch.setattr(live, "_twin_elsewhere", lambda camera, x, state: {"label": "CCOR-2", "id": "y", "n_hits": 9, "best_sig": 50.0,
+                                                                                  "report": {"reporter": "Eryk Banach"}})
+        w.pending_posts = [(e["id"], "alert")]
+        w._post_alerts({"tracks": [e], "label": "CCOR-1"}, tmp_path)
+        assert not sent and notify.already_posted(e["id"]) and not w.to_package  # no notice, no package

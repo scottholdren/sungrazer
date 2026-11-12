@@ -13,7 +13,8 @@ the package itself. Nothing links the dashboard: it sits on a network the phone 
 reach.
 
 Only the alert is sent, when a track reaches the alert tier, at most once per track
-and channel (data/state/<channel>_posted.json). A "following" event (a track's
+and channel (data/state/<channel>_posted.json), and only for an object no hunter has
+reported on either camera: the owner wants no notice once one has (live._post_alerts). A "following" event (a track's
 third hit) exists but no channel takes it: the owner turned it off (CHANNEL_EVENTS). The picture is
 the contact sheet as an animation (`export.write_sheet_gif`). After an alert the
 watcher builds and publishes the hunter's package and sends its README link as

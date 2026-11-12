@@ -262,11 +262,22 @@ class Watcher:
             d = by_id.get(tid)
             if d is None:
                 continue
+            if d.get("report") or (d.get("same_as") or {}).get("report"):
+                # a hunter got there first: the owner wants no notice (2026-11-12); the card still shows it
+                notify.mark_sent(tid)
+                self.activity.event(f"{event} for {tid} not sent: already reported by {(d.get('report') or {}).get('reporter', 'a hunter')}",
+                                    kind="info", track=tid)
+                continue
             twin = _twin_elsewhere(self.camera, d, state)
             done = [k for k in ([p for p in d.get("pieces") or []] + ([twin["id"]] if twin else [])) if notify.already_posted(k) or notify.already_posted(k, "ntfy")]
             if done:  # one alert per object: a piece of it, or its track on the other camera, has had it
                 notify.mark_sent(tid)
                 self.activity.event(f"{event} for {tid} not sent: same object as {', '.join(done)}, already alerted", kind="info", track=tid)
+                continue
+            if twin and twin.get("report"):
+                notify.mark_sent(tid)
+                self.activity.event(f"{event} for {tid} not sent: reported on {twin['label']} by {twin['report'].get('reporter')}",
+                                    kind="info", track=tid)
                 continue
             if twin:
                 d = dict(d, same_as=twin)
@@ -1252,10 +1263,12 @@ def _link_cameras(cams: list[dict]) -> None:
                     cam_first, cam_second = (a, b) if first is ta else (b, a)
                     first["same_as"] = {"camera": cam_second, "label": by[cam_second]["label"], "id": second["id"],
                                         "n_hits": second["n_hits"], "best_sig": second["best_sig"], "tier": second.get("tier"),
-                                        "first_seen": second["first_seen"], "last_seen": second["last_seen"]}
+                                        "first_seen": second["first_seen"], "last_seen": second["last_seen"],
+                                        "report": second.get("report")}
                     second["same_as"] = {"camera": cam_first, "label": by[cam_first]["label"], "id": first["id"],
                                          "n_hits": first["n_hits"], "best_sig": first["best_sig"], "tier": first.get("tier"),
-                                         "first_seen": first["first_seen"], "last_seen": first["last_seen"]}
+                                         "first_seen": first["first_seen"], "last_seen": first["last_seen"],
+                                         "report": first.get("report")}
                     second["twin_of"] = {"camera": cam_first, "id": first["id"]}
                     break
 
