@@ -43,7 +43,7 @@ import numpy as np
 from .stack import Peak
 from .velocity import FRAME_SECONDS
 
-VERSION = "c7"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
+VERSION = "c8"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
 MATCH_RADIUS = 6.0  # px, full resolution (half-res stacking + 0.5 px/frame velocity steps)
 MATCH_DV = 2.0  # px/frame
 MAX_MISSES = 2
@@ -311,10 +311,11 @@ def _absorb(keep: Track, other: Track) -> None:
     """The merged track was submittable at k hits as soon as any piece was. A
     continuation extends the keeper's hits so later pieces can chain on."""
     keep.merged = getattr(keep, "merged", 0) + 1 + getattr(other, "merged", 0)
-    if other.hits[0].t > keep.last.t:
-        keep.hits.extend(other.hits)
-    elif other.last.t < keep.hits[0].t:
-        keep.hits[:0] = other.hits
+    # every frame either piece has: pieces that took turns on the object (`_interleaved`) bring the frames
+    # the keeper missed (until c8 only a piece wholly before or after it did, and the movie marker went
+    # dotted on 3 of a 110-sigma comet's frames, 2026-11-12). On a frame both have, the keeper's hit stands.
+    mine = {round(h.t) for h in keep.hits}
+    keep.hits = sorted(keep.hits + [h for h in other.hits if round(h.t) not in mine], key=lambda h: h.t)
     for k, t in other.reached.items():
         mine_ok = keep.status_at.get(k) == "candidate"
         theirs_ok = other.status_at.get(k) == "candidate"

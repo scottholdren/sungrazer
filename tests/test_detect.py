@@ -415,7 +415,8 @@ def test_tracks_taking_turns_on_one_object_are_merged():
     b = C.Track(2, [_peak(k, *path(k), -3.3, -4.4) for k in (4, 5, 7, 10, 11, 14, 16, 17, 18, 19)], candidate=True)
     assert not ({round(h.t) for h in a.hits} & {round(h.t) for h in b.hits})
     merged = C.merge_duplicates([a, b])
-    assert len(merged) == 1 and len(merged[0].hits) >= 10
+    assert len(merged) == 1 and len(merged[0].hits) == 15  # every frame either piece had, in time order
+    assert [round(h.t / 900) for h in merged[0].hits] == sorted({0, 1, 2, 8, 15, 4, 5, 7, 10, 11, 14, 16, 17, 18, 19})
     # a parallel object 30 px off the path is not merged
     c = C.Track(3, [_peak(k, path(k)[0] + 30, path(k)[1], -3.3, -4.4) for k in (4, 5, 7, 10, 11)], candidate=True)
     assert len(C.merge_duplicates([a, c])) == 2
