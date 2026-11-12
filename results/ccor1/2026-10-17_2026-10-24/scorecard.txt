@@ -1,12 +1,12 @@
 # kreutz score --camera ccor1 --start 2026-10-17 --end 2026-10-24 --seed-cold
-# code 8d34213, stage A a4, stage B b3, run 2026-11-09 06:26 UTC
+# code 6f573f0, stage A a4, stage B b3, run 2026-11-12 02:58 UTC
 envelope month 10: 61 PROVISIONAL from hunter claims Kreutz tracks (months [10]); entry PA -45..-11; allowed direction 138..-178 deg, miss -225..91 px; grid vx -12.5..-6.0, vy -6.5..0.0 = 196 velocities
 stage C: 137 windows with cold frames could start tracks (seed_cold)
-685 good frames, 3 without star model, 90 cold; 3657 candidate tracks (217 not rejected) -> /home/sholdren/stargrazer/sungrazer/data/derived/ccor1/a4/tracks_2026-10-17_2026-10-24.json
+685 good frames, 3 without star model, 90 cold; 3654 candidate tracks (217 not rejected) -> /home/sholdren/stargrazer/sungrazer/data/derived/ccor1/a4/tracks_2026-10-17_2026-10-24.json
 
 === ccor1 2026-10-17..2026-10-24: 5 truth objects (PROVISIONAL: no confirmation list covers this window; using hunter claims)
     mapped with a fitted reporter transform (coords.REPORT_TRANSFORMS): report_bc_20261019233808, report_bc_20261023150123
-    3657 candidate tracks, 281 submittable at 3, 4 or 5 hits; final status of all: 217 live, outbound: 2161, glare-zone: 166, extended: 72, off-envelope: 1041
+    3654 candidate tracks, 281 submittable at 3, 4 or 5 hits; final status of all: 217 live, outbound: 2159, glare-zone: 165, extended: 72, off-envelope: 1041
     latency 22.6 min = publication 14.6 + poll wait 7.5 + processing 0.5. SWPC publication lag (ccor1, 2366 files 10-02..10-26): median 14.6 min, 90th percentile 22.6 min after exposure start; first seen by our 15-min polls: median 17.1 min (6 files)
 
 object                     group   status    first human post  found  @3 hits: time / lead / real          @4 hits: time / lead / real          @5 hits: time / lead / real          best sig
