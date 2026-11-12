@@ -644,6 +644,14 @@ things keep that from cutting short an object that matters (tracker `c6`,
   17 sigma, was closed at 04:30 that way and stood at 9 sigma on its path
   again at 05:30.
 
+Tracks that take turns on one object, their hits in alternate frames and
+never a common time, are merged too (`track._interleaved`: 2 hits of either
+within `MERGE_RADIUS` of the other's path between its own hits; tracker `c7`).
+On 2026-11-11 a 110-sigma CCOR-2 comet came out as two alert cards that way.
+An object gets one alert: one is not sent when a piece of the same object,
+or its track on the other CCOR camera, has had it, and an alert names the
+other camera's track when there is one.
+
 `Tracker.snapshot(since)` returns the merged tracks with a hit since `since`
 (the dashboard's `SHOW_H`), and a track that is not rejected takes its older
 pieces with it: filtered piece by piece, a comet followed for 28 h lost the

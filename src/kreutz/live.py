@@ -262,6 +262,14 @@ class Watcher:
             d = by_id.get(tid)
             if d is None:
                 continue
+            twin = _twin_elsewhere(self.camera, d, state)
+            done = [k for k in ([p for p in d.get("pieces") or []] + ([twin["id"]] if twin else [])) if notify.already_posted(k) or notify.already_posted(k, "ntfy")]
+            if done:  # one alert per object: a piece of it, or its track on the other camera, has had it
+                notify.mark_sent(tid)
+                self.activity.event(f"{event} for {tid} not sent: same object as {', '.join(done)}, already alerted", kind="info", track=tid)
+                continue
+            if twin:
+                d = dict(d, same_as=twin)
             try:
                 if notify.post_alert(d, state["label"], _alert_image(d, out), click, event, labels.get(tid)):
                     self.activity.event(f"{event} notice for {tid} sent", kind="info", track=tid)
@@ -648,6 +656,28 @@ def build_state(camera: str, tracks: list[dict], open_chains: list[Track], metas
 ENDED_S = 2.5 * 3600  # no hit for this long (the tracker's two hours of patience, and the feed's lag): the track has ended
 
 
+def _twin_elsewhere(camera: str, d: dict, state: dict) -> dict | None:
+    """The other CCOR camera's track of the same object (`_link_cameras`, on copies of
+    the two states), or None."""
+    from . import solar
+
+    other = solar.other_ccor(camera)
+    p = live_dir(other) / "state.json" if other else None
+    if not p or not p.exists():
+        return None
+    try:
+        o = json.loads(p.read_text())
+        mine = dict(d)
+        mine.pop("same_as", None)
+        cams = [{"camera": camera, "label": state["label"], "tracks": [mine]},
+                {"camera": other, "label": o["label"], "tracks": [dict(t) for t in o["tracks"] if t.get("tier") != "missed"]}]
+        _link_cameras(cams)
+        return mine.get("same_as") or next((t["same_as"] for t in cams[1]["tracks"] if (t.get("same_as") or {}).get("id") == d["id"]), None)
+    except Exception as e:  # noqa: BLE001 - no WCS at hand: alert as one camera
+        print(f"cross-camera check for {d['id']} failed: {e}", flush=True)
+        return None
+
+
 def _alert_image(d: dict, out: Path) -> Path | None:
     """What a notice shows: the track's contact sheet as an animation, the sheet itself
     if that cannot be made, nothing without a sheet."""
@@ -845,11 +875,23 @@ OBJECT_PX = 60.0  # tracks this close at the same time (or on each other's path)
 CONTINUE_FRAMES = C.CONTINUE_FRAMES  # a track starting within this many frames after another ends, on its path, continues it
 
 
+INTERLEAVE_PX = 20.0  # a track's hits this close to another's path, between that one's own hits, are on it
+
+
 def _same_object(a: dict, b: dict) -> bool:
     pos = {h["t"]: (h["x"], h["y"]) for h in a["hits"]}
     for h in b["hits"]:
         p = pos.get(h["t"])
         if p is not None and np.hypot(h["x"] - p[0], h["y"] - p[1]) <= OBJECT_PX:
+            return True
+    for p_, q in ((a, b), (b, a)):  # taking turns on one object: never a common time (2026-11-11, CCOR-2)
+        t = np.array([_ts(h["t"]) for h in p_["hits"]])
+        if len(t) < 2:
+            continue
+        xs, ys = [h["x"] for h in p_["hits"]], [h["y"] for h in p_["hits"]]
+        on = sum(1 for h in q["hits"] if t[0] < _ts(h["t"]) < t[-1]
+                 and np.hypot(h["x"] - np.interp(_ts(h["t"]), t, xs), h["y"] - np.interp(_ts(h["t"]), t, ys)) <= INTERLEAVE_PX)
+        if on >= 2:
             return True
     for first, second in ((a, b), (b, a)):
         gap = (_ts(second["first_seen"]) - _ts(first["last_seen"])) / 900.0

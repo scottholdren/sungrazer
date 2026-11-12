@@ -817,3 +817,31 @@ def test_alert_carries_the_sheet_as_an_animation_positions_and_then_the_package_
     assert notify.auto_export()
     (tmp_path / "auto_export.txt").write_text("off\n")
     assert not notify.auto_export()
+
+
+def test_one_alert_per_object(tmp_path, monkeypatch):
+    from kreutz import notify
+    from kreutz.reports import db
+
+    monkeypatch.setattr(notify.paths, "STATE_DIR", tmp_path)
+    con = db.connect(":memory:")
+    t0 = datetime(2026, 11, 11, 21, 15, 25, tzinfo=timezone.utc)
+    a = live._track_summary(_track(t0, 5, sig=30.0), [], 0.0, con)
+    b = live._track_summary(_track(t0 + timedelta(minutes=7), 8, sig=40.0), [], 0.0, con)  # takes turns with a
+    b["hits"] = [dict(h, x=h["x"] - 4.0, y=h["y"] - 1.5) for h in b["hits"]]
+    assert live._same_object(a, b)
+    live.group_objects([a, b])
+    assert a["group"] == b["group"] == b["id"] and b["pieces"] == [a["id"]]
+    notify._mark_posted(a["id"])  # the first piece alerted earlier
+    sent = []
+    monkeypatch.setattr(notify, "post_alert", lambda *x, **k: sent.append(x) or True)
+    monkeypatch.setattr(notify, "configured", lambda: True)
+    monkeypatch.setattr(live, "_twin_elsewhere", lambda camera, d, state: None)
+    w = live.Watcher.__new__(live.Watcher)
+    w.camera, w.pending_posts, w.to_package = "ccor1", [(b["id"], "alert")], []
+    w.activity = type("A", (), {"event": lambda self, *x, **k: None})()
+    monkeypatch.setattr(live, "load_labels", lambda camera: {})
+    w._post_alerts({"tracks": [a, b], "label": "CCOR-1"}, tmp_path)
+    assert not sent and notify.already_posted(b["id"]) and notify.already_posted(b["id"], "ntfy")
+    text = notify.alert_text(dict(a, same_as={"label": "CCOR-2", "id": "20261111T2115_1384_1896", "n_hits": 5, "best_sig": 44.8}), "CCOR-1")
+    assert "also on CCOR-2 as `20261111T2115_1384_1896` (5 hits, best 44.8σ)" in text

@@ -406,3 +406,16 @@ def test_snapshot_keeps_a_followed_tracks_pieces_older_than_the_window():
     assert [len(t.hits) for t in tr.done] == [6]  # the first piece was closed in the gap
     snap = tr.snapshot(since=8 * 900.0)  # the first piece's last hit is older than the window
     assert [len(t.hits) for t in snap] == [12] and snap[0].hits[0].t == 0.0
+
+
+def test_tracks_taking_turns_on_one_object_are_merged():
+    # 2026-11-11 CCOR-2: a 5-hit and a 13-hit track of one comet, hits in alternate frames, never a common time
+    path = lambda k: (1384.5 - 3.3 * k, 1896.5 - 4.4 * k)
+    a = C.Track(1, [_peak(k, *path(k), -3.3, -4.4) for k in (0, 1, 2, 8, 15)], candidate=True)
+    b = C.Track(2, [_peak(k, *path(k), -3.3, -4.4) for k in (4, 5, 7, 10, 11, 14, 16, 17, 18, 19)], candidate=True)
+    assert not ({round(h.t) for h in a.hits} & {round(h.t) for h in b.hits})
+    merged = C.merge_duplicates([a, b])
+    assert len(merged) == 1 and len(merged[0].hits) >= 10
+    # a parallel object 30 px off the path is not merged
+    c = C.Track(3, [_peak(k, path(k)[0] + 30, path(k)[1], -3.3, -4.4) for k in (4, 5, 7, 10, 11)], candidate=True)
+    assert len(C.merge_duplicates([a, c])) == 2

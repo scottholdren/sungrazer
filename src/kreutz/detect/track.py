@@ -43,7 +43,7 @@ import numpy as np
 from .stack import Peak
 from .velocity import FRAME_SECONDS
 
-VERSION = "c6"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
+VERSION = "c7"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
 MATCH_RADIUS = 6.0  # px, full resolution (half-res stacking + 0.5 px/frame velocity steps)
 MATCH_DV = 2.0  # px/frame
 MAX_MISSES = 2
@@ -259,13 +259,30 @@ class Tracker:
         self.done = [t for t in self.done if t.last.t >= before]
 
 
+def _interleaved(a: Track, b: Track, radius: float) -> bool:
+    """Two tracks that take turns on one object (2026-11-11, CCOR-2: a 5-hit and a 13-hit
+    track of one 110-sigma comet, their hits in alternate frames, never a common time): at
+    least 2 hits of either lie, within `radius`, on the other's path interpolated between
+    its own hits. The caller has checked the velocities agree."""
+    for p, q in ((a, b), (b, a)):
+        t = np.array([h.t for h in p.hits])
+        if len(t) < 2:
+            continue
+        xs, ys = [h.x for h in p.hits], [h.y for h in p.hits]
+        on = [h for h in q.hits if t[0] < h.t < t[-1]
+              and np.hypot(h.x - np.interp(h.t, t, xs), h.y - np.interp(h.t, t, ys)) <= radius]
+        if len(on) >= 2:
+            return True
+    return False
+
+
 def _same_object(a: Track, b: Track) -> bool:
     """Two tracks follow one object: >= 2 common hit times with the hits close
     (MERGE_RADIUS), or, at the same velocity, offset along the motion (MERGE_ALONG);
     or b is a satellite of a (>= 2 common times within SATELLITE_RADIUS: a bright
     comet's head, tail and neighbouring-velocity peaks); or b continues a: it
     starts within CONTINUE_FRAMES after a ends, on a's predicted path, at a's
-    velocity. `a` is the longer track."""
+    velocity; or the two take turns on it (`_interleaved`). `a` is the longer track.""" 
     pos = {round(h.t): (h.x, h.y) for h in a.hits}
     common = [(np.subtract(pos[round(h.t)], (h.x, h.y))) for h in b.hits if round(h.t) in pos]
     if sum(np.hypot(*d) < MERGE_RADIUS for d in common) >= 2:
@@ -275,6 +292,8 @@ def _same_object(a: Track, b: Track) -> bool:
     va, vb = np.array(a.velocity()), np.array(b.velocity())
     if np.hypot(*(va - vb)) > MATCH_DV:
         return False
+    if _interleaved(a, b, MERGE_RADIUS):
+        return True
     if not common:
         for first, second in ((a, b), (b, a)):
             gap = (second.hits[0].t - first.last.t) / FRAME_SECONDS

@@ -111,6 +111,9 @@ def alert_text(d: dict, label: str, event: str = "alert", tag: dict | None = Non
     lines = [f"{head} {label} `{d['id']}` — {rep}", _facts(d)]
     if d.get("other"):
         lines.append("not on the Kreutz lane (bright mover in another direction)")
+    if d.get("same_as"):  # the dashboard has one card per object, under the camera that saw it first
+        sa = d["same_as"]
+        lines.append(f"also on {sa['label']} as `{sa['id']}` ({sa['n_hits']} hits, best {sa['best_sig']}σ)")
     if tag and tag.get("label"):
         lines.append(f"you tagged it {tag['label']} {tag.get('at', '')[11:16]} UTC")
     if event == "alert":
@@ -141,6 +144,13 @@ def push_ntfy(title: str, text: str, urgent: bool, click: str | None = None, ima
             return
     resp = s.post(ntfy_url(), data=_ascii(text).encode(), headers=headers, timeout=30)
     resp.raise_for_status()
+
+
+def mark_sent(track_id: str, event: str = "alert") -> None:
+    """Record an event as sent on every channel without sending it (the object has had it under another id)."""
+    for ch in CHANNEL_EVENTS:
+        if event in CHANNEL_EVENTS[ch] and not already_posted(_key(track_id, event), ch):
+            _mark_posted(_key(track_id, event), ch)
 
 
 def _mime(p: Path) -> str:
