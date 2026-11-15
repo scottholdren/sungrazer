@@ -235,40 +235,43 @@ def _movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool =
     return meta
 
 
-ENH_VERSION = 1      # in the enhanced movie's cache key
-ENH_MARGIN = 40      # full-res px of sky around the path
-ENH_TILE = 600       # the enhanced movie's size on screen, px: the patch is upsampled to about this
-ENH_MAX_ZOOM = 6
+ENH_VERSION = 2      # in the enhanced movie's cache key
+ENH_WINDOW = 121     # full-res px: the enhanced movie is a window this wide that follows the object ...
+ENH_ZOOM = 5         # ... enlarged this many times (605 px on screen). A fixed patch around a long track's
+#                      whole path came out at zoom 1 (v1, 2026-11-15): the object was a few pixels in 700.
 
 
 def _enhanced(camera: str, d: dict, out_dir: Path, key: str, js: Path, good: list, shown: list, pos,
               hit_times: set, stack: int) -> dict:
-    """The patch movie rebuilt from the camera's own pixels, to set beside it: a patch fixed
-    on the sky around the path, at full resolution, each frame minus the median of the
-    earlier frames (the field movie's recipe: the coma and tail stay, which the detector's
-    point filter removes), divided by the patch's noise, and the last `stack` frames
-    shifted by the object's sub-pixel motion and added (bilinear shifts, weighted by
-    coverage; the sum divided by the square root of the weight keeps the noise at 1).
-    Upsampled to about ENH_TILE px with cubic interpolation, not blocks. Nothing is
-    invented: no detail finer than the camera's pixel is added."""
+    """The patch movie rebuilt from the camera's own pixels, to set beside it: a window of
+    ENH_WINDOW camera px that follows the object, at full resolution. Each frame is the raw
+    frame minus the median of the frames before it (the field movie's recipe: the coma and
+    tail stay, which the detector's point filter removes), divided by its noise; the last
+    `stack` frames are shifted by the object's sub-pixel motion along its measured path and
+    added (bilinear shifts, weighted by coverage; the sum divided by the square root of the
+    weight keeps the noise at 1), then enlarged ENH_ZOOM times with cubic interpolation, not
+    blocks. Nothing is invented: no detail finer than the camera's pixel is added. Stars,
+    fixed on the sky, drift through the window and smear in the stack."""
     from scipy import ndimage
 
     out_dir.mkdir(parents=True, exist_ok=True)
     pts = [pos(ts) for _, ts in shown]
     h, w = _raw_full(shown[0][0]).shape
-    x0 = int(max(math.floor(min(x for x, _ in pts) - ENH_MARGIN), 0))
-    x1 = int(min(math.ceil(max(x for x, _ in pts) + ENH_MARGIN) + 1, w))
-    y0 = int(max(math.floor(min(y for _, y in pts) - ENH_MARGIN), 0))
-    y1 = int(min(math.ceil(max(y for _, y in pts) + ENH_MARGIN) + 1, h))
+    half = ENH_WINDOW // 2
+    pad = half + 8
+    # one box holding every window: frames are read and differenced once, then the windows cut from it
+    x0 = int(max(math.floor(min(x for x, _ in pts)) - pad, 0))
+    x1 = int(min(math.ceil(max(x for x, _ in pts)) + pad + 1, w))
+    y0 = int(max(math.floor(min(y for _, y in pts)) - pad, 0))
+    y1 = int(min(math.ceil(max(y for _, y in pts)) + pad + 1, h))
     bw, bh = x1 - x0, y1 - y0
-    zoom = int(np.clip(ENH_TILE // max(bw, bh), 1, ENH_MAX_ZOOM))
     order = {p.name: i for i, (p, _) in enumerate(good)}
     crops: dict[str, np.ndarray] = {}
-    normed: dict[str, np.ndarray] = {}
+    normed: dict[str, np.ndarray | None] = {}
 
     def crop(q: Path) -> np.ndarray:
         if q.name not in crops:
-            crops[q.name] = _raw_full(q)[y0:y1, x0:x1].copy()
+            crops[q.name] = _raw_full(q)[y0:y1, x0:x1].astype(np.float32)
         return crops[q.name]
 
     def norm(q: Path, tq: float) -> np.ndarray | None:
@@ -283,17 +286,19 @@ def _enhanced(camera: str, d: dict, out_dir: Path, key: str, js: Path, good: lis
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 bg = np.nanmedian(np.stack([crop(g) for g in earlier]), axis=0)
-                diff = crop(q) - bg
+                diff = (crop(q) - bg).astype(np.float32)
             v = diff[np.isfinite(diff)]
             s = 1.4826 * float(np.median(np.abs(v - np.median(v)))) if v.size > 100 else 0.0
             normed[q.name] = diff / s if s > 0 else None
         return normed[q.name]
 
+    size = 2 * half + 1
     frames, pngs = [], []
     for k, (p, ts) in enumerate(shown):
         px, py = pts[k]
-        acc = np.zeros((bh, bw), np.float32)
-        wsum = np.zeros((bh, bw), np.float32)
+        c0, r0 = int(round(px)) - half - x0, int(round(py)) - half - y0  # the window, in box px
+        acc = np.zeros((size, size), np.float32)
+        wsum = np.zeros((size, size), np.float32)
         n = 0
         for q, tq in reversed(good):
             if tq > ts + 1:
@@ -301,35 +306,45 @@ def _enhanced(camera: str, d: dict, out_dir: Path, key: str, js: Path, good: lis
             z = norm(q, tq)
             if z is not None:
                 qx, qy = pos(tq)
-                shift = (py - qy, px - qx)  # rows, cols: carry frame q's object onto this frame's place
-                ok = np.isfinite(z)
-                acc += ndimage.shift(np.where(ok, z, 0.0).astype(np.float32), shift, order=1, mode="constant", cval=0.0)
-                wsum += ndimage.shift(ok.astype(np.float32), shift, order=1, mode="constant", cval=0.0)
-                n += 1
+                # frame q's object carried onto this frame's place: cut a window around its own
+                # position (integer part) and shift the rest (fraction) bilinearly
+                qc, qr = int(round(qx)) - half - x0, int(round(qy)) - half - y0
+                if 1 <= qc and 1 <= qr and qc + size + 1 <= bw and qr + size + 1 <= bh:
+                    win = z[qr - 1:qr + size + 1, qc - 1:qc + size + 1]
+                    ok = np.isfinite(win)
+                    frac = ((py - round(py)) - (qy - round(qy)), (px - round(px)) - (qx - round(qx)))
+                    acc += ndimage.shift(np.where(ok, win, 0.0).astype(np.float32), frac, order=1, mode="constant")[1:-1, 1:-1]
+                    wsum += ndimage.shift(ok.astype(np.float32), frac, order=1, mode="constant")[1:-1, 1:-1]
+                    n += 1
             if n >= stack:
                 break
         with np.errstate(all="ignore"):
             z = np.where(wsum > 0.3, acc / np.sqrt(np.maximum(wsum, 1e-6)), np.nan)
         ok = np.isfinite(z)
-        big = ndimage.zoom(np.where(ok, z, 0.0), zoom, order=3, grid_mode=True, mode="grid-constant")
-        mask = ndimage.zoom(ok.astype(np.float32), zoom, order=1, grid_mode=True, mode="grid-constant") > 0.5
+        big = ndimage.zoom(np.where(ok, z, 0.0), ENH_ZOOM, order=3, grid_mode=True, mode="grid-constant")
+        mask = ndimage.zoom(ok.astype(np.float32), ENH_ZOOM, order=1, grid_mode=True, mode="grid-constant") > 0.5
         img = np.where(mask, _levels(big), 0).astype(np.uint8)
         name = p.name[9:24]
         stamp(img, f"{name[:4]}-{name[4:6]}-{name[6:8]} {name[9:11]}:{name[11:13]} UTC")
         fpng = out_dir / f"{key}_{k:03d}.png"
         write_png(fpng, img)
         pngs.append(f"{camera}/movies/{fpng.name}")
-        ri, ci = int(round(py - y0)), int(round(px - x0))
-        ring = z[max(ri - 3, 0):ri + 4, max(ci - 3, 0):ci + 4]
+        oc, orr = px - x0 - c0, py - y0 - r0  # the object within the window
+        ring = z[max(int(round(orr)) - 3, 0):int(round(orr)) + 4, max(int(round(oc)) - 3, 0):int(round(oc)) + 4]
         frames.append({"peak": round(float(np.nanmax(ring)), 1) if np.isfinite(ring).any() else None,
                        "tail": round(float(np.percentile(z[ok], 99.9)), 1) if ok.any() else None,
                        "name": name, "t": datetime.fromtimestamp(ts).astimezone().isoformat(timespec="minutes"),
-                       "x": round((px - x0 + 0.5) * zoom - 0.5, 1), "y": round((py - y0 + 0.5) * zoom - 0.5, 1),
+                       "x": round((oc + 0.5) * ENH_ZOOM - 0.5, 1), "y": round((orr + 0.5) * ENH_ZOOM - 0.5, 1),
                        "hit": int(round(ts / 60)) in hit_times, "stacked": n})
+        for g in [g for g in normed if g not in {q.name for q, tq in good if ts - 3 * 3600 <= tq <= ts + 1}]:
+            del normed[g]  # stacked frames reach back hours at most; the differences of older ones are done with
+        old = ts - FIELD_BG_HOURS * 3600 - 2 * 3600
+        for g in [g for g, tg in good if tg < old and g.name in crops]:
+            del crops[g.name]
     _drop_stale(out_dir, d, key)
-    meta = {"pngs": pngs, "width": bw * zoom, "height": bh * zoom, "crop": [x0, y0], "zoom": zoom, "stack": stack,
-            "range_sigma": FIELD_HI, "lo_sigma": FIELD_LO, "hi_sigma": FIELD_HI, "frames": frames,
-            "ring_r": max(10, 5 * zoom), "enhanced": True}
+    meta = {"pngs": pngs, "width": size * ENH_ZOOM, "height": size * ENH_ZOOM, "crop": [x0, y0], "zoom": ENH_ZOOM,
+            "stack": stack, "range_sigma": FIELD_HI, "lo_sigma": FIELD_LO, "hi_sigma": FIELD_HI, "frames": frames,
+            "ring_r": 6 * ENH_ZOOM, "enhanced": True, "follows": True}
     js.write_text(json.dumps(meta))
     return meta
 

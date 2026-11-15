@@ -238,6 +238,17 @@ zoom 2 or 1 (`ZOOMS`; a 28-hour track is 940 camera px long), and only a path
 too long even for zoom 1 is cut to its newest stretch. The maps are added
 along the measured path, not one velocity.
 
+Enhanced (`movie._enhanced`, the "enhanced, beside hi-res" button): the
+patch's frames rebuilt from the camera's own pixels and played beside it,
+frame for frame. A window of `ENH_WINDOW` (121) camera px follows the object;
+each raw frame minus the median of the frames before it (the field movie's
+recipe, so the coma and tail stay, which the detector's point filter removes)
+is divided by its noise, the last 3 or 8 are shifted by the object's
+sub-pixel motion along its measured path and added, and the result is
+enlarged `ENH_ZOOM` (5) times with cubic interpolation instead of blocks. No
+detail finer than the camera's pixel is invented. Stars drift through the
+window and smear in the stack.
+
 The export's GIFs carry every frame of both movies. The field GIF is binned
 2x2 and written in `FIELD_GIF_LEVELS` (16) grey levels: its frames are noise,
 which LZW cannot pack (170 KB a frame at 254 levels, 45 KB at 16, nothing

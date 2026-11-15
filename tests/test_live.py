@@ -474,7 +474,7 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
     en = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3, enhanced=True)
     patch = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3)
     assert en["enhanced"] and [f["name"] for f in en["frames"]] == [f["name"] for f in patch["frames"]]
-    assert en["zoom"] >= 2 and en["width"] == (en["width"] // en["zoom"]) * en["zoom"]
+    assert en["zoom"] == movie.ENH_ZOOM and en["width"] == en["height"] == movie.ENH_WINDOW * movie.ENH_ZOOM
     zero = (0 - movie.FIELD_LO) / (movie.FIELD_HI - movie.FIELD_LO) * 255
     seen = 0
     for j, f in enumerate(en["frames"]):
