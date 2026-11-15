@@ -235,7 +235,7 @@ def _movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool =
     return meta
 
 
-ENH_VERSION = 2      # in the enhanced movie's cache key
+ENH_VERSION = 3      # in the enhanced movie's cache key
 ENH_WINDOW = 121     # full-res px: the enhanced movie is a window this wide that follows the object ...
 ENH_ZOOM = 5         # ... enlarged this many times (605 px on screen). A fixed patch around a long track's
 #                      whole path came out at zoom 1 (v1, 2026-11-15): the object was a few pixels in 700.
@@ -271,7 +271,7 @@ def _enhanced(camera: str, d: dict, out_dir: Path, key: str, js: Path, good: lis
 
     def crop(q: Path) -> np.ndarray:
         if q.name not in crops:
-            crops[q.name] = _raw_full(q)[y0:y1, x0:x1].astype(np.float32)
+            crops[q.name] = _raw_full(q, clean=True)[y0:y1, x0:x1].astype(np.float32)
         return crops[q.name]
 
     def norm(q: Path, tq: float) -> np.ndarray | None:
@@ -321,6 +321,13 @@ def _enhanced(camera: str, d: dict, out_dir: Path, key: str, js: Path, good: lis
         with np.errstate(all="ignore"):
             z = np.where(wsum > 0.3, acc / np.sqrt(np.maximum(wsum, 1e-6)), np.nan)
         ok = np.isfinite(z)
+        if ok.sum() > 100:
+            # zero and noise of the window itself: near the Sun the corona changes faster than the
+            # 24-h background follows, and a whole window came out grey (2026-11-13, CCOR-2)
+            v = z[ok]
+            med = float(np.median(v))
+            s = 1.4826 * float(np.median(np.abs(v - med)))
+            z = (z - med) / (s if s > 0 else 1.0)
         big = ndimage.zoom(np.where(ok, z, 0.0), ENH_ZOOM, order=3, grid_mode=True, mode="grid-constant")
         mask = ndimage.zoom(ok.astype(np.float32), ENH_ZOOM, order=1, grid_mode=True, mode="grid-constant") > 0.5
         img = np.where(mask, _levels(big), 0).astype(np.uint8)
@@ -520,11 +527,35 @@ def stamp(img: np.ndarray, text: str, x: int = 6, y: int = 6, scale: int = STAMP
     region[glyphs[:y1 - y, :x1 - x]] = 255
 
 
-def _raw_full(p: Path) -> np.ndarray:
-    """The raw frame at full resolution, report orientation (row 0 = top), masked pixels NaN."""
+_DEFECTS: dict[str, tuple | None] = {}
+
+
+def _raw_full(p: Path, clean: bool = False) -> np.ndarray:
+    """The raw frame at full resolution, report orientation (row 0 = top), masked pixels NaN.
+    `clean`: as stage A sees it on a camera with a defect map (CCOR-2): divided by the
+    gain pattern, its dead pixels and dust motes (with their guards) NaN, so a stack along
+    an object's motion does not string the motes out into chains of dark discs."""
     from .fitsio import read_frame
 
-    d = read_frame(p, check_orientation=False).data.astype(np.float32)
+    f = read_frame(p, check_orientation=False)
+    d = f.data.astype(np.float32)
+    if clean:
+        from scipy import ndimage
+
+        cam = "ccor2" if p.name.startswith("CCOR2") else "ccor1"
+        if cam not in _DEFECTS:
+            _DEFECTS[cam] = A.load_defects(cam, log=lambda *a, **k: None) if A.shift_of(f.header) else None
+        if _DEFECTS[cam]:
+            defects, sign, flat, big = _DEFECTS[cam]
+            g = A.flat_on_frame(flat, sign, f.header)
+            if g is not None:
+                d = d / g
+            bad = np.zeros(d.shape, bool)
+            for m, guard in ((A.defect_mask(defects, sign, f.header), A.DEFECT_SIG_GUARD),
+                             (A.defect_mask(big, sign, f.header), A.DEFECT_BIG_GUARD)):
+                if m is not None and m.any():
+                    bad |= ndimage.binary_dilation(m, iterations=guard)
+            d[bad] = np.nan
     return np.flipud(np.where(d > 0, d, np.nan))  # the occulter and the arm read 0 or below
 
 
