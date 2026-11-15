@@ -469,7 +469,22 @@ def test_movie_fixed_patch_shows_moving_object(tmp_path, monkeypatch):
         assert zero - 12 < np.median(img) < zero + 12  # the noise is grain around zero, not cut to black
         assert f["stacked"] == 1
     assert fm["frames"][-1]["background"] >= 1 and fm["frames"][-1]["peak"] > 4
-    assert movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=8, full=True) == fm  # cached; stack ignored
+    assert movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=8, full=True) == fm
+    # enhanced: the patch's frames, rebuilt from the raw frames at camera resolution, upsampled smoothly
+    en = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3, enhanced=True)
+    patch = movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3)
+    assert en["enhanced"] and [f["name"] for f in en["frames"]] == [f["name"] for f in patch["frames"]]
+    assert en["zoom"] >= 2 and en["width"] == (en["width"] // en["zoom"]) * en["zoom"]
+    zero = (0 - movie.FIELD_LO) / (movie.FIELD_HI - movie.FIELD_LO) * 255
+    seen = 0
+    for j, f in enumerate(en["frames"]):
+        img = _read_png(tmp_path / "live" / "ccor1" / "movies" / en["pngs"][j].split("/")[-1])
+        assert img.shape == (en["height"], en["width"])
+        y, x, r = int(round(f["y"])), int(round(f["x"])), 2 * en["zoom"]
+        if f["stacked"] >= 1 and img[y - r:y + r + 1, x - r:x + r + 1].max() > zero + 60:
+            seen += 1
+    assert seen >= len(en["frames"]) - 2  # the object sits in the marker (the first frames may lack a background)
+    assert movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies", stack=3, enhanced=True) == en  # cached  # cached; stack ignored
     assert (tmp_path / "live" / "ccor1" / "movies" / "t1_4_s3f0.png").exists()  # both depths of the current size stay
     d["n_hits"] = 5
     movie.movie("ccor1", d, tmp_path / "live" / "ccor1" / "movies")

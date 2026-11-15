@@ -119,16 +119,17 @@ def build_lock():
             fcntl.flock(f, fcntl.LOCK_UN)
 
 
-def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = False) -> dict:
+def movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = False, enhanced: bool = False) -> dict:
     with build_lock():
-        return _movie(camera, d, out_dir, stack, full)
+        return _movie(camera, d, out_dir, stack, full, enhanced)
 
 
-def _movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = False) -> dict:
+def _movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool = False, enhanced: bool = False) -> dict:
     """Build (or reuse) the movie for track summary `d` (state.json entry), each
     frame the sum of the last `stack` maps along the motion. `full` gives the field
     movie (`_field`: the object's quadrant at full resolution, one PNG per frame)
-    instead of the zoomed patch."""
+    instead of the zoomed patch; `enhanced` the patch's frames rebuilt from the raw frames
+    (`_enhanced`), to set beside it."""
     hits = sorted(d["hits"], key=lambda h: _ts(h["t"]))
     t = np.array([_ts(h["t"]) for h in hits])
     xs, ys = np.array([h["x"] for h in hits], float), np.array([h["y"] for h in hits], float)
@@ -138,17 +139,18 @@ def _movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool =
     idx = FrameIndex(camera, datetime.fromtimestamp(t_show0).date() - timedelta(days=1),
                      datetime.fromtimestamp(t_last).date() + timedelta(days=1))
     good = [(p, tt.timestamp()) for p, tt in zip(idx.paths, idx.times)
-            if t_show0 - (FIELD_BG_HOURS * 3600 if full else (stack + 1) * FRAME_SECONDS) - 60 <= tt.timestamp() <= t_last + 60
+            if t_show0 - (FIELD_BG_HOURS * 3600 if full or enhanced else (stack + 1) * FRAME_SECONDS) - 60 <= tt.timestamp() <= t_last + 60
             and (m := A.load_meta(camera, p.name)) is not None and m.ok and A.sig_path(camera, p.name).exists()]
     shown = [g for g in good if g[1] >= t_show0 - 60]
     if not shown:
         raise ValueError("no processed frames for this track")
     # cached per track size and per number of frames that have arrived since its last hit
-    key = f"{d['id']}_{d['n_hits']}_" + (f"full{FIELD_VERSION}" if full else f"s{stack}") + f"f{sum(ts > t[-1] + 60 for _, ts in shown)}"
+    kind = f"full{FIELD_VERSION}" if full else f"e{stack}v{ENH_VERSION}" if enhanced else f"s{stack}"
+    key = f"{d['id']}_{d['n_hits']}_{kind}f{sum(ts > t[-1] + 60 for _, ts in shown)}"
     png, js = out_dir / f"{key}.png", out_dir / f"{key}.json"
     if js.exists():
         meta = json.loads(js.read_text())
-        if png.exists() or (full and all((out_dir / Path(p).name).exists() for p in meta.get("pngs", []))):
+        if png.exists() or ((full or enhanced) and all((out_dir / Path(p).name).exists() for p in meta.get("pngs", []))):
             return meta
     hit_times = set(np.round(t / 60).astype(int))
     if full:
@@ -158,6 +160,8 @@ def _movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool =
     # otherwise at the largest of ZOOMS that does (a 28-h track is 940 camera px long: zoom 1). Only a
     # path too long even for that is cut to its newest stretch. Every frame is shown, up to MAX_FRAMES.
     shown = shown[-MAX_FRAMES:]
+    if enhanced:  # the same frames as the patch, so the two play side by side frame for frame
+        good = [g for g in good if g[1] >= shown[0][1] - FIELD_BG_HOURS * 3600 - 60]
     pts = [pos(ts) for _, ts in shown]
 
     def box(k0: int) -> tuple[float, float, float, float]:
@@ -182,6 +186,8 @@ def _movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool =
     half = int(np.clip(math.ceil(max(hix - lox, hiy - loy) / 4) + MARGIN, MIN_HALF, cap(zoom)))
     size = 2 * half + 1
     tile = size * zoom
+    if enhanced:
+        return _enhanced(camera, d, out_dir, key, js, good, shown, pos, hit_times, stack)
 
     cache: dict[str, np.ndarray] = {}
 
@@ -225,6 +231,105 @@ def _movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool =
     meta = {"png": f"{camera}/movies/{png.name}", "tile": tile, "cols": ncol, "zoom": zoom, "stack": stack,
             "range_sigma": RANGE_SIGMA, "frames": frames, "centre": [round(cx, 1), round(cy, 1)],
             "half_fullres": half * 2, "truncated": truncated}
+    js.write_text(json.dumps(meta))
+    return meta
+
+
+ENH_VERSION = 1      # in the enhanced movie's cache key
+ENH_MARGIN = 40      # full-res px of sky around the path
+ENH_TILE = 600       # the enhanced movie's size on screen, px: the patch is upsampled to about this
+ENH_MAX_ZOOM = 6
+
+
+def _enhanced(camera: str, d: dict, out_dir: Path, key: str, js: Path, good: list, shown: list, pos,
+              hit_times: set, stack: int) -> dict:
+    """The patch movie rebuilt from the camera's own pixels, to set beside it: a patch fixed
+    on the sky around the path, at full resolution, each frame minus the median of the
+    earlier frames (the field movie's recipe: the coma and tail stay, which the detector's
+    point filter removes), divided by the patch's noise, and the last `stack` frames
+    shifted by the object's sub-pixel motion and added (bilinear shifts, weighted by
+    coverage; the sum divided by the square root of the weight keeps the noise at 1).
+    Upsampled to about ENH_TILE px with cubic interpolation, not blocks. Nothing is
+    invented: no detail finer than the camera's pixel is added."""
+    from scipy import ndimage
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pts = [pos(ts) for _, ts in shown]
+    h, w = _raw_full(shown[0][0]).shape
+    x0 = int(max(math.floor(min(x for x, _ in pts) - ENH_MARGIN), 0))
+    x1 = int(min(math.ceil(max(x for x, _ in pts) + ENH_MARGIN) + 1, w))
+    y0 = int(max(math.floor(min(y for _, y in pts) - ENH_MARGIN), 0))
+    y1 = int(min(math.ceil(max(y for _, y in pts) + ENH_MARGIN) + 1, h))
+    bw, bh = x1 - x0, y1 - y0
+    zoom = int(np.clip(ENH_TILE // max(bw, bh), 1, ENH_MAX_ZOOM))
+    order = {p.name: i for i, (p, _) in enumerate(good)}
+    crops: dict[str, np.ndarray] = {}
+    normed: dict[str, np.ndarray] = {}
+
+    def crop(q: Path) -> np.ndarray:
+        if q.name not in crops:
+            crops[q.name] = _raw_full(q)[y0:y1, x0:x1].copy()
+        return crops[q.name]
+
+    def norm(q: Path, tq: float) -> np.ndarray | None:
+        """Frame q minus the median of the frames before it, in units of its noise."""
+        if q.name not in normed:
+            earlier = [g for g, tg in good if tq - FIELD_BG_HOURS * 3600 - 60 <= tg < tq - 60]
+            if len(earlier) > 2 * FIELD_BG_STEP:
+                earlier = [g for g in earlier if order[g.name] % FIELD_BG_STEP == 0]
+            if not earlier:
+                normed[q.name] = None
+                return None
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                bg = np.nanmedian(np.stack([crop(g) for g in earlier]), axis=0)
+                diff = crop(q) - bg
+            v = diff[np.isfinite(diff)]
+            s = 1.4826 * float(np.median(np.abs(v - np.median(v)))) if v.size > 100 else 0.0
+            normed[q.name] = diff / s if s > 0 else None
+        return normed[q.name]
+
+    frames, pngs = [], []
+    for k, (p, ts) in enumerate(shown):
+        px, py = pts[k]
+        acc = np.zeros((bh, bw), np.float32)
+        wsum = np.zeros((bh, bw), np.float32)
+        n = 0
+        for q, tq in reversed(good):
+            if tq > ts + 1:
+                continue
+            z = norm(q, tq)
+            if z is not None:
+                qx, qy = pos(tq)
+                shift = (py - qy, px - qx)  # rows, cols: carry frame q's object onto this frame's place
+                ok = np.isfinite(z)
+                acc += ndimage.shift(np.where(ok, z, 0.0).astype(np.float32), shift, order=1, mode="constant", cval=0.0)
+                wsum += ndimage.shift(ok.astype(np.float32), shift, order=1, mode="constant", cval=0.0)
+                n += 1
+            if n >= stack:
+                break
+        with np.errstate(all="ignore"):
+            z = np.where(wsum > 0.3, acc / np.sqrt(np.maximum(wsum, 1e-6)), np.nan)
+        ok = np.isfinite(z)
+        big = ndimage.zoom(np.where(ok, z, 0.0), zoom, order=3, grid_mode=True, mode="grid-constant")
+        mask = ndimage.zoom(ok.astype(np.float32), zoom, order=1, grid_mode=True, mode="grid-constant") > 0.5
+        img = np.where(mask, _levels(big), 0).astype(np.uint8)
+        name = p.name[9:24]
+        stamp(img, f"{name[:4]}-{name[4:6]}-{name[6:8]} {name[9:11]}:{name[11:13]} UTC")
+        fpng = out_dir / f"{key}_{k:03d}.png"
+        write_png(fpng, img)
+        pngs.append(f"{camera}/movies/{fpng.name}")
+        ri, ci = int(round(py - y0)), int(round(px - x0))
+        ring = z[max(ri - 3, 0):ri + 4, max(ci - 3, 0):ci + 4]
+        frames.append({"peak": round(float(np.nanmax(ring)), 1) if np.isfinite(ring).any() else None,
+                       "tail": round(float(np.percentile(z[ok], 99.9)), 1) if ok.any() else None,
+                       "name": name, "t": datetime.fromtimestamp(ts).astimezone().isoformat(timespec="minutes"),
+                       "x": round((px - x0 + 0.5) * zoom - 0.5, 1), "y": round((py - y0 + 0.5) * zoom - 0.5, 1),
+                       "hit": int(round(ts / 60)) in hit_times, "stacked": n})
+    _drop_stale(out_dir, d, key)
+    meta = {"pngs": pngs, "width": bw * zoom, "height": bh * zoom, "crop": [x0, y0], "zoom": zoom, "stack": stack,
+            "range_sigma": FIELD_HI, "lo_sigma": FIELD_LO, "hi_sigma": FIELD_HI, "frames": frames,
+            "ring_r": max(10, 5 * zoom), "enhanced": True}
     js.write_text(json.dumps(meta))
     return meta
 
@@ -303,7 +408,7 @@ def _field(camera: str, d: dict, out_dir: Path, key: str, js: Path, good: list, 
 
 def _drop_stale(out_dir: Path, d: dict, key: str) -> None:
     """Remove the track's movies of other sizes, and this kind's with another count of follow frames."""
-    kind = key[len(f"{d['id']}_{d['n_hits']}_"):].rsplit("f", 1)[0]  # "s8" or "full9"
+    kind = key[len(f"{d['id']}_{d['n_hits']}_"):].rsplit("f", 1)[0]  # "s8", "full9" or "e8v1"
     for old in out_dir.glob(f"{d['id']}_*"):
         rest = old.name[len(d["id"]) + 1:]
         same_size = rest.startswith(f"{d['n_hits']}_")
