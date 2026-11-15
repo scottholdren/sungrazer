@@ -235,7 +235,7 @@ def _movie(camera: str, d: dict, out_dir: Path, stack: int = STACK, full: bool =
     return meta
 
 
-ENH_VERSION = 3      # in the enhanced movie's cache key
+ENH_VERSION = 4      # in the enhanced movie's cache key
 ENH_WINDOW = 121     # full-res px: the enhanced movie is a window this wide that follows the object ...
 ENH_ZOOM = 5         # ... enlarged this many times (605 px on screen). A fixed patch around a long track's
 #                      whole path came out at zoom 1 (v1, 2026-11-15): the object was a few pixels in 700.
@@ -330,7 +330,9 @@ def _enhanced(camera: str, d: dict, out_dir: Path, key: str, js: Path, good: lis
             z = (z - med) / (s if s > 0 else 1.0)
         big = ndimage.zoom(np.where(ok, z, 0.0), ENH_ZOOM, order=3, grid_mode=True, mode="grid-constant")
         mask = ndimage.zoom(ok.astype(np.float32), ENH_ZOOM, order=1, grid_mode=True, mode="grid-constant") > 0.5
-        img = np.where(mask, _levels(big), 0).astype(np.uint8)
+        # pixels no frame of the stack covered (masked defects, the field edge) at the sky's level, not black:
+        # in a window that follows the object they streak along the motion
+        img = np.where(mask, _levels(big), _levels(np.zeros(1))[0]).astype(np.uint8)
         name = p.name[9:24]
         stamp(img, f"{name[:4]}-{name[4:6]}-{name[6:8]} {name[9:11]}:{name[11:13]} UTC")
         fpng = out_dir / f"{key}_{k:03d}.png"
