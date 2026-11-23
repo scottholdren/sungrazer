@@ -1,5 +1,5 @@
 # kreutz score --camera ccor1 --start 2026-10-17 --end 2026-10-24 --seed-cold
-# code 326959a, stage A a4, stage B b3, run 2026-11-12 03:42 UTC
+# code efa0684, stage A a4, stage B b4, run 2026-11-23 03:38 UTC
 envelope month 10: 61 PROVISIONAL from hunter claims Kreutz tracks (months [10]); entry PA -45..-11; allowed direction 138..-178 deg, miss -225..91 px; grid vx -12.5..-6.0, vy -6.5..0.0 = 196 velocities
 stage C: 137 windows with cold frames could start tracks (seed_cold)
 685 good frames, 3 without star model, 90 cold; 3293 candidate tracks (219 not rejected) -> /home/sholdren/stargrazer/sungrazer/data/derived/ccor1/a4/tracks_2026-10-17_2026-10-24.json
