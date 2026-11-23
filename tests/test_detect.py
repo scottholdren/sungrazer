@@ -420,3 +420,27 @@ def test_tracks_taking_turns_on_one_object_are_merged():
     # a parallel object 30 px off the path is not merged
     c = C.Track(3, [_peak(k, path(k)[0] + 30, path(k)[1], -3.3, -4.4) for k in (4, 5, 7, 10, 11)], candidate=True)
     assert len(C.merge_duplicates([a, c])) == 2
+
+
+def test_stage_b_leaves_out_glare_and_edges_so_faint_peaks_fit_under_the_cap():
+    m = np.zeros((960, 1024), np.float32)
+    m[:, :10] = np.nan  # a border
+    edge = B.edge_distance(m)
+    ok = B.searchable(m, edge, [1024.0, 960.0])
+    yy, xx = np.ogrid[:960, :1024]
+    x, y = 2 * xx + 0.5, 1919 - (2 * yy + 0.5)
+    r = np.hypot(x - 1024, y - 960)
+    assert not ok[(r < C.GLARE_RADIUS - 3) & np.ones_like(ok)].any() and ok[(r > C.GLARE_RADIUS + 3) & (edge * B.DS > C.EDGE_MIN + 3)].all()
+    assert not ok[:, :10 + int(C.EDGE_MIN / B.DS) - 1].any()  # the border strip
+    assert B.searchable(m, edge, None).sum() > ok.sum()  # no Sun position: only the edges
+
+
+def test_pylon_rule_is_off_for_ccor2():
+    from kreutz import cameras
+
+    hits = [_peak(k, 1010 - 2.5 * k, 1500 - 5.5 * k, -2.5, -5.5) for k in range(6)]  # the November CCOR-2 lane, below the Sun
+    sun = [1006.0, 985.0]
+    assert C.rejection(-2.5, -5.5, hits[-1].x, hits[-1].y, None, sun, hits, None, 0.8) == "pylon"
+    assert C.rejection(-2.5, -5.5, hits[-1].x, hits[-1].y, None, sun, hits, None, 0.8, pylon=False) is None
+    assert cameras.get("ccor1").pylon and not cameras.get("ccor2").pylon
+    assert cameras.get("ccor2").peaks_outside_glare and not cameras.get("ccor1").peaks_outside_glare

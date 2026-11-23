@@ -25,6 +25,8 @@ class Camera:
     plate_scale: float  # arcsec per full-res pixel (CDELT, 2026-11-02 headers)
     nominal_sun: tuple[float, float]  # Sun centre in report px when no frame is at hand (true centre within ~35 px)
     field_radius: float | None = None  # px from nominal_sun beyond which the significance map is blanked (vignetting rim)
+    pylon: bool = True  # the tracker's pylon rule applies: the occulter's arm leaves a masked band across the field
+    peaks_outside_glare: bool = False  # stage B looks for peaks only outside the glare zone and the edge strip (stack.searchable)
 
 
 CAMERAS = {
@@ -50,6 +52,14 @@ CAMERAS = {
         # inside, and a 3-hit track was born on it at 1064 px (2026-11-04). The registration shift moves the
         # rim by at most ~6 px (SHIFT_X -7.5..3, SHIFT_Y -16.75..-10.75 over 2026-10-29..11-04).
         field_radius=1000.0,
+        # No arm band beyond 350 px from the Sun (masked fraction along every direction 0-0.3, against 1.0
+        # straight down on CCOR-1, 2026-11-22), and in November the Kreutz lane climbs from straight below
+        # the Sun: all 6 pylon rejections of 11-20..22 were inbound comets, 3 of them reported.
+        pylon=False,
+        # Every stage-B window hit MAX_PEAKS, half of them glare and edge peaks, so the weakest kept peak was
+        # ~9 sigma: three reported comets of 11-21..22 were found 1-6 h later than with them left out. On
+        # CCOR-1 (weakest kept ~7 sigma) leaving them out doubled the false tracks of 10-17..24 for no comet.
+        peaks_outside_glare=True,
     ),
 }
 

@@ -35,7 +35,7 @@ from scipy import ndimage
 
 from .velocity import FRAME_SECONDS, VelocityGrid
 
-VERSION = "b3"  # bump when stacking or peak finding changes (cached peaks are keyed on it)
+VERSION = "b4"  # bump when stacking or peak finding changes (cached peaks are keyed on it)
 N_FRAMES = 8
 MIN_FRAMES = 6  # a window needs this many good maps among its N
 MAX_SPAN_FRAMES = 14  # ...spanning at most this many 15-min slots (allows gaps)
@@ -195,6 +195,25 @@ def stacked_elongation(cut: Cutouts, r: int, c: int, vx: float, vy: float) -> fl
     box = cut.box(r, c, vx, vy)
     h = cut.half
     return elongation(box, h, h, half=h, level=max(2.5, 0.25 * float(box[h - 2:h + 3, h - 2:h + 3].max())))
+
+
+def searchable(newest: np.ndarray, edge: np.ndarray, sun_xy, scale: float = 1.0) -> np.ndarray:
+    """Where stage B looks for peaks: the map's valid pixels, less those the tracker would
+    reject a track for anyway, the glare zone (GLARE_RADIUS) and the strip along the
+    borders (EDGE_MIN). They took half of each window's MAX_PEAKS on CCOR-2, whose windows
+    all hit the cap, so its weakest kept peak was ~9 sigma, not PEAK_THRESHOLD; a faint
+    comet's stacked 7-9 sigma never made a peak (2026-11-21: three reported comets found
+    1-6 h later than without them). Used for cameras with `peaks_outside_glare` (CCOR-2)."""
+    from . import track as C
+
+    ok = np.isfinite(newest) & (edge * DS >= C.EDGE_MIN)
+    if sun_xy is not None:
+        h, w = newest.shape
+        rows, cols = np.ogrid[:h, :w]
+        x = DS * cols + (DS - 1) / 2
+        y = (h * DS - 1) - (DS * rows + (DS - 1) / 2)  # report coords, as coords_from_ds
+        ok &= (x - sun_xy[0]) ** 2 + (y - sun_xy[1]) ** 2 >= (C.GLARE_RADIUS * scale) ** 2
+    return ok
 
 
 def find_peaks(best: np.ndarray, arg: np.ndarray, valid: np.ndarray, t: float, grid: VelocityGrid,

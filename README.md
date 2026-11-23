@@ -636,6 +636,17 @@ followed track, one archived in the last 72 h, or any unrejected candidate
 of the span was matched to it or lies on its path (a card names one report; `report_ids` has all it matches). A
 miss the other CCOR camera follows is hidden behind that camera's card.
 
+### Stage B on CCOR-2: peaks outside the glare and the edges
+
+Stage B keeps a window's `MAX_PEAKS` (400) strongest peaks. On CCOR-2 every
+window hit that cap and half its peaks were in the glare zone or the edge
+strip, which the tracker rejects anyway, so the weakest kept peak was ~9 sigma
+instead of `PEAK_THRESHOLD` (5). With `Camera.peaks_outside_glare` stage B
+looks only outside them (`stack.searchable`). On the reported comets of
+2026-11-20..22 that found them 1-6 h earlier; on CCOR-1 it doubled the false
+tracks for nothing, so CCOR-1 is unchanged. The replay is in
+`results/ccor2/2026-11-20_2026-11-22-misses/`.
+
 ### Following an object until it is gone
 
 A candidate is closed after `MAX_MISSES` (2) frames without a hit, and pieces
@@ -684,7 +695,7 @@ A candidate track is rejected (kept in the output, marked `rejected:<rule>`) if:
 | `outbound` | moving away from the Sun (cos of angle to the Sun direction < 0) | Kreutz comets are seen falling inward. Cost: 6 of 106 confirmed CCOR-1 reports moved away from the Sun: 5 Kracht II / non-group, 1 Kreutz moving nearly sideways. |
 | `off-envelope` | direction of motion, or signed miss distance of the path from the Sun, outside this month's Kreutz envelope (+15°, +80 px margins) | All Kreutz comets share one orbit, so in a given month they arrive from one side on nearly parallel paths; the side rotates through the year (Mar: from the left moving right; Jul: lower right moving up-left; Oct: right moving left). Things entering from anywhere else are not Kreutz comets: in Oct 2026 that included tracks entering at the left edge moving right. Built from confirmed reports (±1 month) where they exist; NRL has posted no confirmations since Aug 2025, so Oct–Jan use that month's pending hunter claims trimmed to the 10–90th percentiles, marked PROVISIONAL in the output. Cost: comets of other groups (Kracht, Meyer, non-group: 10 of 116 confirmed CCOR-1 reports). |
 | `glare-zone` | median distance from the Sun < 320 px | Variable glare at the occulter rim dominated the false positives (250 of 452 surviving tracks on 2025-07-17). Confirmed comets were never reported inside 392 px, and we want them earlier than that anyway. |
-| `pylon` | median hit within 110 px of the pylon axis (the Sun's x), either side | The arm's shadow edge is the steepest gradient in the frame, so a sub-pixel shift of the arm against the 16-frame background leaves a bright line just outside stage A's mask. Being vertical, it stacks onto itself at any vertical velocity, which is inside the Kreutz envelope for objects directly below the Sun. On 2026-11-01 the edge went unstable after the Earth transit (3–4× the usual 8σ pixels along it) and produced 50 chains in 12 h, two of them promoted and one alerted. Cost: none seen; confirmed comets start 400+ px from the axis and reach it only inside the glare zone. |
+| `pylon` | median hit within 110 px of the pylon axis (the Sun's x), either side | The arm's shadow edge is the steepest gradient in the frame, so a sub-pixel shift of the arm against the 16-frame background leaves a bright line just outside stage A's mask. Being vertical, it stacks onto itself at any vertical velocity, which is inside the Kreutz envelope for objects directly below the Sun. On 2026-11-01 the edge went unstable after the Earth transit (3–4× the usual 8σ pixels along it) and produced 50 chains in 12 h, two of them promoted and one alerted. Cost: none seen; confirmed comets start 400+ px from the axis and reach it only inside the glare zone. Not on CCOR-2 (`Camera.pylon`): it has no arm band beyond 350 px, and in November its Kreutz lane runs through the strip (6 of 6 pylon rejections of 2026-11-20..22 were comets). |
 | `edge` | never more than 25 px from the occulter, arm, field edge or array edge | The background and noise estimates break down at the borders of valid data. Cost: a comet entering the field is flagged ~3 frames later. |
 | `extended` | median axis ratio > 3 of the blob under the hits, measured on the **stack at the track's velocity** in a 50-px box, with the blob cut at a quarter of the peak (≥ 2.5σ) | Streamer edges and other linear structures that survive the DoG filter can slide along at comet-like speeds. In a single frame they look no different from a comet (both measured 1–3 on the test weeks). In the stack at the trial velocity a comet piles up into a compact head while a sliding ridge stays long: on both test weeks all 13 true comets measure 1.0–2.2 and the recurring Oct 2026 streamer tracks 2.6–10.8. Cutting at a quarter of the peak leaves a bright comet's tail below the cut. The single-frame version rejected the brightest comet of Oct 19 2026 (265σ, with a tail) as extended. Cost: a faint comet with a tail as bright as its head. |
 

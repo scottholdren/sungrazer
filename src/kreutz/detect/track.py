@@ -43,7 +43,7 @@ import numpy as np
 from .stack import Peak
 from .velocity import FRAME_SECONDS
 
-VERSION = "c8"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
+VERSION = "c9"  # bump when linking or rejection rules change (the live watcher persists tracker state keyed on it)
 MATCH_RADIUS = 6.0  # px, full resolution (half-res stacking + 0.5 px/frame velocity steps)
 MATCH_DV = 2.0  # px/frame
 MAX_MISSES = 2
@@ -115,7 +115,7 @@ class Track:
 
 
 def rejection(vx: float, vy: float, x: float, y: float, star_drift, sun_xy,
-              hits: list[Peak] = (), envelope=None, scale: float = 1.0) -> str | None:
+              hits: list[Peak] = (), envelope=None, scale: float = 1.0, pylon: bool = True) -> str | None:
     speed = np.hypot(vx, vy)
     if speed < MIN_SPEED * scale:
         return "stationary"
@@ -135,7 +135,7 @@ def rejection(vx: float, vy: float, x: float, y: float, star_drift, sun_xy,
         if r < GLARE_RADIUS * scale:
             return "glare-zone"
         dx = [abs(h.x - sun_xy[0]) for h in hits] or [abs(x - sun_xy[0])]
-        if np.median(dx) < PYLON_HALF * scale:  # either side: the arm is above the Sun before the 2026 yaw flip and on CCOR-2
+        if pylon and np.median(dx) < PYLON_HALF * scale:  # either side: the arm is above the Sun before the 2026 yaw flip and on CCOR-2
             return "pylon"
     edges = [h.edge for h in hits if h.edge is not None]
     if edges and max(edges) < EDGE_MIN:
@@ -147,11 +147,12 @@ def rejection(vx: float, vy: float, x: float, y: float, star_drift, sun_xy,
 
 
 class Tracker:
-    def __init__(self, scale: float = 1.0):
+    def __init__(self, scale: float = 1.0, pylon: bool = True):
         self.active: list[Track] = []
         self.done: list[Track] = []
         self._next = 0
         self.scale = scale  # cameras.px_scale: pixel thresholds relative to CCOR-1
+        self.pylon = pylon  # cameras.Camera.pylon: whether the pylon rule applies
 
     def update(self, t: float, peaks: list[Peak], star_drift, sun_xy, envelope=None, seed: bool = True,
                seen=None) -> None:
@@ -187,7 +188,7 @@ class Tracker:
                 tr.star_drift, tr.sun_xy = star_drift, sun_xy
                 vx, vy = tr.velocity()
                 tr.rejected = rejection(vx, vy, tr.last.x, tr.last.y, star_drift, sun_xy, tr.hits, envelope,
-                                        getattr(self, "scale", 1.0))
+                                        getattr(self, "scale", 1.0), getattr(self, "pylon", True))
                 if not tr.rejected and n >= STICKY_HITS and max(h.sig for h in tr.hits) >= STICKY_SIGMA:
                     tr.sticky = True
                 for k in (3, 4, 5):

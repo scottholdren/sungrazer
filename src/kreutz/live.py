@@ -467,7 +467,7 @@ class Watcher:
             except Exception as e:
                 print(f"tracker.pkl unreadable, rebuilding: {e}", flush=True)
         if self.tracker is None or self.tracker_key != key:
-            self.tracker, self.tracker_key, self.fed_until, self.snapshot = Tracker(scale=cameras.px_scale(self.camera)), key, 0.0, None
+            self.tracker, self.tracker_key, self.fed_until, self.snapshot = Tracker(scale=cameras.px_scale(self.camera), pylon=cameras.get(self.camera).pylon), key, 0.0, None
         tr, last, fed, scene = self.tracker, None, 0, None
 
         def scene_of(i):  # what the rejection rules need for window i
@@ -523,7 +523,7 @@ def sparks(tr: Tracker, drift, sun_xy, envelope) -> list[dict]:
         if len(t.hits) != 2 or t.candidate or min(h.sig for h in t.hits) < SPARK_SIGMA:
             continue
         vx, vy = t.velocity()
-        if C.rejection(vx, vy, t.last.x, t.last.y, drift, sun_xy, t.hits, envelope, getattr(tr, "scale", 1.0)):
+        if C.rejection(vx, vy, t.last.x, t.last.y, drift, sun_xy, t.hits, envelope, getattr(tr, "scale", 1.0), getattr(tr, "pylon", True)):
             continue
         hits = [{"t": detect._iso(h.t), "x": round(h.x, 1), "y": round(h.y, 1), "sig": round(h.sig, 1)} for h in t.hits]
         out.append({"id": track_key({"hits": [{"frame_time": hits[0]["t"], "x": t.hits[0].x, "y": t.hits[0].y}]}),

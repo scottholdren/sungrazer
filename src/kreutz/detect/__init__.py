@@ -132,9 +132,14 @@ def _stage_b_window(args):
     grid = _GRIDS[month]
     maps = [A.load_sig(camera, n) for n in names]
     best, arg = B.stack_window(maps, times, grid)
-    valid = np.isfinite(maps[-1])
+    edge = B.edge_distance(maps[-1])
+    if cameras.get(camera).peaks_outside_glare:
+        m = A.load_meta(camera, names[-1])
+        valid = B.searchable(maps[-1], edge, m.sun_xy if m else None, cameras.px_scale(camera))
+    else:
+        valid = np.isfinite(maps[-1])
     peaks = B.find_peaks(best, arg, valid, times[-1], grid, height=maps[-1].shape[0] * B.DS,
-                         edge=B.edge_distance(maps[-1]), cutouts=B.Cutouts(maps, times, grid))
+                         edge=edge, cutouts=B.Cutouts(maps, times, grid))
     out = peaks_path(camera, names[-1], grid)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps([asdict(p) for p in peaks]))
@@ -177,7 +182,7 @@ FLAG_RECURRING = False  # experiment: reject tracks repeating an earlier day's s
 
 
 def run_stage_c(camera, paths, metas, windows, envelopes, seed_cold: bool = SEED_COLD) -> list[Track]:
-    tr = Tracker(scale=cameras.px_scale(camera))
+    tr = Tracker(scale=cameras.px_scale(camera), pylon=cameras.get(camera).pylon)
     cold = 0
     for i in windows:
         mem = window_members(metas, i)
